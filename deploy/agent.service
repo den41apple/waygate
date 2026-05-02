@@ -1,0 +1,28 @@
+[Unit]
+Description=Waygate agent
+Documentation=https://github.com/waygate/waygate
+After=network.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/waygate/agent.env
+ExecStart=/opt/waygate-agent/bin/granian \
+  --interface asgi agent.main:app \
+  --host 0.0.0.0 --port ${PORT} \
+  --ssl-certificate ${TLS_DIR}/cert.pem \
+  --ssl-keyfile ${TLS_DIR}/key.pem
+ExecReload=/bin/kill -USR1 $MAINPID
+Restart=always
+RestartSec=5
+
+# Хардненинг: агент должен иметь доступ к ipset/iptables/ip rule, поэтому root.
+# Можно ослабить, но потребуется CAP_NET_ADMIN для capabilities-only режима.
+NoNewPrivileges=false
+ProtectSystem=strict
+ReadWritePaths=/etc/waygate /var/lib/waygate-agent
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

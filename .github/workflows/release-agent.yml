@@ -1,0 +1,52 @@
+name: Release agent wheel
+
+# Запускается при пуше тега вида agent-v0.1.0 — собирает wheel агента
+# и прикрепляет его к GitHub Release. URL wheel'а потом используется
+# control-plane'ом при онбординге новых серверов.
+
+on:
+  push:
+    tags:
+      - "agent-v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build and publish agent wheel
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Install Python 3.13
+        run: uv python install 3.13
+
+      - name: Build wheel
+        working-directory: backend/agent
+        run: uv build --wheel
+
+      - name: Locate built wheel
+        id: wheel
+        run: |
+          # uv build кладёт wheel в ../dist (или backend/dist). Найдём первый.
+          WHEEL=$(find backend -path '*/dist/waygate_agent-*.whl' | head -1)
+          test -n "$WHEEL" || (echo "::error::wheel не найден" && exit 1)
+          echo "path=$WHEEL" >> "$GITHUB_OUTPUT"
+          # Делаем стабильную (versionless) копию в release/ для /latest/download URL.
+          mkdir -p release
+          cp "$WHEEL" release/
+          cp "$WHEEL" release/waygate_agent-py3-none-any.whl
+          ls -la release/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release/waygate_agent-*-py3-none-any.whl
+            release/waygate_agent-py3-none-any.whl
+          generate_release_notes: true
+          prerelease: ${{ contains(github.ref, '-rc') || contains(github.ref, '-beta') || contains(github.ref, '-alpha') }}

@@ -1,0 +1,28 @@
+target-version = "py313"
+line-length = 120
+src = ["backend"]
+extend-exclude = ["frontend", "venv", ".venv", "deploy"]
+
+[lint]
+select = [
+  "E", "F", "I", "B", "UP", "N", "SIM", "RET", "C4", "PIE", "Q",
+  "TRY", "PL", "PTH", "ASYNC", "RUF",
+]
+ignore = [
+  "TRY003",
+  "PLR0913",
+  "PLR2004",
+  "RUF001",
+  "RUF002",
+  "RUF003",
+  "B008",  # FastAPI: Depends/Query/Body в default args — стандартный паттерн
+  "N818",  # имена исключений без суффикса Error читаются нормально (AgentUnreachable)
+  "ASYNC240",  # sync pathlib в async-функциях ок для конфиг-файлов и nehot-path I/O
+]
+
+[lint.per-file-ignores]
+"**/tests/**"   = ["S101", "PLR2004", "ANN", "PLC0415"]
+"**/alembic/**" = ["E501", "N999", "PLW0603", "INP001"]
+
+[lint.isort]
+known-first-party = ["shared", "agent", "server"]

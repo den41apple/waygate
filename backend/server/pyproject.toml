@@ -1,0 +1,38 @@
+[project]
+name = "waygate-server"
+version = "0.1.0"
+requires-python = ">=3.13"
+dependencies = [
+  "fastapi>=0.115",
+  "granian>=1.6",
+  "aiohttp>=3.10",
+  "asyncssh>=2.18",
+  "sqlmodel>=0.0.22",
+  "alembic>=1.14",
+  "aiosqlite>=0.20",
+  "asyncpg>=0.29",
+  "greenlet>=3.0",
+  "envparse>=0.2",
+  "loguru>=0.7",
+  "tenacity>=9.0",
+  "pyjwt>=2.10",
+  "bcrypt>=4.2",
+  "prometheus-fastapi-instrumentator>=7.0",
+  "waygate-shared",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["server"]
+package-dir = {"server" = "."}
+
+[tool.setuptools.package-data]
+server = [
+  "alembic.ini",
+  "alembic/script.py.mako",
+  "alembic/versions/*.py",
+  "provisioner/agent.service",
+]

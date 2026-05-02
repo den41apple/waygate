@@ -1,0 +1,59 @@
+[project]
+name = "waygate-workspace"
+version = "0.0.0"
+requires-python = ">=3.13"
+
+[tool.uv.workspace]
+members = ["agent", "server", "shared"]
+
+[tool.uv.sources]
+waygate-shared = { workspace = true }
+waygate-agent  = { workspace = true }
+waygate-server = { workspace = true }
+
+[dependency-groups]
+dev = [
+  "ruff>=0.7",
+  "mypy>=1.13",
+  "pytest>=8.3",
+  "pytest-asyncio>=0.24",
+  "httpx>=0.27",
+  "pre-commit>=4.0",
+  "waygate-agent",
+  "waygate-server",
+  "waygate-shared",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["agent/tests", "server/tests", "shared/tests"]
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+warn_unreachable = true
+plugins = ["pydantic.mypy"]
+files = ["agent", "server", "shared"]
+exclude = "(^|/)(\\.venv|venv|alembic)/"
+
+[[tool.mypy.overrides]]
+module = ["agent.tests.*", "server.tests.*", "shared.tests.*"]
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+check_untyped_defs = false
+
+# SQLModel + mypy strict — column-descriptors (Server.id, .timestamp ...) выглядят
+# как plain int/datetime, но в where/order_by приходят как InstrumentedAttribute,
+# у которого есть .desc()/.asc() и т.д. — отсюда attr-defined.
+[[tool.mypy.overrides]]
+module = ["server.api.*", "server.tasks.*"]
+disable_error_code = ["arg-type", "attr-defined"]
+
+# Alembic-миграции автогенерируются, валидировать смысла мало.
+[[tool.mypy.overrides]]
+module = "server.alembic.*"
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = ["envparse", "acme.*", "asyncssh.*", "apscheduler.*"]
+ignore_missing_imports = true

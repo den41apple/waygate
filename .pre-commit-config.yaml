@@ -1,0 +1,31 @@
+# Pre-commit хуки идут через `uv run` — это гарантирует ту же версию ruff/mypy
+# и те же конфиги (pydantic.mypy plugin, override'ы для SQLModel и т.п.) что и
+# в CI/локальной разработке. Иначе версия ruff из pre-commit-managed venv
+# отстаёт от нашей и не знает про новые правила, а mypy без плагинов лажает на
+# SQLModel-column-descriptors.
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff check
+        entry: bash -c 'cd backend && uv run ruff check --fix "$@"' --
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
+        pass_filenames: false
+
+      - id: ruff-format
+        name: ruff format
+        entry: bash -c 'cd backend && uv run ruff format "$@"' --
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
+        pass_filenames: false
+
+      - id: mypy
+        name: mypy
+        entry: bash -c 'cd backend && uv run mypy .'
+        language: system
+        types: [python]
+        pass_filenames: false
+        require_serial: true

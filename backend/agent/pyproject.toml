@@ -1,0 +1,25 @@
+[project]
+name = "waygate-agent"
+version = "0.1.0"
+requires-python = ">=3.13"
+dependencies = [
+  "fastapi>=0.115",
+  "granian>=1.6",
+  "aiohttp>=3.10",
+  "envparse>=0.2",
+  "apscheduler>=4.0a5",
+  "acme>=2.11",
+  "cryptography>=43",
+  "loguru>=0.7",
+  "pydantic>=2.9",
+  "prometheus-fastapi-instrumentator>=7.0",
+  "waygate-shared",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["agent"]
+package-dir = {"agent" = "."}
