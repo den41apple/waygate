@@ -1,7 +1,10 @@
 [project]
 name = "waygate-agent"
-version = "0.1.0"
-requires-python = ">=3.13"
+version = "0.1.1"
+requires-python = ">=3.11"
+# `waygate-shared` намеренно НЕ в зависимостях — он vendored внутрь wheel'а
+# через симлинку `agent/shared -> ../shared`. На target-сервере нет workspace,
+# и pip не нашёл бы локальный пакет, поэтому везём `shared` собой.
 dependencies = [
   "fastapi>=0.115",
   "granian>=1.6",
@@ -13,7 +16,6 @@ dependencies = [
   "loguru>=0.7",
   "pydantic>=2.9",
   "prometheus-fastapi-instrumentator>=7.0",
-  "waygate-shared",
 ]
 
 [build-system]
@@ -21,5 +23,5 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["agent"]
-package-dir = {"agent" = "."}
+packages = ["agent", "shared"]
+package-dir = {"agent" = ".", "shared" = "shared"}

@@ -1558,7 +1558,7 @@ wheels = [
 
 [[package]]
 name = "waygate-agent"
-version = "0.1.0"
+version = "0.1.1"
 source = { editable = "agent" }
 dependencies = [
     { name = "acme" },
@@ -1571,7 +1571,6 @@ dependencies = [
     { name = "loguru" },
     { name = "prometheus-fastapi-instrumentator" },
     { name = "pydantic" },
-    { name = "waygate-shared" },
 ]
 
 [package.metadata]
@@ -1586,7 +1585,6 @@ requires-dist = [
     { name = "loguru", specifier = ">=0.7" },
     { name = "prometheus-fastapi-instrumentator", specifier = ">=7.0" },
     { name = "pydantic", specifier = ">=2.9" },
-    { name = "waygate-shared", editable = "shared" },
 ]
 
 [[package]]
