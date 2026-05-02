@@ -84,6 +84,14 @@ async def create_server(
     await session.commit()
     await session.refresh(server)
     logger.info("server создан: id={} host={}", server.id, server.host)
+    await get_manager().broadcast(
+        event=WsEvent(
+            type=EventType.SERVER_CREATED,
+            server_id=server.id,
+            payload={"host": server.host, "name": server.name},
+            timestamp=datetime.now(tz=UTC),
+        ),
+    )
     return _to_response(server=server)
 
 
@@ -113,6 +121,14 @@ async def delete_server(
     await session.delete(server)
     await session.commit()
     logger.info("server удалён: id={}", server_id)
+    await get_manager().broadcast(
+        event=WsEvent(
+            type=EventType.SERVER_DELETED,
+            server_id=server_id,
+            payload={},
+            timestamp=datetime.now(tz=UTC),
+        ),
+    )
 
 
 class UpdateServerRequest(BaseModel):

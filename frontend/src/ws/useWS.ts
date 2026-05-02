@@ -33,6 +33,8 @@ export function useWebSocket(): void {
 
     const handleEvent = (event: WsEvent) => {
       switch (event.type) {
+        case "server.created":
+        case "server.deleted":
         case "server.status_changed":
         case "server.agent_updated":
           queryClient.invalidateQueries({ queryKey: SERVERS_KEY });

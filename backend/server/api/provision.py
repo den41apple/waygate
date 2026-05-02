@@ -1,6 +1,7 @@
 import asyncio
 import json
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
@@ -14,6 +15,8 @@ from server.db import get_session, get_session_maker
 from server.models import Server, ServerStatus
 from server.provisioner.registry import get_registry
 from server.provisioner.service import run_provision
+from server.ws.events import EventType, WsEvent
+from server.ws.manager import get_manager
 
 router = APIRouter(prefix="/servers", tags=["provision"])
 
@@ -75,6 +78,15 @@ async def provision_server(
     await session.refresh(server)
     if server.id is None:
         raise HTTPException(status_code=500, detail="не удалось создать запись Server")
+
+    await get_manager().broadcast(
+        event=WsEvent(
+            type=EventType.SERVER_CREATED,
+            server_id=server.id,
+            payload={"host": server.host, "name": server.name, "status": server.status},
+            timestamp=datetime.now(tz=UTC),
+        ),
+    )
 
     registry = get_registry()
     job = await registry.create(server_id=server.id)

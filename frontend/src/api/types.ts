@@ -169,6 +169,8 @@ export interface UpdateResponse {
 }
 
 export type WsEventType =
+  | "server.created"
+  | "server.deleted"
   | "server.status_changed"
   | "server.metrics"
   | "server.agent_updated"
