@@ -93,6 +93,19 @@
 
 **Что сделать (опционально):** если нужна reprovision-функция без участия оператора — шифровать через `cryptography.fernet` ключом из `SECRET_KEY` и хранить в `Server.encrypted_ssh_creds`. Для MVP политика «минимум attack surface» оставлена.
 
+### 11. UI-формы для CRUD ресурсов (Add* модалки)
+
+**Состояние:** на табах Routing/DNS/GeoIP есть кнопки `+ Добавить ...` (`<button class="add-card">` в `*Tab.tsx`) — это перенесённый из дизайн-прототипа placeholder без `onClick`. Backend CRUD (`POST /servers/{id}/rules`, `POST /servers/{id}/dns`, `POST /geoip/lists`, `POST /servers/{id}/update`) готов и протестирован, но фронт его пока вызывает только из e2e-тестов / curl. Реализованы только `AddServerModal` (онбординг) и `TlsModal`.
+
+**Что сделать:**
+- `AddRuleModal` — country/cidr/domain → via_interface (выбор из `awg_containers` сервера) + via_gateway + table_id + priority + enabled. Подключить к `useCreateRule()` который уже есть в `api/rules.ts`.
+- `AddDnsModal` — domain/answer/ttl. Подключить к `useCreateDnsRule()`.
+- `SyncGeoListModal` — country (ISO-2 select) + url-источника. Подключить к `useSyncGeoList()`.
+- `UpdateAgentModal` — version + wheel_url, форма-обёртка над `useUpdateServer()`.
+- TunnelsTab оставляем read-only (тоннели создаются через docker outside-of-scope).
+
+Каждая модалка повторяет структуру `AddServerModal`/`TlsModal` (form → submit → invalidateQueries). Расширить e2e-покрытие на эти flow одновременно.
+
 ---
 
 ## Что уже закрыто (для истории)
