@@ -67,7 +67,9 @@ async def update_agent(*, request: UpdateRequest) -> UpdateResponse:
     """
     _validate_version(version=request.version)
     previous_version = __version__
-    wheel_path = Path("/tmp") / f"waygate-agent-{request.version}.whl"
+    # Имя файла должно соответствовать PEP 427 ({name}-{version}-{python}-{abi}-{platform}.whl),
+    # иначе pip падает на парсинге. Подставляем реальную версию из request.
+    wheel_path = Path("/tmp") / f"waygate_agent-{request.version}-py3-none-any.whl"
 
     logger.info("update: скачиваю {} → {}", request.wheel_url, wheel_path)
     try:

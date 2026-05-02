@@ -1,7 +1,7 @@
 # Frontend: build статики через node, отдача через nginx.
 # Сборка из корня репо:
 #   docker build -f frontend/Dockerfile -t waygate-frontend .
-FROM node:20-alpine AS build
+FROM node:24-alpine AS build
 
 WORKDIR /app
 COPY frontend/package.json frontend/package-lock.json* ./

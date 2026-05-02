@@ -32,7 +32,7 @@ services:
       SECRET_KEY: ${SECRET_KEY:?SECRET_KEY не задан в .env}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost,http://${WAYGATE_HOST:-localhost}}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      AGENT_WHEEL_URL: ${AGENT_WHEEL_URL:-https://github.com/waygate/waygate/releases/latest/download/waygate_agent-py3-none-any.whl}
+      AGENT_WHEEL_URL: ${AGENT_WHEEL_URL:-https://github.com/den41apple/waygate/releases/latest/download/waygate_agent-py3-none-any.whl}
       WAYGATE_ADMIN_USER: ${WAYGATE_ADMIN_USER:-}
       WAYGATE_ADMIN_PASSWORD: ${WAYGATE_ADMIN_PASSWORD:-}
     depends_on:

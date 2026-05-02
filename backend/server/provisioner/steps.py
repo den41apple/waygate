@@ -95,14 +95,19 @@ async def deploy_agent(
     await ssh.run(command="chmod 600 /etc/waygate/tls/key.pem")
 
     await emit(f"Скачиваю wheel: {wheel_url}")
-    await ssh.run(command=f"curl -fsSL '{wheel_url}' -o /tmp/waygate-agent.whl")
+    # Pip парсит имя wheel'а строго по PEP 427 ({name}-{version}-{python}-{abi}-{platform}.whl).
+    # Versionless имя `waygate_agent-py3-none-any.whl` из /latest/download он отвергает,
+    # поэтому сохраняем под валидным шаблонным именем — реальная версия читается
+    # из METADATA внутри архива при install.
+    wheel_path = "/tmp/waygate_agent-0.0.0-py3-none-any.whl"
+    await ssh.run(command=f"curl -fsSL '{wheel_url}' -o {wheel_path}")
 
     await emit("Создаю virtualenv в /opt/waygate-agent…")
     await ssh.run(command="rm -rf /opt/waygate-agent && python3 -m venv /opt/waygate-agent")
     await ssh.run(command="/opt/waygate-agent/bin/pip install --upgrade pip --quiet")
 
     await emit("Устанавливаю agent-wheel в venv…")
-    await ssh.run(command="/opt/waygate-agent/bin/pip install --quiet /tmp/waygate-agent.whl")
+    await ssh.run(command=f"/opt/waygate-agent/bin/pip install --quiet {wheel_path}")
 
     await emit("Записываю /etc/waygate/agent.env…")
     await ssh.write_file(
