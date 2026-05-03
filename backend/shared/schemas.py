@@ -308,3 +308,91 @@ class AwgClientActionResponse(BaseModel):
 
     name: str
     status: AwgClientStatus
+
+
+# ############################################
+# #  /v1/ipset/apply (custom ipset из CIDR'ов)
+# ############################################
+
+
+class IpsetApplyRequest(BaseModel):
+    """Запрос на создание/обновление ipset из явного списка CIDR'ов.
+
+    Идемпотентен: agent делает create -exist + flush + restore (см. geoip.py-pattern).
+    """
+
+    name: IpsetName = Field(description="Имя ipset на target")
+    cidrs: list[str] = Field(description="Список CIDR/IP")
+
+
+class IpsetApplyResponse(BaseModel):
+    name: str
+    cidrs_loaded: int = Field(description="Сколько CIDR'ов загружено")
+
+
+# ############################################
+# #  RoutingDirection (логические маршрутные направления для UI)
+# ############################################
+
+
+class DirectionCreate(BaseModel):
+    name: str = Field(description="Человеческое имя направления (например: 'Streaming-EU')")
+    awg_client_id: int | None = Field(
+        default=None,
+        description="ID waygate-amnezia-клиента; null = маршрут без VPN",
+    )
+    via_interface: InterfaceName = Field(description="Netdev на хосте")
+    via_gateway: str = Field(description="IP next-hop'а внутри туннеля")
+    geo_list_ids: list[int] = Field(
+        default_factory=list,
+        description="ID GeoList'ов, чьи ipset'ы попадут в это направление",
+    )
+    dns_rule_ids: list[int] = Field(
+        default_factory=list,
+        description="ID DNS-правил",
+    )
+    ipset_group_ids: list[int] = Field(
+        default_factory=list,
+        description="ID custom IPset-групп",
+    )
+    scope: RoutingScope = Field(default=RoutingScope.HOST)
+    scope_target: str | None = Field(default=None)
+    enabled: bool = Field(default=True)
+
+
+class DirectionUpdate(BaseModel):
+    """PATCH — частичное обновление, любое поле можно опустить."""
+
+    name: str | None = None
+    awg_client_id: int | None = None
+    via_interface: str | None = None
+    via_gateway: str | None = None
+    geo_list_ids: list[int] | None = None
+    dns_rule_ids: list[int] | None = None
+    ipset_group_ids: list[int] | None = None
+    scope: RoutingScope | None = None
+    scope_target: str | None = None
+    enabled: bool | None = None
+
+
+class DirectionResponse(BaseModel):
+    id: int
+    server_id: int
+    awg_client_id: int | None
+    name: str
+    fwmark: int
+    table_id: int
+    via_interface: str
+    via_gateway: str
+    scope: str
+    scope_target: str | None
+    enabled: bool
+    geo_list_ids: list[int]
+    dns_rule_ids: list[int]
+    ipset_group_ids: list[int]
+    created_at: datetime
+    updated_at: datetime
+
+
+class DirectionListResponse(BaseModel):
+    directions: list[DirectionResponse]

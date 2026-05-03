@@ -17,6 +17,8 @@ from shared.schemas import (
     CreateAwgClientResponse,
     GeoIpSyncRequest,
     GeoIpSyncResponse,
+    IpsetApplyRequest,
+    IpsetApplyResponse,
     ListAwgClientsResponse,
     MetricsSnapshot,
     TlsApplyResponse,
@@ -130,6 +132,9 @@ class AgentClient:
 
     async def sync_geoip(self, *, request: GeoIpSyncRequest) -> GeoIpSyncResponse:
         return GeoIpSyncResponse.model_validate(await self._post(path="/geoip/sync", payload=request))
+
+    async def apply_custom_ipset(self, *, request: IpsetApplyRequest) -> IpsetApplyResponse:
+        return IpsetApplyResponse.model_validate(await self._post(path="/ipset/apply", payload=request))
 
     async def apply_dns(self, *, request: ApplyDnsRequest) -> ApplyDnsResponse:
         return ApplyDnsResponse.model_validate(await self._post(path="/dns/apply", payload=request))

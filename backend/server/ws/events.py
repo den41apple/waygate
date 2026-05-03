@@ -19,6 +19,9 @@ class EventType(StrEnum):
     AWG_CLIENT_CREATED = "awg_client.created"
     AWG_CLIENT_DELETED = "awg_client.deleted"
     AWG_CLIENT_STATUS_CHANGED = "awg_client.status_changed"
+    DIRECTION_CREATED = "direction.created"
+    DIRECTION_UPDATED = "direction.updated"
+    DIRECTION_DELETED = "direction.deleted"
 
 
 class WsEvent(BaseModel):

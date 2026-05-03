@@ -13,6 +13,7 @@ from agent.auth import verify_bearer_token
 from agent.config import settings
 from agent.dns import apply_dns as dns_apply
 from agent.geoip import sync_list as geoip_sync_list
+from agent.ipset import apply_custom_ipset
 from agent.metrics import MetricsBuffer
 from agent.routing import apply_rules as routing_apply_rules
 from agent.scheduler import AgentScheduler
@@ -36,6 +37,8 @@ from shared.schemas import (
     CreateAwgClientResponse,
     GeoIpSyncRequest,
     GeoIpSyncResponse,
+    IpsetApplyRequest,
+    IpsetApplyResponse,
     ListAwgClientsResponse,
     MetricsSnapshot,
     TlsApplyResponse,
@@ -163,6 +166,26 @@ async def post_geoip_sync(request: GeoIpSyncRequest) -> GeoIpSyncResponse:
             source_url=request.source_url,
             custom_cidrs=request.custom_cidrs,
         )
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(exc),
+        ) from exc
+
+
+# ############################################
+# #  /v1/ipset/apply (custom ipset из CIDR'ов)
+# ############################################
+
+
+@app.post(
+    "/v1/ipset/apply",
+    response_model=IpsetApplyResponse,
+    dependencies=[Depends(verify_bearer_token)],
+)
+async def post_ipset_apply(request: IpsetApplyRequest) -> IpsetApplyResponse:
+    try:
+        return await apply_custom_ipset(request=request)
     except RuntimeError as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

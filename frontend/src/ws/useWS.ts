@@ -3,8 +3,10 @@ import { useQueryClient } from "@tanstack/react-query";
 
 import { fetchWsToken } from "../api/auth";
 import { awgClientsKey } from "../api/awgClients";
+import { directionsKey } from "../api/directions";
 import { dnsKey } from "../api/dns";
 import { GEOIP_KEY } from "../api/geoip";
+import { ipsetGroupsKey } from "../api/ipsetGroups";
 import { rulesKey } from "../api/rules";
 import { SERVERS_KEY } from "../api/servers";
 import { tlsKey } from "../api/tls";
@@ -71,6 +73,17 @@ export function useWebSocket(): void {
         case "awg_client.status_changed":
           if (event.server_id != null) {
             queryClient.invalidateQueries({ queryKey: awgClientsKey(event.server_id) });
+          }
+          break;
+        case "direction.created":
+        case "direction.updated":
+        case "direction.deleted":
+          if (event.server_id != null) {
+            queryClient.invalidateQueries({ queryKey: directionsKey(event.server_id) });
+            // direction-CRUD пересоздаёт child RoutingRules — освежаем правила тоже
+            queryClient.invalidateQueries({ queryKey: rulesKey(event.server_id) });
+            // direction-карточки бэйджат GeoIP/DNS/IPset — могли поменяться счётчики
+            queryClient.invalidateQueries({ queryKey: ipsetGroupsKey(event.server_id) });
           }
           break;
         default:

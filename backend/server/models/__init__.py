@@ -2,7 +2,9 @@ from server.models.audit import AuditEntry
 from server.models.awg_client import AwgClient, AwgClientStatus
 from server.models.dns_rule import DnsRule
 from server.models.geo_list import GeoList
+from server.models.ipset_group import IpsetGroup
 from server.models.metrics import MetricsPoint
+from server.models.routing_direction import RoutingDirection
 from server.models.routing_rule import RoutingRule
 from server.models.server import Server, ServerStatus
 from server.models.tls_config import TlsConfigRow
@@ -14,7 +16,9 @@ __all__ = [
     "AwgClientStatus",
     "DnsRule",
     "GeoList",
+    "IpsetGroup",
     "MetricsPoint",
+    "RoutingDirection",
     "RoutingRule",
     "Server",
     "ServerStatus",

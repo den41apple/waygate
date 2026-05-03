@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import { useCreateGeoList, type GeoListCreate } from "../api/geoip";
+import { CountrySelect } from "../components/CountrySelect";
 import { Icon } from "../components/Icon";
 import { IconTile } from "../components/primitives";
 
@@ -54,18 +55,15 @@ export function AddGeoListModal({ onClose }: Props) {
         <div className="modal-body">
           <div className="field-row">
             <div className="field">
-              <label>Страна (ISO-2)</label>
-              <input
-                className="input"
+              <label>Страна</label>
+              <CountrySelect
                 value={country}
-                onChange={(event) => {
-                  const next = event.target.value.toUpperCase().slice(0, 2);
+                onChange={(next) => {
                   setCountry(next);
                   if (!sourceUrl && COUNTRY_RE.test(next)) setSourceUrl(sourceForCountry(next));
                   if (!name && COUNTRY_RE.test(next)) setName(next);
                 }}
-                placeholder="RU"
-                maxLength={2}
+                listId="geolist-country-list"
               />
             </div>
             <div className="field">

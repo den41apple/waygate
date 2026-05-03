@@ -165,11 +165,18 @@ function QrModal({ serverId, client, onClose }: QrModalProps) {
 
 export function TunnelsTab({ serverId, showSpark }: Props) {
   const { data, isLoading, isError, error } = useTunnels(serverId);
-  const tunnels: TunnelInfo[] = data?.tunnels ?? [];
+  const allTunnels: TunnelInfo[] = data?.tunnels ?? [];
   const { data: awgClients = [] } = useAwgClients(serverId);
+
+  // Tunnels из /v1/tunnels включают и наших клиентов, и внешние контейнеры.
+  // Наши уже отображаются в верхней секции «Управляемые клиенты» — здесь
+  // оставляем только внешние, чтобы не дублировать.
+  const clientContainerNames = new Set(awgClients.map((awgClient) => awgClient.container_name));
+  const tunnels = allTunnels.filter((tunnel) => !clientContainerNames.has(tunnel.container_name));
 
   const [showAdd, setShowAdd] = useState(false);
   const [qrTarget, setQrTarget] = useState<AwgClient | null>(null);
+  const [view, setView] = useState<"clients" | "servers">("clients");
   const totalPeers = tunnels.reduce((acc, tunnel) => acc + tunnel.peers.length, 0);
   const upPeers = tunnels.flatMap((tunnel) => tunnel.peers).filter((peer) => {
     if (peer.last_handshake === null) return false;
@@ -188,45 +195,68 @@ export function TunnelsTab({ serverId, showSpark }: Props) {
         <Metric label="TX всего" value={formatBytes(totalTx)} sub="по всем пирам" icon="trending-up" tileColor="pink" sparkSeed={17} showSpark={showSpark} />
       </div>
 
-      <SectionHead title="Управляемые клиенты" count={awgClients.length}>
-        <button className="tb-btn primary" onClick={() => setShowAdd(true)}>
-          <Icon name="plus" size={14} /> Добавить клиента
+      <div className="tab-switcher" style={{ marginBottom: 16 }}>
+        <button
+          className={view === "clients" ? "active" : ""}
+          onClick={() => setView("clients")}
+          type="button"
+        >
+          Клиенты ({awgClients.length})
         </button>
-      </SectionHead>
+        <button
+          className={view === "servers" ? "active" : ""}
+          onClick={() => setView("servers")}
+          type="button"
+        >
+          Серверные ({tunnels.length})
+        </button>
+      </div>
 
-      {awgClients.length === 0 && (
-        <div className="hint">
-          Нет развёрнутых AmneziaWG-клиентов. Импортируйте `.conf` через «Добавить
-          клиента» — Waygate поднимет docker-контейнер и подцепит туннель к
-          доступным маршрутизирующим правилам.
-        </div>
+      {view === "clients" && (
+        <>
+          <SectionHead title="Управляемые клиенты" count={awgClients.length}>
+            <button className="tb-btn primary" onClick={() => setShowAdd(true)}>
+              <Icon name="plus" size={14} /> Добавить клиента
+            </button>
+          </SectionHead>
+
+          {awgClients.length === 0 && (
+            <div className="hint">
+              Нет развёрнутых AmneziaWG-клиентов. Импортируйте `.conf` через «Добавить
+              клиента» — Waygate поднимет docker-контейнер и подцепит туннель к
+              доступным маршрутизирующим правилам.
+            </div>
+          )}
+
+          {awgClients.map((awgClient) => (
+            <ManagedClientCard
+              key={awgClient.id}
+              serverId={serverId}
+              client={awgClient}
+              onShowQr={setQrTarget}
+            />
+          ))}
+        </>
       )}
 
-      {awgClients.map((awgClient) => (
-        <ManagedClientCard
-          key={awgClient.id}
-          serverId={serverId}
-          client={awgClient}
-          onShowQr={setQrTarget}
-        />
-      ))}
+      {view === "servers" && (
+        <>
+          <SectionHead title="Серверные туннели (внешние контейнеры)" count={tunnels.length}>
+            <span style={{ fontSize: 11, color: "var(--text-3)" }}>обновляется каждые 30с</span>
+          </SectionHead>
 
-      <SectionHead title="AWG-интерфейсы (обнаруженные)" count={tunnels.length}>
-        <span style={{ fontSize: 11, color: "var(--text-3)" }}>обновляется каждые 30с</span>
-      </SectionHead>
+          {isLoading && <div className="hint">Загружаю туннели…</div>}
+          {isError && <div className="hint">Не удалось получить туннели: {String(error)}</div>}
 
-      {isLoading && <div className="hint">Загружаю туннели…</div>}
-      {isError && <div className="hint">Не удалось получить туннели: {String(error)}</div>}
+          {!isLoading && !isError && tunnels.length === 0 && (
+            <div className="hint">
+              Внешних AmneziaWG-контейнеров не найдено. Это контейнеры, которые
+              ты поднимал сам (через AmneziaWG-Server и т.п.) — их Waygate не
+              разворачивает, только показывает статус и пиров.
+            </div>
+          )}
 
-      {!isLoading && !isError && tunnels.length === 0 && (
-        <div className="hint">
-          На сервере не найдено AmneziaWG-контейнеров. Запустите контейнер с image,
-          содержащим «amnezia» / «awg» в имени, и убедитесь что у агента есть доступ
-          к docker-сокету.
-        </div>
-      )}
-
-      {tunnels.map((tunnel) => (
+          {tunnels.map((tunnel) => (
         <div key={tunnel.container_name} className="card">
           <div className="tunnel-head">
             <IconTile color="violet" icon="tunnel" />
@@ -287,6 +317,8 @@ export function TunnelsTab({ serverId, showSpark }: Props) {
           )}
         </div>
       ))}
+        </>
+      )}
 
       {showAdd && <AddAwgClientModal serverId={serverId} onClose={() => setShowAdd(false)} />}
       {qrTarget && (

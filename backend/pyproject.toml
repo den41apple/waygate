@@ -44,10 +44,10 @@ check_untyped_defs = false
 
 # SQLModel + mypy strict — column-descriptors (Server.id, .timestamp ...) выглядят
 # как plain int/datetime, но в where/order_by приходят как InstrumentedAttribute,
-# у которого есть .desc()/.asc() и т.д. — отсюда attr-defined.
+# у которого есть .desc()/.asc()/.in_() и т.д. — отсюда attr-defined / union-attr.
 [[tool.mypy.overrides]]
 module = ["server.api.*", "server.tasks.*"]
-disable_error_code = ["arg-type", "attr-defined"]
+disable_error_code = ["arg-type", "attr-defined", "union-attr"]
 
 # Alembic-миграции автогенерируются, валидировать смысла мало.
 [[tool.mypy.overrides]]

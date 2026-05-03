@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import { useCreateAwgClient } from "../api/awgClients";
 import type { AwgClientCreate } from "../api/types";
+import { CountrySelect } from "../components/CountrySelect";
 import { Icon } from "../components/Icon";
 import { IconTile } from "../components/primitives";
 
@@ -122,13 +123,11 @@ export function AddAwgClientModal({ serverId, onClose }: Props) {
               </div>
             </div>
             <div className="field">
-              <label>Страна (ISO-2, опционально)</label>
-              <input
-                className="input"
+              <label>Страна (опционально)</label>
+              <CountrySelect
                 value={country}
-                onChange={(event) => setCountry(event.target.value.toUpperCase().slice(0, 2))}
-                placeholder="US"
-                maxLength={2}
+                onChange={setCountry}
+                listId="awgclient-country-list"
               />
             </div>
           </div>

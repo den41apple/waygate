@@ -199,6 +199,73 @@ export interface AwgClientCreate {
   config_text: string;
 }
 
+export interface IpsetGroup {
+  id: number;
+  server_id: number;
+  name: string;
+  cidrs: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface IpsetGroupListResponse {
+  groups: IpsetGroup[];
+}
+
+export interface IpsetGroupCreate {
+  name: string;
+  cidrs: string[];
+}
+
+export interface Direction {
+  id: number;
+  server_id: number;
+  awg_client_id: number | null;
+  name: string;
+  fwmark: number;
+  table_id: number;
+  via_interface: string;
+  via_gateway: string;
+  scope: "host" | "container";
+  scope_target: string | null;
+  enabled: boolean;
+  geo_list_ids: number[];
+  dns_rule_ids: number[];
+  ipset_group_ids: number[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DirectionListResponse {
+  directions: Direction[];
+}
+
+export interface DirectionCreate {
+  name: string;
+  awg_client_id?: number | null;
+  via_interface: string;
+  via_gateway: string;
+  geo_list_ids?: number[];
+  dns_rule_ids?: number[];
+  ipset_group_ids?: number[];
+  scope?: "host" | "container";
+  scope_target?: string | null;
+  enabled?: boolean;
+}
+
+export interface DirectionUpdate {
+  name?: string;
+  awg_client_id?: number | null;
+  via_interface?: string;
+  via_gateway?: string;
+  geo_list_ids?: number[];
+  dns_rule_ids?: number[];
+  ipset_group_ids?: number[];
+  scope?: "host" | "container";
+  scope_target?: string | null;
+  enabled?: boolean;
+}
+
 export type WsEventType =
   | "server.created"
   | "server.deleted"
@@ -212,7 +279,10 @@ export type WsEventType =
   | "provision.progress"
   | "awg_client.created"
   | "awg_client.deleted"
-  | "awg_client.status_changed";
+  | "awg_client.status_changed"
+  | "direction.created"
+  | "direction.updated"
+  | "direction.deleted";
 
 export interface WsEvent {
   type: WsEventType;

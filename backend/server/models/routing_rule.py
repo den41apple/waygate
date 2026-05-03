@@ -1,3 +1,4 @@
+from sqlalchemy import Column, ForeignKey, Integer
 from sqlmodel import Field, SQLModel
 
 
@@ -8,6 +9,21 @@ class RoutingRule(SQLModel, table=True):
 
     id: int | None = Field(default=None, primary_key=True)
     server_id: int = Field(foreign_key="server.id", index=True)
+    # Группирующая принадлежность к направлению (см. RoutingDirection). null —
+    # legacy-правило, созданное напрямую через старый API /rules без direction.
+    # ondelete=CASCADE: при удалении направления удаляются все его child-правила.
+    # Прописываем через `sa_column` чтобы CASCADE применился и в alembic, и в
+    # `metadata.create_all` (используется в тестах).
+    direction_id: int | None = Field(
+        default=None,
+        sa_column=Column(
+            "direction_id",
+            Integer,
+            ForeignKey("routing_directions.id", ondelete="CASCADE"),
+            nullable=True,
+            index=True,
+        ),
+    )
     country: str
     ipset_name: str
     fwmark: int

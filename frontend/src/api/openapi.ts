@@ -312,6 +312,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/servers/{server_id}/directions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Directions */
+        get: operations["list_directions_api_v1_servers__server_id__directions_get"];
+        put?: never;
+        /** Create Direction */
+        post: operations["create_direction_api_v1_servers__server_id__directions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/servers/{server_id}/directions/{direction_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Direction */
+        delete: operations["delete_direction_api_v1_servers__server_id__directions__direction_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Direction */
+        patch: operations["update_direction_api_v1_servers__server_id__directions__direction_id__patch"];
+        trace?: never;
+    };
     "/api/v1/servers/{server_id}/dns": {
         parameters: {
             query?: never;
@@ -383,6 +419,42 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/v1/servers/{server_id}/ipset-groups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Groups */
+        get: operations["list_groups_api_v1_servers__server_id__ipset_groups_get"];
+        put?: never;
+        /** Create Group */
+        post: operations["create_group_api_v1_servers__server_id__ipset_groups_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/servers/{server_id}/ipset-groups/{group_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Group */
+        delete: operations["delete_group_api_v1_servers__server_id__ipset_groups__group_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Group */
+        patch: operations["update_group_api_v1_servers__server_id__ipset_groups__group_id__patch"];
         trace?: never;
     };
     "/api/v1/servers/{server_id}/metrics": {
@@ -747,6 +819,124 @@ export interface components {
              */
             name: string;
         };
+        /** DirectionCreate */
+        DirectionCreate: {
+            /**
+             * Awg Client Id
+             * @description ID waygate-amnezia-клиента; null = маршрут без VPN
+             */
+            awg_client_id?: number | null;
+            /**
+             * Dns Rule Ids
+             * @description ID DNS-правил
+             */
+            dns_rule_ids?: number[];
+            /**
+             * Enabled
+             * @default true
+             */
+            enabled: boolean;
+            /**
+             * Geo List Ids
+             * @description ID GeoList'ов, чьи ipset'ы попадут в это направление
+             */
+            geo_list_ids?: number[];
+            /**
+             * Ipset Group Ids
+             * @description ID custom IPset-групп
+             */
+            ipset_group_ids?: number[];
+            /**
+             * Name
+             * @description Человеческое имя направления (например: 'Streaming-EU')
+             */
+            name: string;
+            /** @default host */
+            scope: components["schemas"]["RoutingScope"];
+            /** Scope Target */
+            scope_target?: string | null;
+            /**
+             * Via Gateway
+             * @description IP next-hop'а внутри туннеля
+             */
+            via_gateway: string;
+            /**
+             * Via Interface
+             * @description Netdev на хосте
+             */
+            via_interface: string;
+        };
+        /** DirectionListResponse */
+        DirectionListResponse: {
+            /** Directions */
+            directions: components["schemas"]["DirectionResponse"][];
+        };
+        /** DirectionResponse */
+        DirectionResponse: {
+            /** Awg Client Id */
+            awg_client_id: number | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Dns Rule Ids */
+            dns_rule_ids: number[];
+            /** Enabled */
+            enabled: boolean;
+            /** Fwmark */
+            fwmark: number;
+            /** Geo List Ids */
+            geo_list_ids: number[];
+            /** Id */
+            id: number;
+            /** Ipset Group Ids */
+            ipset_group_ids: number[];
+            /** Name */
+            name: string;
+            /** Scope */
+            scope: string;
+            /** Scope Target */
+            scope_target: string | null;
+            /** Server Id */
+            server_id: number;
+            /** Table Id */
+            table_id: number;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Via Gateway */
+            via_gateway: string;
+            /** Via Interface */
+            via_interface: string;
+        };
+        /**
+         * DirectionUpdate
+         * @description PATCH — частичное обновление, любое поле можно опустить.
+         */
+        DirectionUpdate: {
+            /** Awg Client Id */
+            awg_client_id?: number | null;
+            /** Dns Rule Ids */
+            dns_rule_ids?: number[] | null;
+            /** Enabled */
+            enabled?: boolean | null;
+            /** Geo List Ids */
+            geo_list_ids?: number[] | null;
+            /** Ipset Group Ids */
+            ipset_group_ids?: number[] | null;
+            /** Name */
+            name?: string | null;
+            scope?: components["schemas"]["RoutingScope"] | null;
+            /** Scope Target */
+            scope_target?: string | null;
+            /** Via Gateway */
+            via_gateway?: string | null;
+            /** Via Interface */
+            via_interface?: string | null;
+        };
         /**
          * DnsProvider
          * @enum {string}
@@ -887,6 +1077,50 @@ export interface components {
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /** IpsetGroupCreate */
+        IpsetGroupCreate: {
+            /**
+             * Cidrs
+             * @description Список CIDR/IP
+             */
+            cidrs?: string[];
+            /**
+             * Name
+             * @description Имя ipset на агенте
+             */
+            name: string;
+        };
+        /** IpsetGroupListResponse */
+        IpsetGroupListResponse: {
+            /** Groups */
+            groups: components["schemas"]["IpsetGroupResponse"][];
+        };
+        /** IpsetGroupResponse */
+        IpsetGroupResponse: {
+            /** Cidrs */
+            cidrs: string[];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
+            /** Server Id */
+            server_id: number;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** IpsetGroupUpdate */
+        IpsetGroupUpdate: {
+            /** Cidrs */
+            cidrs?: string[] | null;
         };
         /** LoginRequest */
         LoginRequest: {
@@ -2047,6 +2281,154 @@ export interface operations {
             };
         };
     };
+    list_directions_api_v1_servers__server_id__directions_get: {
+        parameters: {
+            query?: {
+                access_token?: string;
+            };
+            header?: {
+                authorization?: string;
+            };
+            path: {
+                server_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DirectionListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_direction_api_v1_servers__server_id__directions_post: {
+        parameters: {
+            query?: {
+                access_token?: string;
+            };
+            header?: {
+                authorization?: string;
+            };
+            path: {
+                server_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DirectionCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DirectionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_direction_api_v1_servers__server_id__directions__direction_id__delete: {
+        parameters: {
+            query?: {
+                access_token?: string;
+            };
+            header?: {
+                authorization?: string;
+            };
+            path: {
+                server_id: number;
+                direction_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_direction_api_v1_servers__server_id__directions__direction_id__patch: {
+        parameters: {
+            query?: {
+                access_token?: string;
+            };
+            header?: {
+                authorization?: string;
+            };
+            path: {
+                server_id: number;
+                direction_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DirectionUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DirectionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_dns_rules_api_v1_servers__server_id__dns_get: {
         parameters: {
             query?: {
@@ -2256,6 +2638,157 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["GeoIpSyncResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_groups_api_v1_servers__server_id__ipset_groups_get: {
+        parameters: {
+            query?: {
+                access_token?: string;
+            };
+            header?: {
+                authorization?: string;
+            };
+            path: {
+                server_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IpsetGroupListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_group_api_v1_servers__server_id__ipset_groups_post: {
+        parameters: {
+            query?: {
+                /** @description Сразу применить на агенте */
+                apply?: boolean;
+                access_token?: string;
+            };
+            header?: {
+                authorization?: string;
+            };
+            path: {
+                server_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IpsetGroupCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IpsetGroupResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_group_api_v1_servers__server_id__ipset_groups__group_id__delete: {
+        parameters: {
+            query?: {
+                access_token?: string;
+            };
+            header?: {
+                authorization?: string;
+            };
+            path: {
+                server_id: number;
+                group_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_group_api_v1_servers__server_id__ipset_groups__group_id__patch: {
+        parameters: {
+            query?: {
+                apply?: boolean;
+                access_token?: string;
+            };
+            header?: {
+                authorization?: string;
+            };
+            path: {
+                server_id: number;
+                group_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IpsetGroupUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IpsetGroupResponse"];
                 };
             };
             /** @description Validation Error */

@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
-export type TabId = "routing" | "tunnels" | "geoip" | "dns" | "metrics";
+export type TabId = "routing" | "tunnels" | "lists" | "metrics";
 export type Theme = "dark" | "light";
 
 export interface UiStore {
@@ -47,6 +47,16 @@ export const useUiStore = create<UiStore>()(
         showSparklines: state.showSparklines,
         activeTab: state.activeTab,
       }),
+      // Старые сессии хранят activeTab="geoip"/"dns" — schлёпываем в "lists"
+      // чтобы UI не падал на невалидном TabId.
+      migrate: (persisted: unknown) => {
+        const state = persisted as { activeTab?: string } | null;
+        if (state && (state.activeTab === "geoip" || state.activeTab === "dns")) {
+          return { ...state, activeTab: "lists" } as Partial<UiStore>;
+        }
+        return state as Partial<UiStore>;
+      },
+      version: 2,
     },
   ),
 );

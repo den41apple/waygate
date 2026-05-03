@@ -2,9 +2,10 @@ import { useEffect } from "react";
 
 import { useCurrentUser } from "./api/auth";
 import { ApiError } from "./api/client";
+import { useDirections } from "./api/directions";
 import { useDnsRules } from "./api/dns";
 import { useGeoIpLists } from "./api/geoip";
-import { useRules } from "./api/rules";
+import { useIpsetGroups } from "./api/ipsetGroups";
 import { useDeleteServer, useServers } from "./api/servers";
 import { Sidebar } from "./components/Sidebar";
 import { StatusBar } from "./components/StatusBar";
@@ -13,8 +14,7 @@ import { Topbar } from "./components/Topbar";
 import { AddServerModal } from "./modals/AddServerModal";
 import { TlsModal } from "./modals/TlsModal";
 import { UpdateAgentModal } from "./modals/UpdateAgentModal";
-import { DnsTab } from "./pages/DnsTab";
-import { GeoIpTab } from "./pages/GeoIpTab";
+import { ListsTab } from "./pages/ListsTab";
 import { LoginPage } from "./pages/LoginPage";
 import { MetricsTab } from "./pages/MetricsTab";
 import { RoutingTab } from "./pages/RoutingTab";
@@ -26,8 +26,7 @@ import { useWebSocket } from "./ws/useWS";
 const TAB_ITEMS: TabItem[] = [
   { id: "routing", label: "Routing",   icon: "route"    },
   { id: "tunnels", label: "Tunnels",   icon: "tunnel"   },
-  { id: "geoip",   label: "GeoIP",     icon: "globe"    },
-  { id: "dns",     label: "DNS",       icon: "send"     },
+  { id: "lists",   label: "Lists",     icon: "list"     },
   { id: "metrics", label: "Metrics",   icon: "activity" },
 ];
 
@@ -79,17 +78,17 @@ function Dashboard() {
 
   const activeServer = servers.find((server) => server.id === activeServerId) ?? null;
 
-  const { data: rules = [] } = useRules(activeServerId);
+  const { data: directions = [] } = useDirections(activeServerId);
   const { data: dnsRules = [] } = useDnsRules(activeServerId);
   const { data: geoLists = [] } = useGeoIpLists();
+  const { data: ipsetGroups = [] } = useIpsetGroups(activeServerId);
 
   const tabsWithCounts: TabItem[] = TAB_ITEMS.map((item) => ({
     ...item,
     count:
-      item.id === "routing" ? rules.length :
+      item.id === "routing" ? directions.length :
       item.id === "tunnels" ? activeServer?.awg_containers.length ?? 0 :
-      item.id === "dns" ? dnsRules.length :
-      item.id === "geoip" ? geoLists.length :
+      item.id === "lists" ? geoLists.length + dnsRules.length + ipsetGroups.length :
       null,
   }));
 
@@ -130,8 +129,7 @@ function Dashboard() {
             />
           )}
           {activeServer && activeTab === "tunnels" && <TunnelsTab serverId={activeServer.id} showSpark={showSparklines} />}
-          {activeServer && activeTab === "dns" && <DnsTab serverId={activeServer.id} showSpark={showSparklines} />}
-          {activeServer && activeTab === "geoip" && <GeoIpTab serverId={activeServer.id} showSpark={showSparklines} />}
+          {activeServer && activeTab === "lists" && <ListsTab serverId={activeServer.id} showSpark={showSparklines} />}
           {activeServer && activeTab === "metrics" && <MetricsTab serverId={activeServer.id} showSpark={showSparklines} />}
         </div>
         <StatusBar server={activeServer} />

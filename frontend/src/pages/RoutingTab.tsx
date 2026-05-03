@@ -1,9 +1,20 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
-import { useApplyRules, useDeleteRule, useRules, useUpdateRule } from "../api/rules";
+import { useAwgClients } from "../api/awgClients";
+import {
+  useDeleteDirection,
+  useDirections,
+  useUpdateDirection,
+} from "../api/directions";
+import { useDnsRules } from "../api/dns";
+import { useGeoIpLists } from "../api/geoip";
+import { useIpsetGroups } from "../api/ipsetGroups";
+import { useApplyRules } from "../api/rules";
+import type { AwgClient, Direction } from "../api/types";
+import { flagFor } from "../components/CountrySelect";
 import { Icon } from "../components/Icon";
-import { AddRuleModal } from "../modals/AddRuleModal";
-import { Badge, MonoPill, SectionHead, ViaPill, Toggle, Metric } from "../components/primitives";
+import { AddRoutingDirectionModal } from "../modals/AddRoutingDirectionModal";
+import { Badge, IconTile, Metric, MonoPill, SectionHead, Toggle } from "../components/primitives";
 
 interface Props {
   serverId: number;
@@ -11,29 +22,87 @@ interface Props {
   showSpark: boolean;
 }
 
-export function RoutingTab({ serverId, awgContainers, showSpark }: Props) {
-  const { data: rules = [], isLoading } = useRules(serverId);
-  const updateRule = useUpdateRule(serverId);
-  const deleteRule = useDeleteRule(serverId);
+export function RoutingTab({ serverId, showSpark }: Props) {
+  const { data: directions = [], isLoading } = useDirections(serverId);
+  const { data: awgClients = [] } = useAwgClients(serverId);
+  const updateDirection = useUpdateDirection(serverId);
+  const deleteDirection = useDeleteDirection(serverId);
   const applyRules = useApplyRules(serverId);
+
   const [showAdd, setShowAdd] = useState(false);
 
-  const enabledCount = rules.filter((rule) => rule.enabled).length;
+  // Группировка direction'ов по awg_client
+  const grouped = useMemo(() => {
+    const map = new Map<number | "host", Direction[]>();
+    for (const direction of directions) {
+      const key = direction.awg_client_id ?? "host";
+      const list = map.get(key) ?? [];
+      list.push(direction);
+      map.set(key, list);
+    }
+    return map;
+  }, [directions]);
+
+  const enabledCount = directions.filter((direction) => direction.enabled).length;
+  const totalSources = directions.reduce(
+    (acc, direction) =>
+      acc + direction.geo_list_ids.length + direction.dns_rule_ids.length + direction.ipset_group_ids.length,
+    0,
+  );
 
   return (
     <>
       <div className="metric-row">
-        <Metric label="Активных" value={`${enabledCount}/${rules.length}`} sub="включено" icon="route" tileColor="violet" sparkSeed={3} showSpark={showSpark} />
-        <Metric label="Правил всего" value={rules.length} sub="на сервере" icon="list" tileColor="cyan" sparkSeed={7} showSpark={showSpark} />
-        <Metric label="Уникальных таблиц" value={new Set(rules.map((rule) => rule.table_id)).size} sub="ip rule lookup" icon="activity" tileColor="green" sparkSeed={11} showSpark={showSpark} />
-        <Metric label="fwmark диапазон" value={rules.length === 0 ? "—" : `${Math.min(...rules.map((rule) => rule.fwmark))}–${Math.max(...rules.map((rule) => rule.fwmark))}`} sub="метки пакетов" icon="trending-up" tileColor="orange" sparkSeed={2} showSpark={showSpark} />
+        <Metric
+          label="Активных"
+          value={`${enabledCount}/${directions.length}`}
+          sub="включено"
+          icon="route"
+          tileColor="violet"
+          sparkSeed={3}
+          showSpark={showSpark}
+        />
+        <Metric
+          label="Направлений"
+          value={directions.length}
+          sub="всего на сервере"
+          icon="list"
+          tileColor="cyan"
+          sparkSeed={7}
+          showSpark={showSpark}
+        />
+        <Metric
+          label="Источников трафика"
+          value={totalSources}
+          sub="GeoIP + DNS + IPset"
+          icon="activity"
+          tileColor="green"
+          sparkSeed={11}
+          showSpark={showSpark}
+        />
+        <Metric
+          label="VPN-клиентов"
+          value={awgClients.filter((awgClient) => awgClient.status === "running").length}
+          sub="доступно для маршрутизации"
+          icon="tunnel"
+          tileColor="orange"
+          sparkSeed={2}
+          showSpark={showSpark}
+        />
       </div>
 
-      <SectionHead title="Правила маршрутизации" count={rules.length}>
+      <SectionHead title="Маршрутные направления" count={directions.length}>
+        <button
+          className="tb-btn"
+          onClick={() => setShowAdd(true)}
+        >
+          <Icon name="plus" size={14} /> Добавить направление
+        </button>
         <button
           className="tb-btn primary"
           onClick={() => applyRules.mutate()}
-          disabled={applyRules.isPending || rules.length === 0}
+          disabled={applyRules.isPending || directions.length === 0}
+          style={{ marginLeft: 8 }}
         >
           <Icon name="play" size={14} /> {applyRules.isPending ? "Применяю…" : "Применить на агенте"}
         </button>
@@ -46,72 +115,184 @@ export function RoutingTab({ serverId, awgContainers, showSpark }: Props) {
         </div>
       )}
 
-      {isLoading && <div className="hint">Загружаю правила…</div>}
+      {isLoading && <div className="hint">Загружаю направления…</div>}
 
-      {rules.map((rule) => (
-        <div key={rule.id} className="card">
-          <div className="rule-head">
-            <span className="flag-tile">{flagFor(rule.country)}</span>
-            <div className="name-block">
-              <div className="name">
-                {rule.country} → {rule.via_interface}
-                <span className="country mono">[{rule.country}]</span>
-              </div>
-              <div className="desc">
-                ipset <span className="mono">{rule.ipset_name}</span> · fwmark{" "}
-                <span className="mono">0x{rule.fwmark.toString(16)}</span>
-              </div>
-            </div>
-            <Badge kind={rule.enabled ? "online" : "offline"}>{rule.enabled ? "active" : "paused"}</Badge>
-            <span className="mono-pill">table {rule.table_id}</span>
-            <span
-              className="mono-pill"
-              title={rule.scope === "container" ? `Применяется внутри netns ${rule.scope_target}` : "На уровне хоста"}
-              style={rule.scope === "container" ? { background: "var(--accent-tint-2, #2a1a4a)", color: "var(--accent)" } : undefined}
-            >
-              {rule.scope === "container" ? `🐳 ${rule.scope_target}` : "host"}
-            </span>
-            <Toggle
-              on={rule.enabled}
-              onClick={() => updateRule.mutate({ ruleId: rule.id, patch: { enabled: !rule.enabled } })}
-            />
-            <button
-              className="tb-btn"
-              style={{ marginLeft: 6 }}
-              onClick={() => deleteRule.mutate(rule.id)}
-              disabled={deleteRule.isPending}
-            >
-              <Icon name="x" size={14} />
-            </button>
-          </div>
-          <div className="rule-body">
-            <div className="k">match</div>
-            <div className="v"><MonoPill accent>ipset:{rule.ipset_name}</MonoPill></div>
-            <div className="k">mark</div>
-            <div className="v"><MonoPill cyan>fwmark 0x{rule.fwmark.toString(16)}</MonoPill></div>
-            <div className="k">via</div>
-            <div className="v"><ViaPill>{rule.via_interface} → {rule.via_gateway}</ViaPill></div>
-          </div>
+      {!isLoading && directions.length === 0 && (
+        <div className="hint">
+          Направлений пока нет. Создай первое — выбери VPN-клиента, поставь
+          галочки на нужные GeoIP-зоны / DNS-правила / IPset-группы, и весь
+          этот трафик пойдёт через выбранный туннель.
         </div>
-      ))}
+      )}
 
-      <button className="add-card" onClick={() => setShowAdd(true)}>
-        <Icon name="plus" size={16} /> Добавить правило маршрутизации
-      </button>
+      {[...grouped.entries()].map(([key, list]) => {
+        const awgClient = key === "host" ? null : awgClients.find((item) => item.id === key) ?? null;
+        return (
+          <DirectionGroup
+            key={String(key)}
+            awgClient={awgClient}
+            directions={list}
+            onToggle={(direction) =>
+              updateDirection.mutate({
+                directionId: direction.id,
+                patch: { enabled: !direction.enabled },
+              })
+            }
+            onDelete={(direction) => {
+              if (window.confirm(`Удалить направление «${direction.name}»?`)) {
+                deleteDirection.mutate(direction.id);
+              }
+            }}
+          />
+        );
+      })}
 
       {showAdd && (
-        <AddRuleModal
-          serverId={serverId}
-          awgContainers={awgContainers}
-          onClose={() => setShowAdd(false)}
-        />
+        <AddRoutingDirectionModal serverId={serverId} onClose={() => setShowAdd(false)} />
       )}
     </>
   );
 }
 
-function flagFor(country: string): string {
-  if (country.length !== 2) return "🌍";
-  const codePoints = [...country.toUpperCase()].map((char) => 0x1f1a5 + char.charCodeAt(0));
-  return String.fromCodePoint(...codePoints);
+interface GroupProps {
+  awgClient: AwgClient | null;
+  directions: Direction[];
+  onToggle: (direction: Direction) => void;
+  onDelete: (direction: Direction) => void;
+}
+
+function DirectionGroup({ awgClient, directions, onToggle, onDelete }: GroupProps) {
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          marginBottom: 8,
+          fontSize: 13,
+          color: "var(--text-2)",
+        }}
+      >
+        {awgClient ? (
+          <>
+            <IconTile color="green" icon="tunnel" size="sm" />
+            <b>
+              {awgClient.country ? `${flagFor(awgClient.country)} ` : ""}
+              {awgClient.name}
+            </b>
+            <span className="mono" style={{ color: "var(--text-3)" }}>
+              {awgClient.peer_endpoint ?? "—"}
+            </span>
+          </>
+        ) : (
+          <>
+            <IconTile color="bg" icon="server" size="sm" />
+            <b>Без VPN-клиента</b>
+            <span style={{ color: "var(--text-3)" }}>(host-route без туннеля)</span>
+          </>
+        )}
+      </div>
+      {directions.map((direction) => (
+        <DirectionCard
+          key={direction.id}
+          direction={direction}
+          onToggle={() => onToggle(direction)}
+          onDelete={() => onDelete(direction)}
+        />
+      ))}
+    </div>
+  );
+}
+
+interface CardProps {
+  direction: Direction;
+  onToggle: () => void;
+  onDelete: () => void;
+}
+
+function DirectionCard({ direction, onToggle, onDelete }: CardProps) {
+  const { data: geoLists = [] } = useGeoIpLists();
+  const { data: dnsRules = [] } = useDnsRules(direction.server_id);
+  const { data: ipsetGroups = [] } = useIpsetGroups(direction.server_id);
+
+  const geoBadges = direction.geo_list_ids
+    .map((id) => geoLists.find((list) => list.id === id))
+    .filter(Boolean);
+  const dnsBadges = direction.dns_rule_ids
+    .map((id) => dnsRules.find((rule) => rule.id === id))
+    .filter(Boolean);
+  const ipsetBadges = direction.ipset_group_ids
+    .map((id) => ipsetGroups.find((group) => group.id === id))
+    .filter(Boolean);
+
+  return (
+    <div className="card" style={{ marginBottom: 8 }}>
+      <div className="rule-head">
+        <IconTile color={direction.enabled ? "violet" : "bg"} icon="route" />
+        <div className="name-block">
+          <div className="name">{direction.name}</div>
+          <div className="desc">
+            via <span className="mono">{direction.via_interface}</span> →{" "}
+            <span className="mono">{direction.via_gateway}</span>
+            {direction.scope === "container" && direction.scope_target && (
+              <> · 🐳 <span className="mono">{direction.scope_target}</span></>
+            )}
+          </div>
+        </div>
+        <Badge kind={direction.enabled ? "online" : "offline"}>
+          {direction.enabled ? "active" : "paused"}
+        </Badge>
+        <Toggle on={direction.enabled} onClick={onToggle} />
+        <button
+          className="tb-btn"
+          style={{ marginLeft: 6 }}
+          onClick={onDelete}
+        >
+          <Icon name="x" size={14} />
+        </button>
+      </div>
+
+      <div className="rule-body">
+        <div className="k">GeoIP</div>
+        <div className="v cidrs">
+          {geoBadges.length === 0 ? (
+            <span style={{ color: "var(--text-4)" }}>—</span>
+          ) : (
+            geoBadges.map((geo) =>
+              geo ? (
+                <MonoPill key={geo.id} cyan>
+                  {flagFor(geo.country)} {geo.country}
+                </MonoPill>
+              ) : null,
+            )
+          )}
+        </div>
+        <div className="k">DNS</div>
+        <div className="v cidrs">
+          {dnsBadges.length === 0 ? (
+            <span style={{ color: "var(--text-4)" }}>—</span>
+          ) : (
+            dnsBadges.map((dns) =>
+              dns ? <MonoPill key={dns.id} accent>{dns.name}</MonoPill> : null,
+            )
+          )}
+        </div>
+        <div className="k">IPset</div>
+        <div className="v cidrs">
+          {ipsetBadges.length === 0 ? (
+            <span style={{ color: "var(--text-4)" }}>—</span>
+          ) : (
+            ipsetBadges.map((group) =>
+              group ? (
+                <MonoPill key={group.id} green>
+                  {group.name} ({group.cidrs.length})
+                </MonoPill>
+              ) : null,
+            )
+          )}
+        </div>
+      </div>
+    </div>
+  );
 }
