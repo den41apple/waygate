@@ -1,6 +1,6 @@
 [project]
 name = "waygate-agent"
-version = "0.1.9"
+version = "0.1.10"
 requires-python = ">=3.11"
 # `waygate-shared` намеренно НЕ в зависимостях — он vendored внутрь wheel'а
 # через симлинку `agent/shared -> ../shared`. На target-сервере нет workspace,
