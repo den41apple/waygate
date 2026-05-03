@@ -129,7 +129,10 @@ class RoutingScope(StrEnum):
 
 
 class RoutingRule(BaseModel):
-    country: CountryCode = Field(description="Код страны ISO 3166-1 alpha-2 (RU, BY ...)")
+    country: CountryCode | None = Field(
+        default=None,
+        description="Код страны ISO 3166-1 alpha-2 (RU, BY ...) либо None для DNS/IPset-правил",
+    )
     ipset_name: IpsetName = Field(description="Имя ipset-множества (russia, belarus ...)")
     fwmark: int = Field(ge=1, le=0xFFFFFFFF, description="Метка пакетов для policy routing")
     table_id: int = Field(ge=1, le=252, description="Номер таблицы маршрутизации")

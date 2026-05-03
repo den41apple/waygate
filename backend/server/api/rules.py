@@ -167,7 +167,11 @@ async def apply_rules(
     request = ApplyRulesRequest(
         rules=[
             AgentRoutingRule(
-                country=rule.country,
+                # `--` — плейсхолдер для DNS/IPset правил (см. directions.py::_materialize_rules).
+                # Старые версии агента ждут CountryCode по `^[A-Za-z]{2}$` — отправляем
+                # `ZZ` (ISO 3166-1 reserved code для unknown country); агент `country` вообще
+                # не использует, это метаданные. Новые версии агента примут и None.
+                country=rule.country if rule.country and rule.country != "--" else "ZZ",
                 ipset_name=rule.ipset_name,
                 fwmark=rule.fwmark,
                 table_id=rule.table_id,

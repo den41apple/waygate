@@ -14,7 +14,7 @@ SPEC закрыты + CI/CD + большой кусок техдолга и prod
 Защита: username/password → bcrypt + session-JWT. Первый админ создаётся при
 старте из ENV `WAYGATE_ADMIN_USER`/`WAYGATE_ADMIN_PASSWORD`.
 
-**68 backend-тестов + 6 e2e-тестов проходят**, ruff/format/mypy чисто, frontend
+**128 backend-тестов + 7 e2e-тестов проходят**, ruff/format/mypy чисто, frontend
 typecheck/build зелёные, docker compose поднимается за ~12 сек.
 
 ## Что где
@@ -64,9 +64,9 @@ cd ../frontend && npm run generate-types
 - **`agent.service`** живёт в **двух** местах: canonical в `backend/server/provisioner/agent.service`
   (читается через `importlib.resources` при онбординге), копия в `deploy/agent.service`
   для ops-конвенции. При изменении — править оба или хотя бы canonical.
-- **mypy `arg-type`/`attr-defined` отключены для `server.api.*`/`server.tasks.*`** —
-  это про SQLModel-column-descriptors в `where`/`order_by`/`.desc()`. Не пытаться
-  их «починить» через type: ignore — это известная боль SQLModel + mypy strict.
+- **mypy `arg-type`/`attr-defined`/`union-attr` отключены для `server.api.*`/`server.tasks.*`** —
+  это про SQLModel-column-descriptors в `where`/`order_by`/`.desc()`/`.in_()`/`.is_()`.
+  Не пытаться их «починить» через type: ignore — это известная боль SQLModel + mypy strict.
 - **Audit-middleware best-effort** — пишет с try/except, не должен ломать ответы.
   При добавлении новых sensitive-полей в Pydantic — обновить `_SENSITIVE_KEYS`
   в `backend/server/audit.py`.
@@ -77,3 +77,17 @@ cd ../frontend && npm run generate-types
 - **Все `/api/v1/*` (кроме `/auth/login`) защищены global dependency** —
   при добавлении нового роутера не забыть `dependencies=[Depends(require_user)]`
   в `app.include_router(...)`.
+- **`RoutingRule.direction_id` ON DELETE CASCADE** прописан и в `sa_column` модели,
+  и в alembic-миграции — нужно чтобы каскад работал и при `metadata.create_all` в
+  тестах (SQLite), и в проде (Postgres). Если меняешь FK — править оба.
+- **Direction CRUD-update** перематериализует child-`RoutingRule`'ы целиком
+  (delete + insert) при изменении любого из: `geo_list_ids`, `dns_rule_ids`,
+  `ipset_group_ids`, `via_interface`, `via_gateway`, `scope`, `scope_target`,
+  `enabled`. Diff'ать сложнее и чреват багами — не оптимизировать преждевременно.
+- **Data-migration в alembic** — для one-time data-перетряхивания (как
+  `_migrate_legacy_rules` в ревизии `e92c5b1f3a87`) пишем сырой SQL через
+  `op.get_bind()`, **не** импортируя ORM-модели. Это frozen-snapshot принцип:
+  если в будущем модель переименует поле, миграция всё равно должна работать.
+- **TabId migration в `store/ui.ts`** — старые сессии с `activeTab=geoip|dns`
+  валидно мапятся в `lists` через `migrate` хук persist v2. При добавлении новых
+  табов и удалении старых — обязательно обновить `migrate` или поднять `version`.

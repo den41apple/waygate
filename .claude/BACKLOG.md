@@ -93,14 +93,35 @@
 
 **Что сделать (опционально):** если нужна reprovision-функция без участия оператора — шифровать через `cryptography.fernet` ключом из `SECRET_KEY` и хранить в `Server.encrypted_ssh_creds`. Для MVP политика «минимум attack surface» оставлена.
 
-### 11. Edit-форма для существующих правил/DNS
+### 11. Edit-форма для существующих DNS / GeoIP / IPset / Direction
 
-**Состояние:** правила/DNS-записи создаются (модалки), удаляются и toggle'ятся. Полноценная **edit-форма** (изменение IP/маски/доменов уже существующей записи) пока только через REST/curl. Для UX-полноты можно добавить инлайн-edit на карточке (или открывать `AddRuleModal` в режиме edit). Не критично — через UI можно delete + create.
+**Состояние:** все эти сущности создаются (модалки) и удаляются; backend `PATCH` есть для всех (включая `RoutingDirection`). UI **edit-формы** ещё нет — нужно либо открывать AddXxxModal в режиме edit (с заполненными полями + кнопкой «Сохранить» вместо «Создать»), либо инлайн-edit на карточке. Не критично — через UI можно delete + create.
+
+### 12. ipset_group.* WS-events на бекенде
+
+**Состояние:** фронт-handler в `useWS.ts` для `ipset_group.created/updated/deleted` подготовлен (закомментирован), но backend не шлёт эти события — после CRUD `IpsetGroup` фронт обновляется только через ручной refetch / открытие таба. Не критично, т.к. правок IPset мало и они идут через свою модалку с `invalidateQueries`.
+
+**Что сделать:** в `server/api/ipset_groups.py` после `session.commit()` слать `WsEvent(type=EventType.IPSET_GROUP_CREATED, ...)` через `get_manager().broadcast(...)`; добавить три enum-значения в `server/ws/events.py::EventType`; добавить три литерала в `frontend/src/api/types.ts::WsEventType`; раскомментировать handler в `useWS.ts`.
+
+### 13. Унификация AwgClient `name` ↔ `awg-<name>` netdev
+
+**Состояние:** имя netdev'а генерится во фронте (`AddRoutingDirectionModal.tsx`) как `` `awg-${client.name.slice(0, 11)}` `` — это дублирует логику из `agent/awg_clients.py::_iface_name`. Если правила генерации netdev-имён в агенте поменяются (Linux IFNAMSIZ=16, поэтому 15 символов и `awg-`-префикс — фиксированы) — фронт и агент рассинхронизируются.
+
+**Что сделать:** агент возвращать `interface_name` в `/v1/clients` response → фронт берёт оттуда вместо локальной формулы. Уже есть `client.name`, нужен ещё `interface_name`.
 
 
 ---
 
 ## Что уже закрыто (для истории)
+
+### Routing-directions редизайн (Sprint 1-4)
+- ✅ **Custom IPset как третья сущность** (`backend/server/models/ipset_group.py` + миграция `d8e2f4a17b65`): `IpsetGroup(server_id, name, cidrs JSON)` с UNIQUE(server_id, name); агентский `apply_custom_ipset()` с atomic-swap (`ipset restore` во временный set + `ipset swap`); CRUD-API `/servers/{id}/ipset-groups` с `?apply=true` параметром для немедленного push'а на агента.
+- ✅ **`RoutingDirection` (header) + N child-`RoutingRule`'ов** (`backend/server/models/routing_direction.py` + миграция `e92c5b1f3a87`). Direction = «трафик из {GeoIP-зон, DNS-правил, IPset-групп} через VPN-клиента X». В UI пользователь чекбоксит несколько источников — server создаёт по одному `RoutingRule` на каждый источник с **общим** fwmark/table_id и `direction_id=<this.id>`. Это позволяет помечать пакеты разных ipset'ов одной меткой → они все идут в одну routing-таблицу → через один и тот же VPN-туннель.
+- ✅ **`agent_client.apply_custom_ipset()`** + WS-события `direction.created/.updated/.deleted` (`server/ws/events.py::EventType`).
+- ✅ **Frontend полностью переделан**: 4 главных таба (Routing, Tunnels, Lists, Metrics) вместо 5; `AddRoutingDirectionModal` с multi-select через CheckGroup (Set'ами для O(1) toggle), auto-fill `via_interface`/`via_gateway` из выбранного AWG-клиента, advanced-блок (`<details>`) скрывает scope/iface/gateway/fwmark; RoutingTab с группировкой по AWG-клиенту и бейджами geo/dns/ipset; `TunnelsTab` под-табами Клиенты/Серверные; `ListsTab` под-табами GeoIP/DNS/IPset; `IpsetGroupsTab` отдельная страница для Custom IPset (вынесена из `GeoIpTab`); persist v2 в `store/ui.ts` для миграции `activeTab=geoip|dns → lists`.
+- ✅ **Data-migration legacy `RoutingRule` → `RoutingDirection`** встроена в alembic-ревизию `e92c5b1f3a87` через `op.get_bind()` + сырой SQL (без зависимости от ORM-моделей — frozen-snapshot принцип). Группирует по `(server_id, via_interface, via_gateway, fwmark, table_id, scope, scope_target)`; имена `legacy-<iface>` с автоинкрементом при коллизии. Применяется автоматически при `alembic upgrade head` в Dockerfile entrypoint. Smoke-тест на эфемерной SQLite зафиксировал корректность (4 правила → 3 direction'а).
+- ✅ **Тесты**: 5 на ipset_groups API, 6 на directions API, 14 на парсер `.conf`, 7 на CRUD AwgClient + Fernet. Total 128 backend tests.
+- ✅ **Mypy-override** расширен на `union-attr` (для `RoutingDirection.id.in_()` и подобных SQLModel-column-descriptor паттернов в `server.api.*`/`server.tasks.*`).
 
 ### Auth-система control-plane
 - ✅ **Username/password + bcrypt + JWT** (Variant B). `User` модель + миграция + bcrypt(12 rounds). Сессионный JWT через `server/auth/session.py`, FastAPI-dependency `require_user` принимает Bearer-header или `?access_token=` query-param (для EventSource). Глобально защищены все `/api/v1/*` кроме `/auth/login`. Bootstrap первого админа из ENV (`WAYGATE_ADMIN_USER`/`WAYGATE_ADMIN_PASSWORD`) в lifespan.

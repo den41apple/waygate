@@ -45,12 +45,13 @@
 | — | **Auth (Variant B)**: User+bcrypt+JWT, login/me/logout, защита роутеров, bootstrap-админ из ENV, кнопка «Выход» в Topbar | ✅ |
 | — | **e2e Playwright**: 6 тестов (auth/onboarding-error+retry/server-crud-via-rest), CI job | ✅ |
 | — | **AddServerModal UX-фикс**: не уходим на «Готово» при ошибке, кнопки Повторить/Назад | ✅ |
+| — | **Routing-directions редизайн**: новая модель `RoutingDirection` (header) → N child-`RoutingRule`'ов с общим fwmark/table_id; UI с multi-select (geo/dns/ipset одной плашкой через одну fwmark), 4 главных таба (Routing/Tunnels/Lists/Metrics), Tunnels с под-табами Клиенты/Серверные, Lists с под-табами GeoIP/DNS/IPset, Custom IPset как третья сущность; data-migration legacy `RoutingRule` встроена в alembic-ревизию `e92c5b1f3a87` (применяется автоматически) | ✅ |
 
 ## Тестирование
 
-- **Backend**: `cd backend && uv run pytest` — **68 passed** (16 агент + 52 сервер; 15 из них — auth-тесты).
+- **Backend**: `cd backend && uv run pytest` — **128 passed** (агент + сервер, включая 6 directions-тестов и data-миграцию через alembic).
 - **Frontend**: `cd frontend && npm run typecheck && npm run build`.
-- **e2e**: `cd frontend && npm run test:e2e` — **6 passed** (~7-8 сек, реальный backend на sqlite).
+- **e2e**: `cd frontend && npm run test:e2e` — **7 passed** (~11 сек, реальный backend на sqlite).
 - **Compose smoke**: `cd deploy && docker compose up -d --build` — все 4 контейнера healthy за ~12 сек.
 - **CI**: `.github/workflows/ci.yml` гоняет всё это (backend → frontend → e2e) на каждый PR.
 
@@ -97,6 +98,26 @@
 - **WS hook** инвалидирует `queryKey` под каждое `EventType` через `queryClient`.
 - **SSE через EventSource** в `AddServerModal.tsx` — реальный live-лог онбординга.
 - **TweaksPanel** из дизайна не переносим (Claude Design dev-utility).
+- **persist v2 в `store/ui.ts`** — `migrate` хук в `zustand/middleware/persist`
+  мапит старые `activeTab=geoip|dns` в `lists` (после редизайна табов в Sprint 3).
+
+### Routing-directions архитектура (Sprint 1-4)
+- **`RoutingDirection` (header) + N child-`RoutingRule`'ов** с общим
+  `fwmark`/`table_id`/`via_*`. Direction = «трафик из {GeoIP-зон, DNS-правил,
+  IPset-групп} через VPN-клиента X». Поле `RoutingRule.direction_id` с
+  `ondelete=CASCADE` через `sa_column` — нужно чтобы CASCADE работал и в alembic,
+  и в SQLite-тестах через `metadata.create_all`. `_materialize_rules()` создаёт
+  по одному child-RoutingRule на каждый ref с одной общей fwmark.
+- **Reverse-lookup `_collect_refs`** — из child-правил восстанавливаем какие
+  `geo_list_ids/dns_rule_ids/ipset_group_ids` участвовали (по `ipset_name`).
+  Используется в GET-ответе и в `update_direction` без diff'а.
+- **`IpsetGroup` как третья сущность** — Custom CIDR-списки без GeoIP/DNS;
+  агентский `apply_custom_ipset()` с atomic-swap.
+- **Data-migration legacy → directions** встроена в alembic-ревизию
+  `e92c5b1f3a87` через `op.get_bind()` + сырой SQL. Группирует по
+  `(server_id, via_interface, via_gateway, fwmark, table_id, scope, scope_target)`;
+  имена `legacy-<iface>` с автоинкрементом при коллизии. Применяется
+  автоматически на `alembic upgrade head`.
 
 ## Известные TODO
 
@@ -137,13 +158,16 @@ backend/
 │   ├── alembic.ini + alembic/   # миграции
 │   ├── main.py                  # FastAPI + CORS + lifespan + роутеры + WS
 │   ├── config.py + db.py        # Settings + async engine
-│   ├── models/                  # 6 SQLModel-моделей
-│   ├── api/                     # servers, rules, dns, geoip, metrics, tls, provision
+│   ├── models/                  # SQLModel: server, user, rule, dns, geo, tls, metrics,
+│   │                            #          audit, awg_client, ipset_group, routing_direction
+│   ├── api/                     # servers, rules, directions, ipset_groups, clients, dns,
+│   │                            #          geoip, metrics, tls, provision, audit, auth
 │   ├── agent_client/            # aiohttp + tenacity-retry
 │   ├── ws/                      # events, auth (JWT), manager, router
 │   ├── provisioner/             # ssh, steps, registry, service
-│   ├── tasks/metrics_poller.py  # фоновый опрос
-│   └── tests/                   # 30 тестов
+│   ├── scripts/dump_openapi.py  # генерация openapi.json для CI drift-check
+│   ├── tasks/metrics_poller.py  # фоновый опрос + healthcheck
+│   └── tests/                   # ~85 тестов
 └── shared/
     ├── pyproject.toml           # waygate-shared
     └── schemas.py               # Pydantic-контракт API агента
@@ -154,12 +178,20 @@ frontend/
 └── src/
     ├── main.tsx + App.tsx
     ├── styles.css                # CSS-тема панели
-    ├── components/               # Icon, primitives, Sidebar, Topbar, Tabs, StatusBar
-    ├── pages/                    # 5 табов
-    ├── modals/                   # AddServerModal (SSE), TlsModal
-    ├── api/                      # типы + fetch + хуки
-    ├── ws/                       # useWS, store
-    └── store/ui.ts               # Zustand
+    ├── components/               # Icon, primitives, Sidebar, Topbar, Tabs, StatusBar,
+    │                             # CountrySelect (datalist + flag)
+    ├── pages/                    # 4 главных таба: RoutingTab, TunnelsTab (sub-tabs
+    │                             # Клиенты/Серверные), ListsTab (sub-tabs GeoIP/DNS/IPset),
+    │                             # MetricsTab. Внутренние страницы под Lists:
+    │                             # GeoIpTab, DnsTab, IpsetGroupsTab.
+    ├── modals/                   # AddServerModal (SSE), TlsModal, UpdateAgentModal,
+    │                             # AddRoutingDirectionModal (multi-select),
+    │                             # AddDnsModal, AddGeoListModal, AddCustomIpsetModal,
+    │                             # AddAwgClientModal, QrModal
+    ├── api/                      # типы + fetch + хуки (servers, directions, rules,
+    │                             # dns, geoip, ipsetGroups, awgClients, ...)
+    ├── ws/                       # useWS — invalidate по EventType (включая direction.*)
+    └── store/ui.ts               # Zustand persist v2 (TabId migration geoip|dns → lists)
 
 deploy/
 ├── docker-compose.yml            # postgres + server + frontend + nginx

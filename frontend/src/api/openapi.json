@@ -1,0 +1,5222 @@
+{
+  "components": {
+    "schemas": {
+      "AcmeChallenge": {
+        "enum": [
+          "http01",
+          "dns01"
+        ],
+        "title": "AcmeChallenge",
+        "type": "string"
+      },
+      "ApplyDnsResponse": {
+        "properties": {
+          "applied": {
+            "description": "\u041f\u0440\u0438\u043c\u0435\u043d\u0435\u043d\u043e \u043f\u0440\u0430\u0432\u0438\u043b",
+            "title": "Applied",
+            "type": "integer"
+          },
+          "errors": {
+            "description": "\u041e\u0448\u0438\u0431\u043a\u0438 \u043f\u0440\u0438\u043c\u0435\u043d\u0435\u043d\u0438\u044f",
+            "items": {
+              "type": "string"
+            },
+            "title": "Errors",
+            "type": "array"
+          }
+        },
+        "required": [
+          "applied"
+        ],
+        "title": "ApplyDnsResponse",
+        "type": "object"
+      },
+      "ApplyRulesResponse": {
+        "properties": {
+          "applied": {
+            "description": "\u0414\u043e\u0431\u0430\u0432\u043b\u0435\u043d\u043e \u0438\u043b\u0438 \u0438\u0437\u043c\u0435\u043d\u0435\u043d\u043e \u043f\u0440\u0430\u0432\u0438\u043b",
+            "title": "Applied",
+            "type": "integer"
+          },
+          "errors": {
+            "description": "\u041e\u0448\u0438\u0431\u043a\u0438 \u043f\u0440\u0438\u043c\u0435\u043d\u0435\u043d\u0438\u044f",
+            "items": {
+              "type": "string"
+            },
+            "title": "Errors",
+            "type": "array"
+          },
+          "skipped": {
+            "description": "\u041f\u0440\u0430\u0432\u0438\u043b \u0431\u0435\u0437 \u0438\u0437\u043c\u0435\u043d\u0435\u043d\u0438\u0439",
+            "title": "Skipped",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "applied",
+          "skipped"
+        ],
+        "title": "ApplyRulesResponse",
+        "type": "object"
+      },
+      "AuditEntryResponse": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "ip": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ip"
+          },
+          "method": {
+            "title": "Method",
+            "type": "string"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "server_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Server Id"
+          },
+          "status_code": {
+            "title": "Status Code",
+            "type": "integer"
+          },
+          "timestamp": {
+            "format": "date-time",
+            "title": "Timestamp",
+            "type": "string"
+          },
+          "user": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User"
+          }
+        },
+        "required": [
+          "id",
+          "timestamp",
+          "method",
+          "path",
+          "server_id",
+          "status_code",
+          "user",
+          "ip"
+        ],
+        "title": "AuditEntryResponse",
+        "type": "object"
+      },
+      "AuditListResponse": {
+        "properties": {
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/AuditEntryResponse"
+            },
+            "title": "Entries",
+            "type": "array"
+          }
+        },
+        "required": [
+          "entries"
+        ],
+        "title": "AuditListResponse",
+        "type": "object"
+      },
+      "AuditRange": {
+        "enum": [
+          "1h",
+          "24h",
+          "7d"
+        ],
+        "title": "AuditRange",
+        "type": "string"
+      },
+      "AwgClientListResponse": {
+        "properties": {
+          "clients": {
+            "items": {
+              "$ref": "#/components/schemas/AwgClientResponse"
+            },
+            "title": "Clients",
+            "type": "array"
+          }
+        },
+        "required": [
+          "clients"
+        ],
+        "title": "AwgClientListResponse",
+        "type": "object"
+      },
+      "AwgClientResponse": {
+        "properties": {
+          "container_name": {
+            "title": "Container Name",
+            "type": "string"
+          },
+          "country": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Country"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "interface_address": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Interface Address"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "peer_endpoint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Peer Endpoint"
+          },
+          "peer_pubkey": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Peer Pubkey"
+          },
+          "server_id": {
+            "title": "Server Id",
+            "type": "integer"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "server_id",
+          "name",
+          "container_name",
+          "status",
+          "country",
+          "peer_endpoint",
+          "peer_pubkey",
+          "interface_address",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "AwgClientResponse",
+        "type": "object"
+      },
+      "CreateClientPayload": {
+        "properties": {
+          "config_text": {
+            "description": "\u041f\u043e\u043b\u043d\u044b\u0439 .conf-\u0444\u0430\u0439\u043b",
+            "title": "Config Text",
+            "type": "string"
+          },
+          "country": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "ISO-2 \u043a\u043e\u0434 \u0441\u0442\u0440\u0430\u043d\u044b VPN",
+            "title": "Country"
+          },
+          "name": {
+            "description": "\u0418\u0434\u0435\u043d\u0442\u0438\u0444\u0438\u043a\u0430\u0442\u043e\u0440 \u043a\u043b\u0438\u0435\u043d\u0442\u0430 (a-z0-9-)",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,29}$",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "config_text"
+        ],
+        "title": "CreateClientPayload",
+        "type": "object"
+      },
+      "DirectionCreate": {
+        "properties": {
+          "awg_client_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "ID waygate-amnezia-\u043a\u043b\u0438\u0435\u043d\u0442\u0430; null = \u043c\u0430\u0440\u0448\u0440\u0443\u0442 \u0431\u0435\u0437 VPN",
+            "title": "Awg Client Id"
+          },
+          "dns_rule_ids": {
+            "description": "ID DNS-\u043f\u0440\u0430\u0432\u0438\u043b",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Dns Rule Ids",
+            "type": "array"
+          },
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "geo_list_ids": {
+            "description": "ID GeoList'\u043e\u0432, \u0447\u044c\u0438 ipset'\u044b \u043f\u043e\u043f\u0430\u0434\u0443\u0442 \u0432 \u044d\u0442\u043e \u043d\u0430\u043f\u0440\u0430\u0432\u043b\u0435\u043d\u0438\u0435",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Geo List Ids",
+            "type": "array"
+          },
+          "ipset_group_ids": {
+            "description": "ID custom IPset-\u0433\u0440\u0443\u043f\u043f",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Ipset Group Ids",
+            "type": "array"
+          },
+          "name": {
+            "description": "\u0427\u0435\u043b\u043e\u0432\u0435\u0447\u0435\u0441\u043a\u043e\u0435 \u0438\u043c\u044f \u043d\u0430\u043f\u0440\u0430\u0432\u043b\u0435\u043d\u0438\u044f (\u043d\u0430\u043f\u0440\u0438\u043c\u0435\u0440: 'Streaming-EU')",
+            "title": "Name",
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/RoutingScope",
+            "default": "host"
+          },
+          "scope_target": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scope Target"
+          },
+          "via_gateway": {
+            "description": "IP next-hop'\u0430 \u0432\u043d\u0443\u0442\u0440\u0438 \u0442\u0443\u043d\u043d\u0435\u043b\u044f",
+            "title": "Via Gateway",
+            "type": "string"
+          },
+          "via_interface": {
+            "description": "Netdev \u043d\u0430 \u0445\u043e\u0441\u0442\u0435",
+            "pattern": "^[a-zA-Z0-9_.-]{1,64}$",
+            "title": "Via Interface",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "via_interface",
+          "via_gateway"
+        ],
+        "title": "DirectionCreate",
+        "type": "object"
+      },
+      "DirectionListResponse": {
+        "properties": {
+          "directions": {
+            "items": {
+              "$ref": "#/components/schemas/DirectionResponse"
+            },
+            "title": "Directions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "directions"
+        ],
+        "title": "DirectionListResponse",
+        "type": "object"
+      },
+      "DirectionResponse": {
+        "properties": {
+          "awg_client_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Awg Client Id"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "dns_rule_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Dns Rule Ids",
+            "type": "array"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "fwmark": {
+            "title": "Fwmark",
+            "type": "integer"
+          },
+          "geo_list_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Geo List Ids",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "ipset_group_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Ipset Group Ids",
+            "type": "array"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "scope": {
+            "title": "Scope",
+            "type": "string"
+          },
+          "scope_target": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scope Target"
+          },
+          "server_id": {
+            "title": "Server Id",
+            "type": "integer"
+          },
+          "table_id": {
+            "title": "Table Id",
+            "type": "integer"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "via_gateway": {
+            "title": "Via Gateway",
+            "type": "string"
+          },
+          "via_interface": {
+            "title": "Via Interface",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "server_id",
+          "awg_client_id",
+          "name",
+          "fwmark",
+          "table_id",
+          "via_interface",
+          "via_gateway",
+          "scope",
+          "scope_target",
+          "enabled",
+          "geo_list_ids",
+          "dns_rule_ids",
+          "ipset_group_ids",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "DirectionResponse",
+        "type": "object"
+      },
+      "DirectionUpdate": {
+        "description": "PATCH \u2014 \u0447\u0430\u0441\u0442\u0438\u0447\u043d\u043e\u0435 \u043e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u0438\u0435, \u043b\u044e\u0431\u043e\u0435 \u043f\u043e\u043b\u0435 \u043c\u043e\u0436\u043d\u043e \u043e\u043f\u0443\u0441\u0442\u0438\u0442\u044c.",
+        "properties": {
+          "awg_client_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Awg Client Id"
+          },
+          "dns_rule_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dns Rule Ids"
+          },
+          "enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enabled"
+          },
+          "geo_list_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Geo List Ids"
+          },
+          "ipset_group_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ipset Group Ids"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "scope": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RoutingScope"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "scope_target": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scope Target"
+          },
+          "via_gateway": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Via Gateway"
+          },
+          "via_interface": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Via Interface"
+          }
+        },
+        "title": "DirectionUpdate",
+        "type": "object"
+      },
+      "DnsProvider": {
+        "enum": [
+          "cloudflare",
+          "desec",
+          "route53"
+        ],
+        "title": "DnsProvider",
+        "type": "string"
+      },
+      "DnsRuleCreate": {
+        "properties": {
+          "domains": {
+            "description": "\u0414\u043e\u043c\u0435\u043d\u044b \u0434\u043b\u044f \u043f\u043e\u0434\u043c\u0435\u043d\u044b \u0440\u0435\u0437\u043e\u043b\u0432\u0430 \u0432 ipset",
+            "items": {
+              "type": "string"
+            },
+            "title": "Domains",
+            "type": "array"
+          },
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "ipset_name": {
+            "description": "\u041a\u0443\u0434\u0430 \u043f\u0438\u0441\u0430\u0442\u044c \u0440\u0435\u0437\u043e\u043b\u0432\u044b",
+            "title": "Ipset Name",
+            "type": "string"
+          },
+          "name": {
+            "description": "\u0413\u0440\u0443\u043f\u043f\u0430 \u0434\u043e\u043c\u0435\u043d\u043e\u0432, \u0434\u043b\u044f UI",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "domains",
+          "ipset_name"
+        ],
+        "title": "DnsRuleCreate",
+        "type": "object"
+      },
+      "DnsRuleListResponse": {
+        "properties": {
+          "rules": {
+            "items": {
+              "$ref": "#/components/schemas/DnsRuleResponse"
+            },
+            "title": "Rules",
+            "type": "array"
+          }
+        },
+        "required": [
+          "rules"
+        ],
+        "title": "DnsRuleListResponse",
+        "type": "object"
+      },
+      "DnsRuleResponse": {
+        "properties": {
+          "domains": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Domains",
+            "type": "array"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "ipset_name": {
+            "title": "Ipset Name",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "server_id": {
+            "title": "Server Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "server_id",
+          "name",
+          "domains",
+          "ipset_name",
+          "enabled"
+        ],
+        "title": "DnsRuleResponse",
+        "type": "object"
+      },
+      "DnsRuleUpdate": {
+        "properties": {
+          "domains": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Domains"
+          },
+          "enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enabled"
+          },
+          "ipset_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ipset Name"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "title": "DnsRuleUpdate",
+        "type": "object"
+      },
+      "GeoIpSyncResponse": {
+        "properties": {
+          "cidrs_loaded": {
+            "description": "\u0417\u0430\u0433\u0440\u0443\u0436\u0435\u043d\u043e CIDR-\u0431\u043b\u043e\u043a\u043e\u0432",
+            "title": "Cidrs Loaded",
+            "type": "integer"
+          },
+          "duration_ms": {
+            "description": "\u0412\u0440\u0435\u043c\u044f \u0432\u044b\u043f\u043e\u043b\u043d\u0435\u043d\u0438\u044f \u0432 \u043c\u0438\u043b\u043b\u0438\u0441\u0435\u043a\u0443\u043d\u0434\u0430\u0445",
+            "title": "Duration Ms",
+            "type": "integer"
+          },
+          "ipset_name": {
+            "description": "\u0418\u043c\u044f \u043f\u0440\u0438\u043c\u0435\u043d\u0451\u043d\u043d\u043e\u0433\u043e ipset",
+            "title": "Ipset Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "cidrs_loaded",
+          "ipset_name",
+          "duration_ms"
+        ],
+        "title": "GeoIpSyncResponse",
+        "type": "object"
+      },
+      "GeoIpSyncTrigger": {
+        "properties": {
+          "custom_cidrs": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Custom Cidrs",
+            "type": "array"
+          },
+          "geo_list_id": {
+            "description": "id GeoList, \u043a\u043e\u0442\u043e\u0440\u044b\u0439 \u0441\u0438\u043d\u0445\u0440\u043e\u043d\u0438\u0437\u0438\u0440\u0443\u0435\u043c",
+            "title": "Geo List Id",
+            "type": "integer"
+          },
+          "ipset_name": {
+            "description": "\u041a\u0443\u0434\u0430 \u0437\u0430\u043b\u0438\u0432\u0430\u0442\u044c \u043d\u0430 \u0430\u0433\u0435\u043d\u0442\u0435",
+            "title": "Ipset Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "geo_list_id",
+          "ipset_name"
+        ],
+        "title": "GeoIpSyncTrigger",
+        "type": "object"
+      },
+      "GeoListCreate": {
+        "properties": {
+          "country": {
+            "description": "\u041a\u043e\u0434 \u0441\u0442\u0440\u0430\u043d\u044b ISO 3166-1 alpha-2",
+            "title": "Country",
+            "type": "string"
+          },
+          "name": {
+            "description": "\u0427\u0435\u043b\u043e\u0432\u0435\u043a\u043e\u0447\u0438\u0442\u0430\u0435\u043c\u043e\u0435 \u0438\u043c\u044f \u0441\u043f\u0438\u0441\u043a\u0430",
+            "title": "Name",
+            "type": "string"
+          },
+          "source_url": {
+            "description": "URL zone-\u0444\u0430\u0439\u043b\u0430",
+            "title": "Source Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "country",
+          "name",
+          "source_url"
+        ],
+        "title": "GeoListCreate",
+        "type": "object"
+      },
+      "GeoListListResponse": {
+        "properties": {
+          "lists": {
+            "items": {
+              "$ref": "#/components/schemas/GeoListResponse"
+            },
+            "title": "Lists",
+            "type": "array"
+          }
+        },
+        "required": [
+          "lists"
+        ],
+        "title": "GeoListListResponse",
+        "type": "object"
+      },
+      "GeoListResponse": {
+        "properties": {
+          "country": {
+            "title": "Country",
+            "type": "string"
+          },
+          "custom_count": {
+            "title": "Custom Count",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "ipv4_count": {
+            "title": "Ipv4 Count",
+            "type": "integer"
+          },
+          "ipv6_count": {
+            "title": "Ipv6 Count",
+            "type": "integer"
+          },
+          "last_synced_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Synced At"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "source_url": {
+            "title": "Source Url",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "country",
+          "name",
+          "source_url",
+          "ipv4_count",
+          "ipv6_count",
+          "custom_count",
+          "last_synced_at",
+          "status"
+        ],
+        "title": "GeoListResponse",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "IpsetGroupCreate": {
+        "properties": {
+          "cidrs": {
+            "description": "\u0421\u043f\u0438\u0441\u043e\u043a CIDR/IP",
+            "items": {
+              "type": "string"
+            },
+            "title": "Cidrs",
+            "type": "array"
+          },
+          "name": {
+            "description": "\u0418\u043c\u044f ipset \u043d\u0430 \u0430\u0433\u0435\u043d\u0442\u0435",
+            "pattern": "^[a-zA-Z0-9_.-]{1,31}$",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "IpsetGroupCreate",
+        "type": "object"
+      },
+      "IpsetGroupListResponse": {
+        "properties": {
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/IpsetGroupResponse"
+            },
+            "title": "Groups",
+            "type": "array"
+          }
+        },
+        "required": [
+          "groups"
+        ],
+        "title": "IpsetGroupListResponse",
+        "type": "object"
+      },
+      "IpsetGroupResponse": {
+        "properties": {
+          "cidrs": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Cidrs",
+            "type": "array"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "server_id": {
+            "title": "Server Id",
+            "type": "integer"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "server_id",
+          "name",
+          "cidrs",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "IpsetGroupResponse",
+        "type": "object"
+      },
+      "IpsetGroupUpdate": {
+        "properties": {
+          "cidrs": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cidrs"
+          }
+        },
+        "title": "IpsetGroupUpdate",
+        "type": "object"
+      },
+      "LoginRequest": {
+        "properties": {
+          "password": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Password",
+            "type": "string"
+          },
+          "username": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": [
+          "username",
+          "password"
+        ],
+        "title": "LoginRequest",
+        "type": "object"
+      },
+      "LoginResponse": {
+        "properties": {
+          "token": {
+            "title": "Token",
+            "type": "string"
+          },
+          "ttl_seconds": {
+            "title": "Ttl Seconds",
+            "type": "integer"
+          },
+          "user": {
+            "$ref": "#/components/schemas/UserResponse"
+          }
+        },
+        "required": [
+          "token",
+          "ttl_seconds",
+          "user"
+        ],
+        "title": "LoginResponse",
+        "type": "object"
+      },
+      "MetricsPointResponse": {
+        "properties": {
+          "rx_bytes": {
+            "title": "Rx Bytes",
+            "type": "integer"
+          },
+          "timestamp": {
+            "format": "date-time",
+            "title": "Timestamp",
+            "type": "string"
+          },
+          "tx_bytes": {
+            "title": "Tx Bytes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "timestamp",
+          "rx_bytes",
+          "tx_bytes"
+        ],
+        "title": "MetricsPointResponse",
+        "type": "object"
+      },
+      "MetricsRange": {
+        "enum": [
+          "1h",
+          "6h",
+          "24h"
+        ],
+        "title": "MetricsRange",
+        "type": "string"
+      },
+      "MetricsRangeResponse": {
+        "properties": {
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/MetricsPointResponse"
+            },
+            "title": "Points",
+            "type": "array"
+          },
+          "range": {
+            "$ref": "#/components/schemas/MetricsRange"
+          }
+        },
+        "required": [
+          "range",
+          "points"
+        ],
+        "title": "MetricsRangeResponse",
+        "type": "object"
+      },
+      "PeerInfo": {
+        "properties": {
+          "endpoint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "\u0410\u0434\u0440\u0435\u0441 \u043f\u0438\u0440\u0430 (ip:port)",
+            "title": "Endpoint"
+          },
+          "last_handshake": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "\u0412\u0440\u0435\u043c\u044f \u043f\u043e\u0441\u043b\u0435\u0434\u043d\u0435\u0433\u043e handshake",
+            "title": "Last Handshake"
+          },
+          "public_key": {
+            "description": "\u041f\u0443\u0431\u043b\u0438\u0447\u043d\u044b\u0439 \u043a\u043b\u044e\u0447 \u043f\u0438\u0440\u0430 WireGuard",
+            "title": "Public Key",
+            "type": "string"
+          },
+          "rx_bytes": {
+            "description": "\u041f\u0440\u0438\u043d\u044f\u0442\u043e \u0431\u0430\u0439\u0442",
+            "title": "Rx Bytes",
+            "type": "integer"
+          },
+          "tx_bytes": {
+            "description": "\u041f\u0435\u0440\u0435\u0434\u0430\u043d\u043e \u0431\u0430\u0439\u0442",
+            "title": "Tx Bytes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "public_key",
+          "endpoint",
+          "last_handshake",
+          "rx_bytes",
+          "tx_bytes"
+        ],
+        "title": "PeerInfo",
+        "type": "object"
+      },
+      "ProvisionRequest": {
+        "properties": {
+          "agent_port": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "\u041f\u043e\u0440\u0442 \u0430\u0433\u0435\u043d\u0442\u0430 \u043f\u043e\u0441\u043b\u0435 \u0443\u0441\u0442\u0430\u043d\u043e\u0432\u043a\u0438 (default 7743)",
+            "title": "Agent Port"
+          },
+          "host": {
+            "description": "DNS-\u0438\u043c\u044f \u0438\u043b\u0438 IP \u0441\u0435\u0440\u0432\u0435\u0440\u0430",
+            "title": "Host",
+            "type": "string"
+          },
+          "name": {
+            "description": "\u0427\u0435\u043b\u043e\u0432\u0435\u043a\u043e\u0447\u0438\u0442\u0430\u0435\u043c\u043e\u0435 \u0438\u043c\u044f",
+            "title": "Name",
+            "type": "string"
+          },
+          "region": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Region"
+          },
+          "ssh_password": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "\u041f\u0430\u0440\u043e\u043b\u044c (\u043b\u0438\u0431\u043e ssh_private_key)",
+            "title": "Ssh Password"
+          },
+          "ssh_port": {
+            "default": 22,
+            "description": "SSH-\u043f\u043e\u0440\u0442",
+            "title": "Ssh Port",
+            "type": "integer"
+          },
+          "ssh_private_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Private key \u0432 PEM-\u0444\u043e\u0440\u043c\u0430\u0442\u0435",
+            "title": "Ssh Private Key"
+          },
+          "ssh_user": {
+            "default": "root",
+            "description": "SSH-\u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u044c",
+            "title": "Ssh User",
+            "type": "string"
+          }
+        },
+        "required": [
+          "host",
+          "name"
+        ],
+        "title": "ProvisionRequest",
+        "type": "object"
+      },
+      "RotateTokenResponse": {
+        "properties": {
+          "rotated": {
+            "description": "\u0423\u0434\u0430\u043b\u043e\u0441\u044c \u043b\u0438 \u043f\u0435\u0440\u0435\u0437\u0430\u043f\u0438\u0441\u0430\u0442\u044c \u0442\u043e\u043a\u0435\u043d",
+            "title": "Rotated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "rotated"
+        ],
+        "title": "RotateTokenResponse",
+        "type": "object"
+      },
+      "RoutingScope": {
+        "enum": [
+          "host",
+          "container"
+        ],
+        "title": "RoutingScope",
+        "type": "string"
+      },
+      "RuleCreate": {
+        "properties": {
+          "country": {
+            "description": "\u041a\u043e\u0434 \u0441\u0442\u0440\u0430\u043d\u044b ISO 3166-1 alpha-2",
+            "title": "Country",
+            "type": "string"
+          },
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "fwmark": {
+            "description": "\u041c\u0435\u0442\u043a\u0430 \u043f\u0430\u043a\u0435\u0442\u0430",
+            "title": "Fwmark",
+            "type": "integer"
+          },
+          "ipset_name": {
+            "description": "\u0418\u043c\u044f ipset \u043d\u0430 \u0430\u0433\u0435\u043d\u0442\u0435",
+            "title": "Ipset Name",
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/RoutingScope",
+            "default": "host",
+            "description": "\u0413\u0434\u0435 \u043f\u0440\u0438\u043c\u0435\u043d\u044f\u0442\u044c (host|container)"
+          },
+          "scope_target": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "\u0418\u043c\u044f docker-\u043a\u043e\u043d\u0442\u0435\u0439\u043d\u0435\u0440\u0430 \u0434\u043b\u044f scope=container",
+            "title": "Scope Target"
+          },
+          "table_id": {
+            "description": "\u0422\u0430\u0431\u043b\u0438\u0446\u0430 \u043c\u0430\u0440\u0448\u0440\u0443\u0442\u0438\u0437\u0430\u0446\u0438\u0438",
+            "title": "Table Id",
+            "type": "integer"
+          },
+          "via_gateway": {
+            "description": "\u0428\u043b\u044e\u0437 \u0432\u043d\u0443\u0442\u0440\u0438 \u0442\u0443\u043d\u043d\u0435\u043b\u044f",
+            "title": "Via Gateway",
+            "type": "string"
+          },
+          "via_interface": {
+            "description": "\u0418\u0441\u0445\u043e\u0434\u044f\u0449\u0438\u0439 \u0438\u043d\u0442\u0435\u0440\u0444\u0435\u0439\u0441 \u043d\u0430 \u0430\u0433\u0435\u043d\u0442\u0435",
+            "title": "Via Interface",
+            "type": "string"
+          }
+        },
+        "required": [
+          "country",
+          "ipset_name",
+          "fwmark",
+          "table_id",
+          "via_interface",
+          "via_gateway"
+        ],
+        "title": "RuleCreate",
+        "type": "object"
+      },
+      "RuleListResponse": {
+        "properties": {
+          "rules": {
+            "items": {
+              "$ref": "#/components/schemas/RuleResponse"
+            },
+            "title": "Rules",
+            "type": "array"
+          }
+        },
+        "required": [
+          "rules"
+        ],
+        "title": "RuleListResponse",
+        "type": "object"
+      },
+      "RuleResponse": {
+        "properties": {
+          "country": {
+            "title": "Country",
+            "type": "string"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "fwmark": {
+            "title": "Fwmark",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "ipset_name": {
+            "title": "Ipset Name",
+            "type": "string"
+          },
+          "scope": {
+            "title": "Scope",
+            "type": "string"
+          },
+          "scope_target": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scope Target"
+          },
+          "server_id": {
+            "title": "Server Id",
+            "type": "integer"
+          },
+          "table_id": {
+            "title": "Table Id",
+            "type": "integer"
+          },
+          "via_gateway": {
+            "title": "Via Gateway",
+            "type": "string"
+          },
+          "via_interface": {
+            "title": "Via Interface",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "server_id",
+          "country",
+          "ipset_name",
+          "fwmark",
+          "table_id",
+          "via_interface",
+          "via_gateway",
+          "enabled",
+          "scope",
+          "scope_target"
+        ],
+        "title": "RuleResponse",
+        "type": "object"
+      },
+      "RuleUpdate": {
+        "properties": {
+          "enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enabled"
+          },
+          "fwmark": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fwmark"
+          },
+          "scope": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RoutingScope"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "scope_target": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scope Target"
+          },
+          "table_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Table Id"
+          },
+          "via_gateway": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Via Gateway"
+          },
+          "via_interface": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Via Interface"
+          }
+        },
+        "title": "RuleUpdate",
+        "type": "object"
+      },
+      "ServerCreate": {
+        "properties": {
+          "host": {
+            "description": "DNS-\u0438\u043c\u044f \u0438\u043b\u0438 IP \u0430\u0433\u0435\u043d\u0442\u0430",
+            "title": "Host",
+            "type": "string"
+          },
+          "name": {
+            "description": "\u0427\u0435\u043b\u043e\u0432\u0435\u043a\u043e\u0447\u0438\u0442\u0430\u0435\u043c\u043e\u0435 \u0438\u043c\u044f \u0441\u0435\u0440\u0432\u0435\u0440\u0430",
+            "title": "Name",
+            "type": "string"
+          },
+          "port": {
+            "default": 7743,
+            "description": "HTTPS-\u043f\u043e\u0440\u0442 \u0430\u0433\u0435\u043d\u0442\u0430",
+            "title": "Port",
+            "type": "integer"
+          },
+          "region": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "\u0420\u0435\u0433\u0438\u043e\u043d/\u0433\u0440\u0443\u043f\u043f\u0430 \u0434\u043b\u044f sidebar",
+            "title": "Region"
+          },
+          "token": {
+            "description": "Bearer-\u0442\u043e\u043a\u0435\u043d \u0430\u0433\u0435\u043d\u0442\u0430",
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "host",
+          "name",
+          "token"
+        ],
+        "title": "ServerCreate",
+        "type": "object"
+      },
+      "ServerListResponse": {
+        "properties": {
+          "servers": {
+            "items": {
+              "$ref": "#/components/schemas/ServerResponse"
+            },
+            "title": "Servers",
+            "type": "array"
+          }
+        },
+        "required": [
+          "servers"
+        ],
+        "title": "ServerListResponse",
+        "type": "object"
+      },
+      "ServerResponse": {
+        "properties": {
+          "added_at": {
+            "format": "date-time",
+            "title": "Added At",
+            "type": "string"
+          },
+          "awg_containers": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Awg Containers",
+            "type": "array"
+          },
+          "host": {
+            "title": "Host",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "last_seen_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Seen At"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "port": {
+            "title": "Port",
+            "type": "integer"
+          },
+          "region": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Region"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "host",
+          "port",
+          "name",
+          "version",
+          "status",
+          "region",
+          "awg_containers",
+          "added_at",
+          "last_seen_at"
+        ],
+        "title": "ServerResponse",
+        "type": "object"
+      },
+      "TlsApplyResponse": {
+        "properties": {
+          "cert_path": {
+            "description": "\u041f\u0443\u0442\u044c \u043a \u043f\u0440\u0438\u043c\u0435\u043d\u0451\u043d\u043d\u043e\u043c\u0443 \u0441\u0435\u0440\u0442\u0438\u0444\u0438\u043a\u0430\u0442\u0443 \u043d\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0435",
+            "title": "Cert Path",
+            "type": "string"
+          },
+          "domains": {
+            "description": "\u0414\u043e\u043c\u0435\u043d\u044b \u0432 \u0441\u0435\u0440\u0442\u0438\u0444\u0438\u043a\u0430\u0442\u0435",
+            "items": {
+              "type": "string"
+            },
+            "title": "Domains",
+            "type": "array"
+          },
+          "expires_at": {
+            "description": "\u0414\u0430\u0442\u0430 \u0438\u0441\u0442\u0435\u0447\u0435\u043d\u0438\u044f \u0441\u0435\u0440\u0442\u0438\u0444\u0438\u043a\u0430\u0442\u0430",
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "cert_path",
+          "expires_at",
+          "domains"
+        ],
+        "title": "TlsApplyResponse",
+        "type": "object"
+      },
+      "TlsConfig": {
+        "properties": {
+          "cert_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "\u041f\u0443\u0442\u044c \u043a cert.pem \u043d\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0435",
+            "title": "Cert Path"
+          },
+          "cert_pem": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "\u0421\u043e\u0434\u0435\u0440\u0436\u0438\u043c\u043e\u0435 cert.pem (base64)",
+            "title": "Cert Pem"
+          },
+          "challenge": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AcmeChallenge"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "\u0422\u0438\u043f ACME-challenge"
+          },
+          "dns_api_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "API-\u043a\u043b\u044e\u0447 DNS-\u043f\u0440\u043e\u0432\u0430\u0439\u0434\u0435\u0440\u0430",
+            "title": "Dns Api Key"
+          },
+          "dns_provider": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DnsProvider"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "DNS-\u043f\u0440\u043e\u0432\u0430\u0439\u0434\u0435\u0440 \u0434\u043b\u044f DNS-01"
+          },
+          "domains": {
+            "description": "\u0414\u043e\u043c\u0435\u043d\u044b \u0434\u043b\u044f \u0441\u0435\u0440\u0442\u0438\u0444\u0438\u043a\u0430\u0442\u0430",
+            "items": {
+              "type": "string"
+            },
+            "title": "Domains",
+            "type": "array"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Email \u0434\u043b\u044f Let's Encrypt",
+            "title": "Email"
+          },
+          "key_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "\u041f\u0443\u0442\u044c \u043a key.pem \u043d\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0435",
+            "title": "Key Path"
+          },
+          "key_pem": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "\u0421\u043e\u0434\u0435\u0440\u0436\u0438\u043c\u043e\u0435 key.pem (base64)",
+            "title": "Key Pem"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/TlsMode",
+            "description": "\u0420\u0435\u0436\u0438\u043c \u043f\u043e\u043b\u0443\u0447\u0435\u043d\u0438\u044f \u0441\u0435\u0440\u0442\u0438\u0444\u0438\u043a\u0430\u0442\u0430"
+          },
+          "port": {
+            "default": 7743,
+            "description": "\u041f\u043e\u0440\u0442 \u0430\u0433\u0435\u043d\u0442\u0430",
+            "title": "Port",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "mode"
+        ],
+        "title": "TlsConfig",
+        "type": "object"
+      },
+      "TlsConfigResponse": {
+        "properties": {
+          "config": {
+            "additionalProperties": true,
+            "description": "\u0421\u0435\u0440\u0438\u0430\u043b\u0438\u0437\u043e\u0432\u0430\u043d\u043d\u044b\u0439 TlsConfig (\u0431\u0435\u0437 \u0441\u0435\u043a\u0440\u0435\u0442\u043e\u0432)",
+            "title": "Config",
+            "type": "object"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "server_id": {
+            "title": "Server Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "server_id",
+          "config",
+          "expires_at"
+        ],
+        "title": "TlsConfigResponse",
+        "type": "object"
+      },
+      "TlsMode": {
+        "enum": [
+          "upload",
+          "path",
+          "acme"
+        ],
+        "title": "TlsMode",
+        "type": "string"
+      },
+      "TunnelInfo": {
+        "properties": {
+          "container_name": {
+            "description": "\u0418\u043c\u044f Docker-\u043a\u043e\u043d\u0442\u0435\u0439\u043d\u0435\u0440\u0430",
+            "title": "Container Name",
+            "type": "string"
+          },
+          "interface": {
+            "description": "\u0421\u0435\u0442\u0435\u0432\u043e\u0439 \u0438\u043d\u0442\u0435\u0440\u0444\u0435\u0439\u0441",
+            "title": "Interface",
+            "type": "string"
+          },
+          "peers": {
+            "description": "\u0421\u043f\u0438\u0441\u043e\u043a \u043f\u0438\u0440\u043e\u0432",
+            "items": {
+              "$ref": "#/components/schemas/PeerInfo"
+            },
+            "title": "Peers",
+            "type": "array"
+          },
+          "status": {
+            "$ref": "#/components/schemas/TunnelStatus",
+            "description": "\u0421\u043e\u0441\u0442\u043e\u044f\u043d\u0438\u0435 \u0442\u0443\u043d\u043d\u0435\u043b\u044f"
+          }
+        },
+        "required": [
+          "container_name",
+          "interface",
+          "peers",
+          "status"
+        ],
+        "title": "TunnelInfo",
+        "type": "object"
+      },
+      "TunnelStatus": {
+        "enum": [
+          "up",
+          "down",
+          "degraded"
+        ],
+        "title": "TunnelStatus",
+        "type": "string"
+      },
+      "TunnelsResponse": {
+        "properties": {
+          "tunnels": {
+            "description": "\u0412\u0441\u0435 AWG-\u0442\u0443\u043d\u043d\u0435\u043b\u0438 \u043d\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0435",
+            "items": {
+              "$ref": "#/components/schemas/TunnelInfo"
+            },
+            "title": "Tunnels",
+            "type": "array"
+          }
+        },
+        "required": [
+          "tunnels"
+        ],
+        "title": "TunnelsResponse",
+        "type": "object"
+      },
+      "UpdateServerRequest": {
+        "properties": {
+          "version": {
+            "description": "\u0426\u0435\u043b\u0435\u0432\u0430\u044f \u0432\u0435\u0440\u0441\u0438\u044f \u0430\u0433\u0435\u043d\u0442\u0430 (\u043d\u0430\u043f\u0440\u0438\u043c\u0435\u0440 0.2.0)",
+            "title": "Version",
+            "type": "string"
+          },
+          "wait_for_reconnect": {
+            "default": true,
+            "description": "\u0414\u043e\u0436\u0434\u0430\u0442\u044c\u0441\u044f \u043f\u043e\u044f\u0432\u043b\u0435\u043d\u0438\u044f \u043d\u043e\u0432\u043e\u0439 \u0432\u0435\u0440\u0441\u0438\u0438",
+            "title": "Wait For Reconnect",
+            "type": "boolean"
+          },
+          "wheel_url": {
+            "description": "URL wheel-\u0444\u0430\u0439\u043b\u0430 \u043d\u0430 GitHub Releases",
+            "title": "Wheel Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "wheel_url"
+        ],
+        "title": "UpdateServerRequest",
+        "type": "object"
+      },
+      "UpdateStartResponse": {
+        "properties": {
+          "server_id": {
+            "title": "Server Id",
+            "type": "integer"
+          },
+          "stream_url": {
+            "description": "\u041e\u0442\u043d\u043e\u0441\u0438\u0442\u0435\u043b\u044c\u043d\u044b\u0439 URL \u0434\u043b\u044f \u043f\u043e\u0434\u043f\u0438\u0441\u043a\u0438 \u043d\u0430 \u043b\u043e\u0433 \u0430\u043f\u0434\u0435\u0439\u0442\u0430 \u0447\u0435\u0440\u0435\u0437 EventSource",
+            "title": "Stream Url",
+            "type": "string"
+          },
+          "target_version": {
+            "title": "Target Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "server_id",
+          "target_version",
+          "stream_url"
+        ],
+        "title": "UpdateStartResponse",
+        "type": "object"
+      },
+      "UserResponse": {
+        "properties": {
+          "is_admin": {
+            "title": "Is Admin",
+            "type": "boolean"
+          },
+          "username": {
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": [
+          "username",
+          "is_admin"
+        ],
+        "title": "UserResponse",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      },
+      "WsTokenResponse": {
+        "properties": {
+          "token": {
+            "title": "Token",
+            "type": "string"
+          },
+          "ttl_seconds": {
+            "title": "Ttl Seconds",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "token",
+          "ttl_seconds"
+        ],
+        "title": "WsTokenResponse",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "Waygate Control Plane",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/v1/audit": {
+      "get": {
+        "description": "\u041f\u043e\u0441\u043b\u0435\u0434\u043d\u0438\u0435 \u0437\u0430\u043f\u0438\u0441\u0438 \u0430\u0443\u0434\u0438\u0442\u0430. payload \u043d\u0435 \u0432\u043e\u0437\u0432\u0440\u0430\u0449\u0430\u0435\u043c \u0432 \u043b\u0438\u0441\u0442\u0438\u043d\u0433\u0435 \u2014 \u043e\u043d \u043c\u043e\u0436\u0435\u0442 \u0431\u044b\u0442\u044c \u0431\u043e\u043b\u044c\u0448\u0438\u043c.",
+        "operationId": "list_audit_api_v1_audit_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "range",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/AuditRange",
+              "default": "24h"
+            }
+          },
+          {
+            "in": "query",
+            "name": "server_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Server Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 200,
+              "maximum": 1000,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Access Token",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Audit",
+        "tags": [
+          "audit"
+        ]
+      }
+    },
+    "/api/v1/auth/login": {
+      "post": {
+        "description": "\u041b\u043e\u0433\u0438\u043d \u043f\u043e username/password. \u0412\u043e\u0437\u0432\u0440\u0430\u0449\u0430\u0435\u0442 session-JWT + \u043f\u0440\u043e\u0444\u0438\u043b\u044c \u044e\u0437\u0435\u0440\u0430.",
+        "operationId": "login_api_v1_auth_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Login",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/logout": {
+      "post": {
+        "description": "No-op \u0434\u043b\u044f stateless JWT \u2014 \u0444\u0440\u043e\u043d\u0442 \u0441\u0430\u043c \u0447\u0438\u0441\u0442\u0438\u0442 localStorage.\n\n\u042d\u043d\u0434\u043f\u043e\u0438\u043d\u0442 \u043d\u0443\u0436\u0435\u043d \u0434\u043b\u044f \u0430\u0443\u0434\u0438\u0442-\u043b\u043e\u0433\u0430 (\u0437\u0430\u0444\u0438\u043a\u0441\u0438\u0440\u043e\u0432\u0430\u0442\u044c \u0444\u0430\u043a\u0442 \u0432\u044b\u0445\u043e\u0434\u0430) \u0438 \u043f\u043e\u0434 \u0431\u0443\u0434\u0443\u0449\u0438\u0439\nblacklist \u043f\u0440\u0438 \u043f\u0435\u0440\u0435\u0445\u043e\u0434\u0435 \u043d\u0430 refresh-tokens.",
+        "operationId": "logout_api_v1_auth_logout_post",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Access Token",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Logout",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/me": {
+      "get": {
+        "description": "\u0412\u043e\u0437\u0432\u0440\u0430\u0449\u0430\u0435\u0442 \u0442\u0435\u043a\u0443\u0449\u0435\u0433\u043e \u044e\u0437\u0435\u0440\u0430. \u0418\u0441\u043f\u043e\u043b\u044c\u0437\u0443\u0435\u0442\u0441\u044f \u0444\u0440\u043e\u043d\u0442\u043e\u043c \u043f\u0440\u0438 \u0441\u0442\u0430\u0440\u0442\u0435 \u0434\u043b\u044f \u043f\u0440\u043e\u0432\u0435\u0440\u043a\u0438 \u0441\u0435\u0441\u0441\u0438\u0438.",
+        "operationId": "me_api_v1_auth_me_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Access Token",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Me",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/ws-token": {
+      "post": {
+        "description": "\u0412\u044b\u0434\u0430\u0451\u0442 \u043a\u043e\u0440\u043e\u0442\u043a\u043e\u0436\u0438\u0432\u0443\u0449\u0438\u0439 JWT \u0434\u043b\u044f \u043f\u043e\u0434\u043a\u043b\u044e\u0447\u0435\u043d\u0438\u044f \u043a /ws/events.\n\n\u0422\u0440\u0435\u0431\u0443\u0435\u0442 session-Bearer'\u0430; ws-token \u043d\u0430\u0441\u043b\u0435\u0434\u0443\u0435\u0442 identity \u044e\u0437\u0435\u0440\u0430 \u0434\u043b\u044f \u0431\u0443\u0434\u0443\u0449\u0435\u0433\u043e\nuser-scoped audit (\u043a\u043e\u0433\u0434\u0430 WS \u043d\u0430\u0447\u043d\u0451\u0442 \u043f\u0438\u0441\u0430\u0442\u044c \u0432 audit-log).",
+        "operationId": "issue_ws_token_api_v1_auth_ws_token_post",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Access Token",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WsTokenResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Issue Ws Token",
+        "tags": [
+          "ws"
+        ]
+      }
+    },
+    "/api/v1/geoip/lists": {
+      "get": {
+        "operationId": "list_geoip_api_v1_geoip_lists_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Access Token",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GeoListListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Geoip",
+        "tags": [
+          "geoip"
+        ]
+      },
+      "post": {
+        "operationId": "create_geoip_list_api_v1_geoip_lists_post",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Access Token",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GeoListCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GeoListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Geoip List",
+        "tags": [
+          "geoip"
+        ]
+      }
+    },
+    "/api/v1/geoip/lists/{geo_list_id}": {
+      "delete": {
+        "operationId": "delete_geoip_list_api_v1_geoip_lists__geo_list_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "geo_list_id",
+            "required": true,
+            "schema": {
+              "title": "Geo List Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Access Token",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Geoip List",
+        "tags": [
+          "geoip"
+        ]
+      }
+    },
+    "/api/v1/servers": {
+      "get": {
+        "operationId": "list_servers_api_v1_servers_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Access Token",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Servers",
+        "tags": [
+          "servers"
+        ]
+      },
+      "post": {
+        "operationId": "create_server_api_v1_servers_post",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Access Token",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ServerCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Server",
+        "tags": [
+          "servers"
+        ]
+      }
+    },
+    "/api/v1/servers/provision": {
+      "post": {
+        "description": "\u0421\u043e\u0437\u0434\u0430\u0451\u0442 Server-record \u0441\u043e \u0441\u0442\u0430\u0442\u0443\u0441\u043e\u043c provisioning, \u0437\u0430\u043f\u0443\u0441\u043a\u0430\u0435\u0442 background-\u0442\u0430\u0441\u043a\u0443.\n\n\u041a\u043b\u0438\u0435\u043d\u0442 \u043f\u043e\u043b\u0443\u0447\u0430\u0435\u0442 id \u0438 \u0441\u0440\u0430\u0437\u0443 \u043f\u043e\u0434\u043f\u0438\u0441\u044b\u0432\u0430\u0435\u0442\u0441\u044f \u043d\u0430 /provision/stream \u0447\u0442\u043e\u0431\u044b \u0432\u0438\u0434\u0435\u0442\u044c \u043b\u043e\u0433.",
+        "operationId": "provision_server_api_v1_servers_provision_post",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Access Token",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProvisionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Provision Server",
+        "tags": [
+          "provision"
+        ]
+      }
+    },
+    "/api/v1/servers/{server_id}": {
+      "delete": {
+        "operationId": "delete_server_api_v1_servers__server_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "server_id",
+            "required": true,
+            "schema": {
+              "title": "Server Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Access Token",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Server",
+        "tags": [
+          "servers"
+        ]
+      },
+      "get": {
+        "operationId": "get_server_api_v1_servers__server_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "server_id",
+            "required": true,
+            "schema": {
+              "title": "Server Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Access Token",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Server",
+        "tags": [
+          "servers"
+        ]
+      }
+    },
+    "/api/v1/servers/{server_id}/clients": {
+      "get": {
+        "operationId": "list_clients_api_v1_servers__server_id__clients_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "server_id",
+            "required": true,
+            "schema": {
+              "title": "Server Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Access Token",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AwgClientListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Clients",
+        "tags": [
+          "awg-clients"
+        ]
+      },
+      "post": {
+        "operationId": "create_client_api_v1_servers__server_id__clients_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "server_id",
+            "required": true,
+            "schema": {
+              "title": "Server Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Access Token",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateClientPayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AwgClientResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Client",
+        "tags": [
+          "awg-clients"
+        ]
+      }
+    },
+    "/api/v1/servers/{server_id}/clients/{client_id}": {
+      "delete": {
+        "operationId": "delete_client_api_v1_servers__server_id__clients__client_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "server_id",
+            "required": true,
+            "schema": {
+              "title": "Server Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "client_id",
+            "required": true,
+            "schema": {
+              "title": "Client Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Access Token",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Client",
+        "tags": [
+          "awg-clients"
+        ]
+      }
+    },
+    "/api/v1/servers/{server_id}/clients/{client_id}/config": {
+      "get": {
+        "description": "\u0412\u043e\u0437\u0432\u0440\u0430\u0449\u0430\u0435\u0442 \u0440\u0430\u0441\u0448\u0438\u0444\u0440\u043e\u0432\u0430\u043d\u043d\u044b\u0439 .conf \u2014 \u0434\u043b\u044f \u0441\u043a\u0430\u0447\u0438\u0432\u0430\u043d\u0438\u044f \u0444\u0430\u0439\u043b\u0430 \u0438\u0437 UI.",
+        "operationId": "get_client_config_api_v1_servers__server_id__clients__client_id__config_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "server_id",
+            "required": true,
+            "schema": {
+              "title": "Server Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "client_id",
+            "required": true,
+            "schema": {
+              "title": "Client Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Access Token",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Client Config",
+        "tags": [
+          "awg-clients"
+        ]
+      }
+    },
+    "/api/v1/servers/{server_id}/clients/{client_id}/qr": {
+      "get": {
+        "description": "\u041f\u0440\u043e\u043a\u0441\u0438 PNG-\u0431\u0430\u0439\u0442\u043e\u0432 QR-\u043a\u043e\u0434\u0430 \u0441 \u0430\u0433\u0435\u043d\u0442\u0430 (\u0433\u0435\u043d\u0435\u0440\u0438\u0440\u0443\u0435\u0442\u0441\u044f \u0447\u0435\u0440\u0435\u0437 qrencode).",
+        "operationId": "get_client_qr_api_v1_servers__server_id__clients__client_id__qr_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "server_id",
+            "required": true,
+            "schema": {
+              "title": "Server Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "client_id",
+            "required": true,
+            "schema": {
+              "title": "Client Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Access Token",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Client Qr",
+        "tags": [
+          "awg-clients"
+        ]
+      }
+    },
+    "/api/v1/servers/{server_id}/clients/{client_id}/start": {
+      "post": {
+        "operationId": "start_client_api_v1_servers__server_id__clients__client_id__start_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "server_id",
+            "required": true,
+            "schema": {
+              "title": "Server Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "client_id",
+            "required": true,
+            "schema": {
+              "title": "Client Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Access Token",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AwgClientResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Start Client",
+        "tags": [
+          "awg-clients"
+        ]
+      }
+    },
+    "/api/v1/servers/{server_id}/clients/{client_id}/stop": {
+      "post": {
+        "operationId": "stop_client_api_v1_servers__server_id__clients__client_id__stop_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "server_id",
+            "required": true,
+            "schema": {
+              "title": "Server Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "client_id",
+            "required": true,
+            "schema": {
+              "title": "Client Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Access Token",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AwgClientResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Stop Client",
+        "tags": [
+          "awg-clients"
+        ]
+      }
+    },
+    "/api/v1/servers/{server_id}/directions": {
+      "get": {
+        "operationId": "list_directions_api_v1_servers__server_id__directions_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "server_id",
+            "required": true,
+            "schema": {
+              "title": "Server Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Access Token",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DirectionListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Directions",
+        "tags": [
+          "directions"
+        ]
+      },
+      "post": {
+        "operationId": "create_direction_api_v1_servers__server_id__directions_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "server_id",
+            "required": true,
+            "schema": {
+              "title": "Server Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Access Token",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DirectionCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DirectionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Direction",
+        "tags": [
+          "directions"
+        ]
+      }
+    },
+    "/api/v1/servers/{server_id}/directions/{direction_id}": {
+      "delete": {
+        "operationId": "delete_direction_api_v1_servers__server_id__directions__direction_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "server_id",
+            "required": true,
+            "schema": {
+              "title": "Server Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "direction_id",
+            "required": true,
+            "schema": {
+              "title": "Direction Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Access Token",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Direction",
+        "tags": [
+          "directions"
+        ]
+      },
+      "patch": {
+        "operationId": "update_direction_api_v1_servers__server_id__directions__direction_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "server_id",
+            "required": true,
+            "schema": {
+              "title": "Server Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "direction_id",
+            "required": true,
+            "schema": {
+              "title": "Direction Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Access Token",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DirectionUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DirectionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Direction",
+        "tags": [
+          "directions"
+        ]
+      }
+    },
+    "/api/v1/servers/{server_id}/dns": {
+      "get": {
+        "operationId": "list_dns_rules_api_v1_servers__server_id__dns_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "server_id",
+            "required": true,
+            "schema": {
+              "title": "Server Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Access Token",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DnsRuleListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Dns Rules",
+        "tags": [
+          "dns"
+        ]
+      },
+      "post": {
+        "operationId": "create_dns_rule_api_v1_servers__server_id__dns_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "server_id",
+            "required": true,
+            "schema": {
+              "title": "Server Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Access Token",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DnsRuleCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DnsRuleResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Dns Rule",
+        "tags": [
+          "dns"
+        ]
+      }
+    },
+    "/api/v1/servers/{server_id}/dns/apply": {
+      "post": {
+        "operationId": "apply_dns_api_v1_servers__server_id__dns_apply_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "server_id",
+            "required": true,
+            "schema": {
+              "title": "Server Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Access Token",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplyDnsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Apply Dns",
+        "tags": [
+          "dns"
+        ]
+      }
+    },
+    "/api/v1/servers/{server_id}/dns/{rule_id}": {
+      "delete": {
+        "operationId": "delete_dns_rule_api_v1_servers__server_id__dns__rule_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "server_id",
+            "required": true,
+            "schema": {
+              "title": "Server Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "rule_id",
+            "required": true,
+            "schema": {
+              "title": "Rule Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Access Token",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Dns Rule",
+        "tags": [
+          "dns"
+        ]
+      },
+      "patch": {
+        "operationId": "update_dns_rule_api_v1_servers__server_id__dns__rule_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "server_id",
+            "required": true,
+            "schema": {
+              "title": "Server Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "rule_id",
+            "required": true,
+            "schema": {
+              "title": "Rule Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Access Token",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DnsRuleUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DnsRuleResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Dns Rule",
+        "tags": [
+          "dns"
+        ]
+      }
+    },
+    "/api/v1/servers/{server_id}/geoip/sync": {
+      "post": {
+        "description": "\u0422\u0440\u0438\u0433\u0433\u0435\u0440 \u0441\u0438\u043d\u0445\u0440\u043e\u043d\u0438\u0437\u0430\u0446\u0438\u0438 \u0441\u043f\u0438\u0441\u043a\u0430 \u043d\u0430 \u0430\u0433\u0435\u043d\u0442\u0435: GeoList + ipset_name \u2192 POST /v1/geoip/sync.",
+        "operationId": "trigger_geoip_sync_api_v1_servers__server_id__geoip_sync_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "server_id",
+            "required": true,
+            "schema": {
+              "title": "Server Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Access Token",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GeoIpSyncTrigger"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GeoIpSyncResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Trigger Geoip Sync",
+        "tags": [
+          "geoip"
+        ]
+      }
+    },
+    "/api/v1/servers/{server_id}/ipset-groups": {
+      "get": {
+        "operationId": "list_groups_api_v1_servers__server_id__ipset_groups_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "server_id",
+            "required": true,
+            "schema": {
+              "title": "Server Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Access Token",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IpsetGroupListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Groups",
+        "tags": [
+          "ipset-groups"
+        ]
+      },
+      "post": {
+        "operationId": "create_group_api_v1_servers__server_id__ipset_groups_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "server_id",
+            "required": true,
+            "schema": {
+              "title": "Server Id",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "\u0421\u0440\u0430\u0437\u0443 \u043f\u0440\u0438\u043c\u0435\u043d\u0438\u0442\u044c \u043d\u0430 \u0430\u0433\u0435\u043d\u0442\u0435",
+            "in": "query",
+            "name": "apply",
+            "required": false,
+            "schema": {
+              "default": true,
+              "description": "\u0421\u0440\u0430\u0437\u0443 \u043f\u0440\u0438\u043c\u0435\u043d\u0438\u0442\u044c \u043d\u0430 \u0430\u0433\u0435\u043d\u0442\u0435",
+              "title": "Apply",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Access Token",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IpsetGroupCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IpsetGroupResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Group",
+        "tags": [
+          "ipset-groups"
+        ]
+      }
+    },
+    "/api/v1/servers/{server_id}/ipset-groups/{group_id}": {
+      "delete": {
+        "operationId": "delete_group_api_v1_servers__server_id__ipset_groups__group_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "server_id",
+            "required": true,
+            "schema": {
+              "title": "Server Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "group_id",
+            "required": true,
+            "schema": {
+              "title": "Group Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Access Token",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Group",
+        "tags": [
+          "ipset-groups"
+        ]
+      },
+      "patch": {
+        "operationId": "update_group_api_v1_servers__server_id__ipset_groups__group_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "server_id",
+            "required": true,
+            "schema": {
+              "title": "Server Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "group_id",
+            "required": true,
+            "schema": {
+              "title": "Group Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "apply",
+            "required": false,
+            "schema": {
+              "default": true,
+              "title": "Apply",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Access Token",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IpsetGroupUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IpsetGroupResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Group",
+        "tags": [
+          "ipset-groups"
+        ]
+      }
+    },
+    "/api/v1/servers/{server_id}/metrics": {
+      "get": {
+        "operationId": "get_metrics_api_v1_servers__server_id__metrics_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "server_id",
+            "required": true,
+            "schema": {
+              "title": "Server Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "range",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/MetricsRange",
+              "default": "1h"
+            }
+          },
+          {
+            "in": "query",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Access Token",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MetricsRangeResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Metrics",
+        "tags": [
+          "metrics"
+        ]
+      }
+    },
+    "/api/v1/servers/{server_id}/provision/stream": {
+      "get": {
+        "description": "SSE-\u0441\u0442\u0440\u0438\u043c \u043b\u043e\u0433\u0430 \u043e\u043d\u0431\u043e\u0440\u0434\u0438\u043d\u0433\u0430. \u0420\u0435\u043f\u043b\u0435\u0438\u0442 \u0438\u0441\u0442\u043e\u0440\u0438\u044e + \u0441\u0442\u0440\u0438\u043c\u0438\u0442 \u0434\u043e finish.",
+        "operationId": "provision_stream_api_v1_servers__server_id__provision_stream_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "server_id",
+            "required": true,
+            "schema": {
+              "title": "Server Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Access Token",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Provision Stream",
+        "tags": [
+          "provision"
+        ]
+      }
+    },
+    "/api/v1/servers/{server_id}/refresh": {
+      "post": {
+        "description": "\u041e\u043f\u0440\u0430\u0448\u0438\u0432\u0430\u0435\u0442 \u0430\u0433\u0435\u043d\u0442 \u0438 \u043e\u0431\u043d\u043e\u0432\u043b\u044f\u0435\u0442 version/awg_containers/status/last_seen_at \u0432 \u0411\u0414.",
+        "operationId": "refresh_server_api_v1_servers__server_id__refresh_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "server_id",
+            "required": true,
+            "schema": {
+              "title": "Server Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Access Token",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Refresh Server",
+        "tags": [
+          "servers"
+        ]
+      }
+    },
+    "/api/v1/servers/{server_id}/rules": {
+      "get": {
+        "operationId": "list_rules_api_v1_servers__server_id__rules_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "server_id",
+            "required": true,
+            "schema": {
+              "title": "Server Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Access Token",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuleListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Rules",
+        "tags": [
+          "rules"
+        ]
+      },
+      "post": {
+        "operationId": "create_rule_api_v1_servers__server_id__rules_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "server_id",
+            "required": true,
+            "schema": {
+              "title": "Server Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Access Token",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RuleCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuleResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Rule",
+        "tags": [
+          "rules"
+        ]
+      }
+    },
+    "/api/v1/servers/{server_id}/rules/apply": {
+      "post": {
+        "description": "\u0411\u0435\u0440\u0451\u0442 \u0432\u0441\u0451 \u0441\u043e\u0434\u0435\u0440\u0436\u0438\u043c\u043e\u0435 \u0442\u0430\u0431\u043b\u0438\u0446\u044b routing_rule \u0434\u043b\u044f server_id \u0438 \u0448\u043b\u0451\u0442 \u043d\u0430 \u0430\u0433\u0435\u043d\u0442.",
+        "operationId": "apply_rules_api_v1_servers__server_id__rules_apply_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "server_id",
+            "required": true,
+            "schema": {
+              "title": "Server Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Access Token",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplyRulesResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Apply Rules",
+        "tags": [
+          "rules"
+        ]
+      }
+    },
+    "/api/v1/servers/{server_id}/rules/{rule_id}": {
+      "delete": {
+        "operationId": "delete_rule_api_v1_servers__server_id__rules__rule_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "server_id",
+            "required": true,
+            "schema": {
+              "title": "Server Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "rule_id",
+            "required": true,
+            "schema": {
+              "title": "Rule Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Access Token",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Rule",
+        "tags": [
+          "rules"
+        ]
+      },
+      "patch": {
+        "operationId": "update_rule_api_v1_servers__server_id__rules__rule_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "server_id",
+            "required": true,
+            "schema": {
+              "title": "Server Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "rule_id",
+            "required": true,
+            "schema": {
+              "title": "Rule Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Access Token",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RuleUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuleResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Rule",
+        "tags": [
+          "rules"
+        ]
+      }
+    },
+    "/api/v1/servers/{server_id}/tls": {
+      "get": {
+        "operationId": "get_tls_api_v1_servers__server_id__tls_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "server_id",
+            "required": true,
+            "schema": {
+              "title": "Server Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Access Token",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TlsConfigResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Tls",
+        "tags": [
+          "tls"
+        ]
+      },
+      "post": {
+        "operationId": "apply_tls_api_v1_servers__server_id__tls_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "server_id",
+            "required": true,
+            "schema": {
+              "title": "Server Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Access Token",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TlsConfig"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TlsApplyResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Apply Tls",
+        "tags": [
+          "tls"
+        ]
+      }
+    },
+    "/api/v1/servers/{server_id}/token/rotate": {
+      "post": {
+        "description": "\u0417\u0430\u043f\u0440\u0430\u0448\u0438\u0432\u0430\u0435\u0442 \u0443 \u0430\u0433\u0435\u043d\u0442\u0430 \u043d\u043e\u0432\u044b\u0439 Bearer-\u0442\u043e\u043a\u0435\u043d \u0438 \u0441\u043e\u0445\u0440\u0430\u043d\u044f\u0435\u0442 \u0435\u0433\u043e \u0432 \u0411\u0414.\n\n\u0421\u0442\u0430\u0440\u044b\u0439 \u0442\u043e\u043a\u0435\u043d \u043c\u043e\u043c\u0435\u043d\u0442\u0430\u043b\u044c\u043d\u043e \u0441\u0442\u0430\u043d\u043e\u0432\u0438\u0442\u0441\u044f \u043d\u0435\u0432\u0430\u043b\u0438\u0434\u043d\u044b\u043c \u2014 \u0430\u0433\u0435\u043d\u0442 \u043f\u0435\u0440\u0435\u0437\u0430\u043f\u0438\u0441\u044b\u0432\u0430\u0435\u0442 env-\u0444\u0430\u0439\u043b\n\u0438 \u043e\u0431\u043d\u043e\u0432\u043b\u044f\u0435\u0442 settings.token \u0432 \u043f\u0430\u043c\u044f\u0442\u0438 \u0414\u041e \u043e\u0442\u0432\u0435\u0442\u0430.",
+        "operationId": "rotate_server_token_api_v1_servers__server_id__token_rotate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "server_id",
+            "required": true,
+            "schema": {
+              "title": "Server Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Access Token",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RotateTokenResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Rotate Server Token",
+        "tags": [
+          "servers"
+        ]
+      }
+    },
+    "/api/v1/servers/{server_id}/tunnels": {
+      "get": {
+        "description": "\u041f\u0440\u043e\u043a\u0441\u0438\u0440\u0443\u0435\u0442 /v1/tunnels \u0430\u0433\u0435\u043d\u0442\u0430 \u2014 \u043e\u0442\u0434\u0430\u0451\u0442 live-\u0441\u043f\u0438\u0441\u043e\u043a \u043f\u0438\u0440\u043e\u0432 \u0441 rx/tx/handshake.",
+        "operationId": "get_tunnels_api_v1_servers__server_id__tunnels_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "server_id",
+            "required": true,
+            "schema": {
+              "title": "Server Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Access Token",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TunnelsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Tunnels",
+        "tags": [
+          "tunnels"
+        ]
+      }
+    },
+    "/api/v1/servers/{server_id}/update": {
+      "post": {
+        "description": "\u0417\u0430\u043f\u0443\u0441\u043a\u0430\u0435\u0442 self-update \u0430\u0433\u0435\u043d\u0442\u0430 \u0432 background-\u0442\u0430\u0441\u043a\u0435. \u041f\u0440\u043e\u0433\u0440\u0435\u0441\u0441 \u043e\u0442\u0434\u0430\u0451\u0442\u0441\u044f \u0447\u0435\u0440\u0435\u0437\n`GET /servers/{id}/update/stream` (SSE), \u0447\u0442\u043e\u0431\u044b UI \u043c\u043e\u0433 \u0440\u0435\u043d\u0434\u0435\u0440\u0438\u0442\u044c \u043b\u043e\u0433 \u043a\u0430\u043a \u043f\u0440\u0438\n\u043e\u043d\u0431\u043e\u0440\u0434\u0438\u043d\u0433\u0435, \u0430 HTTP-\u0437\u0430\u043f\u0440\u043e\u0441 \u043d\u0435 \u0432\u0438\u0441\u0435\u043b \u0434\u0435\u0441\u044f\u0442\u043a\u0438 \u0441\u0435\u043a\u0443\u043d\u0434 \u0432 \u043e\u0436\u0438\u0434\u0430\u043d\u0438\u0438 reconnect.",
+        "operationId": "update_server_api_v1_servers__server_id__update_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "server_id",
+            "required": true,
+            "schema": {
+              "title": "Server Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Access Token",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateServerRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateStartResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Server",
+        "tags": [
+          "servers"
+        ]
+      }
+    },
+    "/api/v1/servers/{server_id}/update/stream": {
+      "get": {
+        "description": "SSE-\u0441\u0442\u0440\u0438\u043c \u043b\u043e\u0433\u0430 self-update'\u0430. \u0420\u0435\u043f\u043b\u0435\u0438\u0442 \u0438\u0441\u0442\u043e\u0440\u0438\u044e + \u0441\u0442\u0440\u0438\u043c\u0438\u0442 \u0434\u043e finish.",
+        "operationId": "update_stream_api_v1_servers__server_id__update_stream_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "server_id",
+            "required": true,
+            "schema": {
+              "title": "Server Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Access Token",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Stream",
+        "tags": [
+          "servers"
+        ]
+      }
+    },
+    "/metrics": {
+      "get": {
+        "description": "Endpoint that serves Prometheus metrics.",
+        "operationId": "metrics_metrics_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Metrics"
+      }
+    }
+  }
+}
