@@ -165,13 +165,13 @@
 
 **Дополнительно:** в `agent/awg_clients.py::deploy_client` добавить `--privileged` (sysctl `src_valid_mark` иначе падает на read-only `/proc/sys`). Без `Table=off` privileged смертельно опасен — поэтому два изменения уходят в один релиз.
 
-### 18. Real-Docker testcontainers для агент-тестов
+### 18. Real-Docker integration в CI (release-pipeline)
 
-**Состояние:** агент-тесты сейчас мокают subprocess через monkeypatch (`fake_run`), что покрывает логику но не ловит реальные проблемы (sysctl read-only, awg-quick hijack default-route, ipset с другим типом, и т.п.). Эти баги проявились только на проде.
+**Состояние:** integration-тесты есть локально (`agent/tests/test_integration.py`, маркер `@pytest.mark.integration`, по умолчанию выключены в `addopts`). Поднимают `--privileged`-контейнер с ipset/iptables/dnsmasq, гоняют HTTP к живому granian'у; 3 теста — smoke status, dns-apply пишет конфиг, ipset idempotency. Локально ~63 сек (build+run), на macOS Docker Desktop работает.
 
-**Что сделать (опционально, объёмно):** testcontainers поднимает debian-контейнер с installed `docker.io` + `ipset` + `iptables` + `dnsmasq` + `systemd` (через systemd-в-контейнере). Внутри запускается агент через wheel или editable install, тесты дёргают /v1/* endpoints HTTP-клиентом. Требует docker-in-docker, больше 5+ мин в CI, и flaky на ARM-runner'ах.
+**Что сделать в CI:** добавить отдельный job в `.github/workflows/ci.yml` (или новый `.github/workflows/agent-integration.yml`) — запускает только при пуше тега `agent-v*` или label на PR'е. На GitHub-runners (`ubuntu-latest`) docker daemon доступен из коробки. Команда: `cd backend && uv run pytest -m integration`.
 
-**Реалистичный путь:** включить в release-pipeline (тег `agent-v*`) как pre-publish gate. Не на каждый PR.
+Не включать в каждый PR — build+run образа долгий, а unit-тесты с fake_run уже покрывают логику.
 
 ### 19. Аннотации параметров в существующих тестах (постепенно)
 

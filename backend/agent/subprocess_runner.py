@@ -21,13 +21,21 @@ async def run_command(
 
     При check=True кидает CommandError на ненулевом returncode.
     При check=False возвращает stdout даже при ошибке (нужно для idempotent-проверок).
+    Также CommandError выбрасывается если бинарь не найден (FileNotFoundError
+    от subprocess.Popen) — это унифицирует обработку у вызывающего: не нужно
+    дополнительно ловить FileNotFoundError, достаточно одного `except CommandError`.
     """
-    process = await asyncio.create_subprocess_exec(
-        *command,
-        stdin=asyncio.subprocess.PIPE if stdin is not None else None,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
+    try:
+        process = await asyncio.create_subprocess_exec(
+            *command,
+            stdin=asyncio.subprocess.PIPE if stdin is not None else None,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    except FileNotFoundError as exc:
+        if not check:
+            return ""
+        raise CommandError(command=command, returncode=127, stderr=str(exc)) from exc
     stdout_bytes, stderr_bytes = await process.communicate(stdin)
     stdout = stdout_bytes.decode("utf-8", errors="replace")
     stderr = stderr_bytes.decode("utf-8", errors="replace")

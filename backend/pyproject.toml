@@ -19,6 +19,9 @@ dev = [
   "pytest-asyncio>=0.24",
   "httpx>=0.27",
   "pre-commit>=4.0",
+  # Для integration-тестов агента (поднимают реальный контейнер с
+  # ipset/iptables/dnsmasq и гоняют HTTP в живого granian'а).
+  "docker>=7.0",
   "waygate-agent",
   "waygate-server",
   "waygate-shared",
@@ -27,6 +30,13 @@ dev = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["agent/tests", "server/tests", "shared/tests"]
+# По умолчанию integration-тесты выключены — они тяжёлые (build+run контейнера),
+# и не у всех на dev-машине поднят docker daemon. Запуск явно:
+# `uv run pytest -m integration` или `uv run pytest --override-ini="addopts="`.
+addopts = "-m 'not integration'"
+markers = [
+  "integration: integration-тесты, поднимают docker-контейнер (нужен docker daemon)",
+]
 
 [tool.mypy]
 python_version = "3.13"
@@ -59,5 +69,5 @@ module = "server.alembic.*"
 ignore_errors = true
 
 [[tool.mypy.overrides]]
-module = ["envparse", "acme.*", "asyncssh.*", "apscheduler.*"]
+module = ["envparse", "acme.*", "asyncssh.*", "apscheduler.*", "docker", "docker.*"]
 ignore_missing_imports = true
