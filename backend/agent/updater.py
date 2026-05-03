@@ -20,6 +20,7 @@ _VENV_LIVE = "/opt/waygate-agent"
 _VENV_NEW = "/opt/waygate-agent.new"
 _VENV_BACKUP = "/opt/waygate-agent.bak"
 _SWAP_SCRIPT_PATH = Path("/tmp/waygate-update-swap.sh")
+_SWAP_LOG_PATH = Path("/var/log/waygate-update.log")
 _RESTART_DELAY_SECONDS = 2  # дать UpdateResponse долететь до сервера
 
 
@@ -40,9 +41,20 @@ async def _download_wheel(*, url: str, target: Path) -> None:
 
 
 def _build_swap_script(*, wheel_path: Path) -> str:
-    """Bash-скрипт: создать .new venv → установить wheel → swap dir'ов → restart."""
+    """Bash-скрипт: создать .new venv → установить wheel → swap dir'ов → restart.
+
+    Весь stdout/stderr перенаправлен в /var/log/waygate-update.log, потому что
+    основной процесс отвязан от родителя через setsid (агент в этот момент
+    рестартует, его journal'у мы не доверяем). При неудаче этот лог — единственный
+    источник диагностики; читать через `cat /var/log/waygate-update.log`.
+    """
     return f"""#!/bin/bash
-set -e
+# Перенаправляем весь вывод в файл — иначе при упавшем шаге диагностики 0.
+exec >>"{_SWAP_LOG_PATH}" 2>&1
+echo
+echo "===== $(date -Is) :: waygate-update-swap start ====="
+set -ex
+
 # Дать UpdateResponse долететь до control-plane'а до того как systemctl убьёт процесс.
 sleep {_RESTART_DELAY_SECONDS}
 
@@ -68,6 +80,8 @@ systemctl restart waygate-agent
 
 # 5. Cleanup. Делаем после restart, чтобы откат был возможен если systemctl упадёт.
 rm -rf "$BAK"
+
+echo "===== $(date -Is) :: waygate-update-swap done ====="
 """
 
 

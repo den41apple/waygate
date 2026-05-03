@@ -54,3 +54,7 @@ async def test_update_agent_writes_swap_script_and_spawns(monkeypatch, _stub_swa
     assert "systemctl restart waygate-agent" in script_text
     # И сам wheel-путь должен быть упомянут
     assert "/tmp/waygate_agent-0.2.0-py3-none-any.whl" in script_text
+    # Логи перенаправлены в файл для диагностики при падении (агент в этот момент
+    # рестартует, journal'у не доверяем).
+    assert "/var/log/waygate-update.log" in script_text
+    assert "set -ex" in script_text  # трейс команд в логе

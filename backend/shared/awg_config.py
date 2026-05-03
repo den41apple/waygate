@@ -45,7 +45,12 @@ class AwgInterfaceConfig(BaseModel):
     listen_port: int | None = Field(default=None, description="UDP-порт (опционально)")
     mtu: int | None = Field(default=None, description="MTU интерфейса")
 
-    # AmneziaWG-specific (2.0+)
+    # AmneziaWG-specific (2.0+).
+    # Jc/Jmin/Jmax/S1-S4 — числа (junk packet count и размеры).
+    # H1-H4 — диапазоны вида "min-max" (рандом из диапазона при handshake'е),
+    # либо одно число — храним как строку, awg-quick передаёт как есть.
+    # I1-I5 — opaque-blob'ы: либо `<b 0xDEADBEEF>` (бинарь в hex), либо
+    # plain-string. Длина может быть огромной — никаких числовых преобразований.
     jc: int | None = Field(default=None, description="Junk packet count")
     jmin: int | None = Field(default=None, description="Junk packet min size")
     jmax: int | None = Field(default=None, description="Junk packet max size")
@@ -53,11 +58,11 @@ class AwgInterfaceConfig(BaseModel):
     s2: int | None = Field(default=None, description="Response packet junk size")
     s3: int | None = Field(default=None, description="Cookie packet junk size (2.0+)")
     s4: int | None = Field(default=None, description="Transport packet junk size (2.0+)")
-    h1: int | None = Field(default=None, description="Init packet header magic")
-    h2: int | None = Field(default=None, description="Response packet header magic")
-    h3: int | None = Field(default=None, description="Cookie packet header magic")
-    h4: int | None = Field(default=None, description="Transport packet header magic")
-    i1: str | None = Field(default=None, description="AmneziaWG 2.0 obfuscation pattern I1")
+    h1: str | None = Field(default=None, description="Init packet header magic (число или диапазон min-max)")
+    h2: str | None = Field(default=None, description="Response packet header magic")
+    h3: str | None = Field(default=None, description="Cookie packet header magic")
+    h4: str | None = Field(default=None, description="Transport packet header magic")
+    i1: str | None = Field(default=None, description="AmneziaWG 2.0 obfuscation pattern I1 (opaque)")
     i2: str | None = Field(default=None, description="AmneziaWG 2.0 obfuscation pattern I2")
     i3: str | None = Field(default=None, description="AmneziaWG 2.0 obfuscation pattern I3")
     i4: str | None = Field(default=None, description="AmneziaWG 2.0 obfuscation pattern I4")
@@ -142,7 +147,8 @@ _PEER_KEY_MAP = {
     "PersistentKeepalive": "persistent_keepalive",
 }
 
-_INTEGER_FIELDS_INTERFACE = {"listen_port", "mtu", "jc", "jmin", "jmax", "s1", "s2", "s3", "s4", "h1", "h2", "h3", "h4"}
+# H1-H4 — НЕ int (могут быть диапазоны "min-max"). I1-I5 — НЕ int (opaque blob).
+_INTEGER_FIELDS_INTERFACE = {"listen_port", "mtu", "jc", "jmin", "jmax", "s1", "s2", "s3", "s4"}
 _INTEGER_FIELDS_PEER = {"persistent_keepalive"}
 
 
