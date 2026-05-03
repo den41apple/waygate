@@ -64,8 +64,9 @@ def fake_run(monkeypatch):
 async def test_deploy_client_writes_config_and_runs_docker(fake_clients_dir, fake_run):
     info = await deploy_client(name="us-fast", config_text=_VALID_CONFIG)
 
-    # Конфиг записан с chmod 600
-    config_path = fake_clients_dir / "us-fast" / "awg0.conf"
+    # Конфиг записан как `<iface>.conf` (awg-quick парсит имя интерфейса из basename),
+    # с chmod 600 чтобы PrivateKey не утёк через other-readable.
+    config_path = fake_clients_dir / "us-fast" / "awg-us-fast.conf"
     assert config_path.exists()
     assert oct(config_path.stat().st_mode)[-3:] == "600"
     written = config_path.read_text()
@@ -76,16 +77,43 @@ async def test_deploy_client_writes_config_and_runs_docker(fake_clients_dir, fak
     docker_runs = [c for c in fake_run["calls"] if c[:2] == ["docker", "run"]]
     assert len(docker_runs) == 1
     cmd = docker_runs[0]
+    # --network host: netdev появляется на хосте, можно роутить host-трафик через него
+    assert "--network" in cmd and "host" in cmd
     assert "--cap-add" in cmd and "NET_ADMIN" in cmd
     assert "--device" in cmd
+    # ENV IFACE=<iface> — awg-quick подхватит правильный конфиг
+    assert "IFACE=awg-us-fast" in cmd
     assert "io.waygate.role=client" in cmd
     assert "io.waygate.client-name=us-fast" in cmd
+    assert "io.waygate.client-iface=awg-us-fast" in cmd
     assert "waygate-amnezia-client-us-fast" in cmd
+
+    # Также мы делали pre-cleanup netdev'а в host-netns
+    ip_link_dels = [c for c in fake_run["calls"] if c[:3] == ["ip", "link", "delete"]]
+    assert ["ip", "link", "delete", "awg-us-fast"] in ip_link_dels
 
     # Возвращённый info содержит данные из [Peer]
     assert info.name == "us-fast"
     assert info.peer_endpoint == "vpn.example.com:51820"
     assert info.peer_pubkey == _PUB
+    assert info.status is AwgClientStatus.RUNNING
+
+
+async def test_deploy_client_iface_name_truncated_to_15_chars(fake_clients_dir, fake_run):
+    """Linux IFNAMSIZ=16 → имя netdev ≤15 символов. `awg-<name>[:11]` гарантирует это
+    даже для длинных пользовательских имён."""
+    long_name = "very-long-client-name-here"  # 26 chars — длиннее IFNAMSIZ
+    info = await deploy_client(name=long_name, config_text=_VALID_CONFIG)
+
+    expected_iface = "awg-very-long-c"  # 4 + 11 = 15 chars
+    assert len(expected_iface) == 15
+
+    config_path = fake_clients_dir / long_name / f"{expected_iface}.conf"
+    assert config_path.exists()
+
+    docker_runs = [c for c in fake_run["calls"] if c[:2] == ["docker", "run"]]
+    assert f"IFACE={expected_iface}" in docker_runs[0]
+    assert f"io.waygate.client-iface={expected_iface}" in docker_runs[0]
     assert info.status is AwgClientStatus.RUNNING
 
 
@@ -107,9 +135,10 @@ async def test_deploy_client_removes_old_container_first(fake_clients_dir, fake_
 
 
 async def test_list_managed_clients_filters_by_label(fake_clients_dir, fake_run):
-    # Подготавливаем .conf файл — list_managed читает его для метаданных
+    # Подготавливаем .conf файл — list_managed читает его для метаданных.
+    # Файл называется по новой схеме `<iface>.conf` (см. _config_path).
     (fake_clients_dir / "us-fast").mkdir()
-    (fake_clients_dir / "us-fast" / "awg0.conf").write_text(_VALID_CONFIG)
+    (fake_clients_dir / "us-fast" / "awg-us-fast.conf").write_text(_VALID_CONFIG)
 
     fake_run["responses"]["docker ps"] = (
         "\n".join(
@@ -143,13 +172,14 @@ async def test_start_stop_client(fake_clients_dir, fake_run):
     assert ["docker", "stop", "waygate-amnezia-client-us-fast"] in fake_run["calls"]
 
 
-async def test_delete_client_removes_container_and_config(fake_clients_dir, fake_run):
-    # Подготавливаем что что-то лежит
+async def test_delete_client_removes_container_netdev_and_config(fake_clients_dir, fake_run):
+    """С --network host netdev переживает `docker rm -f` — чистим явно `ip link delete`."""
     (fake_clients_dir / "us-fast").mkdir()
-    (fake_clients_dir / "us-fast" / "awg0.conf").write_text(_VALID_CONFIG)
+    (fake_clients_dir / "us-fast" / "awg-us-fast.conf").write_text(_VALID_CONFIG)
 
     await delete_client(name="us-fast")
 
-    # Контейнер снесён + папка удалена
+    # Контейнер снесён, netdev удалён, папка удалена
     assert ["docker", "rm", "-f", "waygate-amnezia-client-us-fast"] in fake_run["calls"]
+    assert ["ip", "link", "delete", "awg-us-fast"] in fake_run["calls"]
     assert not (fake_clients_dir / "us-fast").exists()

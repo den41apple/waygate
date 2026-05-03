@@ -67,7 +67,10 @@ LABEL io.waygate.role="client" \
 
 WORKDIR /etc/amnezia
 
-# `awg-quick up` поднимает интерфейс. На SIGTERM (от docker stop) trap снимает
-# его — wg-quick'овый PreDown сам чистит iptables/routes.
+# `awg-quick up` поднимает интерфейс. Имя берётся из ENV $IFACE (передаётся
+# агентом при `docker run`) — оно совпадает с basename конфиг-файла. На SIGTERM
+# (от docker stop) trap снимает интерфейс — wg-quick'овый PreDown сам чистит
+# iptables/routes. С `--network host` netdev появляется на хосте, и агент уже
+# успевает почистить его через `ip link delete` если контейнер ушёл по SIGKILL.
 ENTRYPOINT ["/sbin/tini", "--"]
-CMD ["sh", "-c", "awg-quick up /etc/amnezia/awg0.conf && trap 'awg-quick down /etc/amnezia/awg0.conf; exit 0' TERM; sleep infinity & wait"]
+CMD ["sh", "-c", "IFACE=${IFACE:-awg0} && awg-quick up /etc/amnezia/${IFACE}.conf && trap \"awg-quick down /etc/amnezia/${IFACE}.conf; exit 0\" TERM; sleep infinity & wait"]

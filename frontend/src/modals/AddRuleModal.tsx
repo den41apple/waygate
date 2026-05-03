@@ -123,24 +123,23 @@ export function AddRuleModal({ serverId, awgContainers, onClose }: Props) {
           <div className="field-row">
             <div className="field">
               <label>via_interface</label>
-              {awgContainers.length > 0 ? (
-                <select
-                  className="select"
-                  value={viaInterface}
-                  onChange={(event) => setViaInterface(event.target.value)}
-                >
-                  {awgContainers.map((name) => (
-                    <option key={name} value={name}>{name}</option>
-                  ))}
-                </select>
-              ) : (
-                <input
-                  className="input"
-                  value={viaInterface}
-                  onChange={(event) => setViaInterface(event.target.value)}
-                  placeholder="amnezia-awg0"
-                />
-              )}
+              <input
+                className="input"
+                value={viaInterface}
+                onChange={(event) => setViaInterface(event.target.value)}
+                placeholder="awg0"
+                list="awg-interface-suggestions"
+              />
+              <datalist id="awg-interface-suggestions">
+                {awgContainers.map((name) => (
+                  <option key={name} value={name} />
+                ))}
+              </datalist>
+              <div className="hint" style={{ fontSize: 11, color: "var(--text-3)", marginTop: 4 }}>
+                Имя netdev-интерфейса для `ip route` (обычно <span className="mono">awg0</span>).
+                Список выше — для подсказки имён контейнеров; внутри них
+                интерфейс почти всегда называется <span className="mono">awg0</span>.
+              </div>
             </div>
             <div className="field">
               <label>via_gateway</label>

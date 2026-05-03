@@ -7,7 +7,12 @@ from pydantic import BaseModel, Field, StringConstraints, model_validator
 # Регексы под форматы Linux netlink-объектов. Имена идут в субпроцессы как-есть,
 # поэтому строго ограничиваем безопасным алфавитом.
 IpsetName = Annotated[str, StringConstraints(pattern=r"^[a-zA-Z0-9_.-]{1,31}$")]
-InterfaceName = Annotated[str, StringConstraints(pattern=r"^[a-zA-Z0-9_.-]{1,15}$")]
+# Note: Linux IFNAMSIZ=16 (≤15 символов) для реальных netdev'ов вроде `awg0`.
+# Но в UI пользователь может вводить как netdev, так и docker-container имя
+# (например `waygate-amnezia-client-nl` для container-scope правил), поэтому
+# держим длину до 64. Если на агенте такое имя не существует как netdev —
+# `ip route` выдаст осмысленную ошибку, она прилетит в ApplyRulesResponse.errors.
+InterfaceName = Annotated[str, StringConstraints(pattern=r"^[a-zA-Z0-9_.-]{1,64}$")]
 CountryCode = Annotated[str, StringConstraints(pattern=r"^[A-Za-z]{2}$")]
 DomainPattern = Annotated[str, StringConstraints(pattern=r"^[*A-Za-z0-9._-]{1,253}$")]
 DnsRuleName = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9._-]{1,64}$")]

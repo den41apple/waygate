@@ -20,7 +20,14 @@ from shared.schemas import AwgClientInfo, AwgClientStatus
 # docker label наших клиентов — детект и фильтрация ровно того, что мы развернули.
 _CLIENT_ROLE_LABEL = "io.waygate.role=client"
 _CLIENT_NAME_LABEL_KEY = "io.waygate.client-name"
+_CLIENT_IFACE_LABEL_KEY = "io.waygate.client-iface"
 _CONTAINER_NAME_PREFIX = "waygate-amnezia-client-"
+
+# Linux IFNAMSIZ=16 → имя netdev должно быть ≤15 символов. Префикс `awg-` (4) +
+# имя клиента, обрезанное до 11 символов. Несколько клиентов с --network host
+# делят host netns, поэтому имена должны различаться.
+_IFACE_PREFIX = "awg-"
+_IFACE_MAX_NAME_LEN = 11
 
 
 class AwgClientError(RuntimeError):
@@ -31,8 +38,23 @@ def _container_name(*, name: str) -> str:
     return f"{_CONTAINER_NAME_PREFIX}{name}"
 
 
+def _iface_name(*, name: str) -> str:
+    """Имя netdev'а внутри host-netns для клиента <name>.
+
+    Берётся из имени клиента, обрезается до 11 chars + префикс `awg-` (всего ≤15).
+    Гарантируется что валидно для `awg-quick up <iface>.conf` и `ip link`.
+    """
+    return f"{_IFACE_PREFIX}{name[:_IFACE_MAX_NAME_LEN]}"
+
+
 def _client_dir(*, name: str) -> Path:
     return Path(settings.clients_dir) / name
+
+
+def _config_path(*, name: str) -> Path:
+    """awg-quick парсит имя интерфейса из basename конфига — кладём как
+    `<iface>.conf` чтобы интерфейс получил нужное имя."""
+    return _client_dir(name=name) / f"{_iface_name(name=name)}.conf"
 
 
 async def _ensure_docker() -> None:
@@ -86,18 +108,27 @@ async def deploy_client(*, name: str, config_text: str) -> AwgClientInfo:
 
     await _ensure_docker()
 
-    # Снести следы предыдущего клиента с тем же именем — для идемпотентности.
+    iface = _iface_name(name=name)
     container = _container_name(name=name)
+
+    # Снести следы предыдущего клиента с тем же именем — для идемпотентности.
     await run_command(["docker", "rm", "-f", container], check=False)
+    # И netdev в host-netns (он переживает docker rm). Без этого `awg-quick up`
+    # упадёт с "Address already in use" / "Interface exists".
+    await run_command(["ip", "link", "delete", iface], check=False)
 
     # Записать конфиг (нормализованный, не plaintext-as-is — выкинули unknown keys).
+    # Имя файла = имя интерфейса (`awg-<name>[:11]`.conf), awg-quick его подхватит.
     client_dir = _client_dir(name=name)
     client_dir.mkdir(parents=True, exist_ok=True)
-    config_path = client_dir / "awg0.conf"
+    config_path = _config_path(name=name)
     config_path.write_text(serialize_awg_config(config))
     config_path.chmod(0o600)
 
-    # Запустить контейнер. NET_ADMIN + /dev/net/tun обязательны для wg-quick.
+    # `--network host` — netdev клиента появляется напрямую на хосте, можно
+    # роутить host-трафик через него (`ip route ... dev awg-<name>`).
+    # NET_ADMIN + /dev/net/tun обязательны для wg-quick. ENV IFACE говорит
+    # awg-quick'у какой `.conf` поднимать (см. CMD в awg-client.Dockerfile).
     try:
         await run_command(
             [
@@ -106,16 +137,22 @@ async def deploy_client(*, name: str, config_text: str) -> AwgClientInfo:
                 "-d",
                 "--restart",
                 "unless-stopped",
+                "--network",
+                "host",
                 "--cap-add",
                 "NET_ADMIN",
                 "--device",
                 "/dev/net/tun:/dev/net/tun",
                 "--volume",
                 f"{client_dir}:/etc/amnezia",
+                "--env",
+                f"IFACE={iface}",
                 "--label",
                 _CLIENT_ROLE_LABEL,
                 "--label",
                 f"{_CLIENT_NAME_LABEL_KEY}={name}",
+                "--label",
+                f"{_CLIENT_IFACE_LABEL_KEY}={iface}",
                 "--name",
                 container,
                 settings.awg_client_image,
@@ -161,7 +198,12 @@ async def list_managed_clients() -> list[AwgClientInfo]:
         name = full_name.removeprefix(_CONTAINER_NAME_PREFIX)
         status = _docker_status_to_state(status=container.get("State", "") or container.get("Status", ""))
 
-        config_path = _client_dir(name=name) / "awg0.conf"
+        config_path = _config_path(name=name)
+        # Backward-compat: ранние клиенты сохраняли конфиг как `awg0.conf`.
+        if not config_path.exists():
+            legacy = _client_dir(name=name) / "awg0.conf"
+            if legacy.exists():
+                config_path = legacy
         if config_path.exists():
             try:
                 config = parse_awg_config(config_path.read_text())
@@ -203,12 +245,31 @@ async def stop_client(*, name: str) -> AwgClientStatus:
 
 
 async def delete_client(*, name: str) -> None:
-    """Сносит контейнер (force) и удаляет папку с конфигом."""
+    """Сносит контейнер (force), netdev в host-netns и папку с конфигом.
+
+    `docker rm -f` посылает SIGKILL — графовый shutdown awg-quick'а внутри
+    контейнера не успевает выполниться, и netdev `awg-<name>` остаётся висеть в
+    host-netns (мы запускаемся с `--network host`). Чистим вручную через
+    `ip link delete`.
+    """
     container = _container_name(name=name)
     await run_command(["docker", "rm", "-f", container], check=False)
+    await run_command(["ip", "link", "delete", _iface_name(name=name)], check=False)
     client_dir = _client_dir(name=name)
     if client_dir.exists():
         shutil.rmtree(client_dir, ignore_errors=True)
+
+
+def _resolve_existing_config(*, name: str) -> Path:
+    """Возвращает путь к конфигу — `<iface>.conf` (новый формат) или
+    легаси `awg0.conf`, какой существует. Кидает AwgClientError если нет."""
+    primary = _config_path(name=name)
+    if primary.exists():
+        return primary
+    legacy = _client_dir(name=name) / "awg0.conf"
+    if legacy.exists():
+        return legacy
+    raise AwgClientError(f"конфиг для клиента {name!r} не найден")
 
 
 async def generate_qr(*, name: str) -> bytes:
@@ -216,10 +277,7 @@ async def generate_qr(*, name: str) -> bytes:
 
     Использует `qrencode -o - -t PNG` — ставится из apt-пакета `qrencode`.
     """
-    config_path = _client_dir(name=name) / "awg0.conf"
-    if not config_path.exists():
-        raise AwgClientError(f"конфиг для клиента {name!r} не найден")
-    text = config_path.read_text()
+    text = _resolve_existing_config(name=name).read_text()
 
     process = await asyncio.create_subprocess_exec(
         "qrencode",
@@ -241,7 +299,4 @@ async def generate_qr(*, name: str) -> bytes:
 
 async def get_client_config(*, name: str) -> str:
     """Возвращает plaintext .conf клиента (для скачивания файла из UI)."""
-    config_path = _client_dir(name=name) / "awg0.conf"
-    if not config_path.exists():
-        raise AwgClientError(f"конфиг для клиента {name!r} не найден")
-    return config_path.read_text()
+    return _resolve_existing_config(name=name).read_text()

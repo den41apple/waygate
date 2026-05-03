@@ -68,14 +68,20 @@ async def _detect_interface(*, container: str) -> str:
     return ""
 
 
-def _has_client_label(*, labels: str) -> bool:
-    """Проверяет что в labels-CSV из `docker ps` есть наш role=client.
-
-    Формат поля Labels: `key1=value1,key2=value2,...`.
-    """
+def _parse_labels(*, labels: str) -> dict[str, str]:
+    """Раскладывает поле Labels из `docker ps` (`k1=v1,k2=v2`) в dict."""
+    out: dict[str, str] = {}
     if not labels:
-        return False
-    return _CLIENT_ROLE_LABEL in labels.split(",")
+        return out
+    for item in labels.split(","):
+        key, _, value = item.partition("=")
+        if key:
+            out[key.strip()] = value.strip()
+    return out
+
+
+def _has_client_label(*, labels: dict[str, str]) -> bool:
+    return labels.get("io.waygate.role") == "client"
 
 
 async def list_awg_containers() -> list[AwgContainerInfo]:
@@ -84,12 +90,18 @@ async def list_awg_containers() -> list[AwgContainerInfo]:
     for container in containers:
         image = container.get("Image", "")
         names = container.get("Names", "")
-        labels = container.get("Labels", "")
+        labels = _parse_labels(labels=container.get("Labels", ""))
         is_client = _has_client_label(labels=labels)
         # Наши клиенты идут безусловно. Внешние — по substring-fallback.
         if not is_client and not _is_awg_container(image=image, names=names):
             continue
-        interface = await _detect_interface(container=names)
+        # У наших клиентов имя netdev'а сохранено в label (мы запускаем с
+        # --network host и уникальным `awg-<name>[:11]`). У внешних — детектим
+        # через `awg/wg show interfaces` внутри контейнера.
+        if is_client and (iface_label := labels.get("io.waygate.client-iface")):
+            interface = iface_label
+        else:
+            interface = await _detect_interface(container=names)
         role = AwgContainerRole.CLIENT if is_client else AwgContainerRole.EXTERNAL
         result.append(AwgContainerInfo(name=names, interface=interface or "awg0", role=role))
     return result
