@@ -109,9 +109,25 @@ export function RoutingTab({ serverId, showSpark }: Props) {
       </SectionHead>
 
       {applyRules.data && (
-        <div className="hint" style={{ background: "var(--green-tint)", color: "var(--green)" }}>
+        <div
+          className="hint"
+          style={
+            applyRules.data.errors.length > 0
+              ? { background: "var(--red-tint, #4a1f1f)", color: "var(--red, #ef4444)" }
+              : { background: "var(--green-tint)", color: "var(--green)" }
+          }
+        >
           применено: {applyRules.data.applied} · skipped: {applyRules.data.skipped}
-          {applyRules.data.errors.length > 0 && <> · ошибок: {applyRules.data.errors.length}</>}
+          {applyRules.data.errors.length > 0 && (
+            <>
+              {" · "}ошибок: {applyRules.data.errors.length}
+              <ul style={{ margin: "6px 0 0", paddingLeft: 20, fontFamily: "var(--mono)", fontSize: 11 }}>
+                {applyRules.data.errors.map((error, idx) => (
+                  <li key={idx}>{error}</li>
+                ))}
+              </ul>
+            </>
+          )}
         </div>
       )}
 

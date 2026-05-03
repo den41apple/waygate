@@ -20,7 +20,8 @@ RestartSec=5
 # Можно ослабить, но потребуется CAP_NET_ADMIN для capabilities-only режима.
 NoNewPrivileges=false
 ProtectSystem=strict
-ReadWritePaths=/etc/waygate /var/lib/waygate-agent
+# /etc/dnsmasq.d — agent/dns.py пишет /etc/dnsmasq.d/waygate.conf для dnsmasq.
+ReadWritePaths=/etc/waygate /etc/dnsmasq.d /var/lib/waygate-agent
 ProtectHome=true
 PrivateTmp=true
 

@@ -8,10 +8,17 @@ from sqlmodel import select
 
 from server.agent_client import AgentClient, AgentClientError, AgentUnreachable
 from server.db import get_session
-from server.models import RoutingRule, Server
+from server.models import DnsRule, RoutingRule, Server
 from server.ws.events import EventType, WsEvent
 from server.ws.manager import get_manager
-from shared.schemas import ApplyRulesRequest, ApplyRulesResponse, RoutingScope
+from shared.schemas import (
+    ApplyDnsRequest,
+    ApplyRulesRequest,
+    ApplyRulesResponse,
+    IpsetApplyRequest,
+    RoutingScope,
+)
+from shared.schemas import DnsRule as AgentDnsRule
 from shared.schemas import RoutingRule as AgentRoutingRule
 
 router = APIRouter(prefix="/servers/{server_id}/rules", tags=["rules"])
@@ -160,8 +167,67 @@ async def apply_rules(
     server_id: int,
     session: AsyncSession = Depends(get_session),
 ) -> ApplyRulesResponse:
-    """Берёт всё содержимое таблицы routing_rule для server_id и шлёт на агент."""
+    """Берёт всё содержимое таблицы routing_rule для server_id и шлёт на агент.
+
+    Перед применением routing-правил автоматически вызывается `/v1/dns/apply` —
+    это создаёт ipset'ы под dnsmasq, на которые потом ссылаются routing-правила
+    DNS-направлений. Без этого `iptables -m set --match-set <name>` падает с
+    `Set <name> doesn't exist`. GeoIP-ipset'ы создаются вручную через `/geoip/lists/{id}/sync`
+    — здесь не дёргаем (миллионы IPv4, тяжёлая операция).
+    """
     server = await _get_server(server_id=server_id, session=session)
+
+    # 1. DNS-prereq: пушим dnsmasq-config + создаём пустые ipset'ы.
+    #
+    # dnsmasq НЕ создаёт ipset'ы автоматически — он только пишет резолвенные IP в
+    # существующие set'ы. Если ipset не создан заранее, то iptables-правило
+    # `--match-set <name>` падает с `Set <name> doesn't exist`. Поэтому для каждого
+    # DNS-правила здесь дёргаем `/v1/ipset/apply` с пустыми cidrs — agent создаёт
+    # ipset через `ipset create -exist`. dnsmasq при следующем DNS-запросе на
+    # домен из правила сам начнёт писать в него IP'шники.
+    #
+    # Долгосрочный фикс — встроить `ipset create -exist` прямо в agent/dns.py,
+    # но это требует релиза нового wheel'а агента (см. BACKLOG #15).
+    dns_result = await session.execute(
+        select(DnsRule).where(DnsRule.server_id == server_id, DnsRule.enabled == True),  # noqa: E712
+    )
+    dns_rules = dns_result.scalars().all()
+    client = AgentClient(host=server.host, port=server.port, token=server.token)
+    if dns_rules:
+        try:
+            for rule in dns_rules:
+                try:
+                    await client.apply_custom_ipset(
+                        request=IpsetApplyRequest(name=rule.ipset_name, cidrs=[]),
+                    )
+                except AgentClientError as exc:
+                    # Идемпотентный bug в agent/ipset.py: tmp_name создаётся с
+                    # `hashsize 4096 maxelem 1000000`, целевой — без; после swap
+                    # параметры расходятся, повторный `create -exist` падает с
+                    # "Set cannot be created: set with the same name already
+                    # exists". Set всё равно есть и пригоден — игнорируем.
+                    # Долгосрочный фикс — BACKLOG #16.
+                    if "already exists" not in str(exc):
+                        raise
+                    logger.debug("apply_rules: pre-create ipset {} уже есть, продолжаю", rule.ipset_name)
+            await client.apply_dns(
+                request=ApplyDnsRequest(
+                    rules=[
+                        AgentDnsRule(name=rule.name, domains=list(rule.domains), ipset_name=rule.ipset_name)
+                        for rule in dns_rules
+                    ],
+                ),
+            )
+        except AgentUnreachable as exc:
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"агент недоступен: {exc}") from exc
+        except AgentClientError as exc:
+            logger.error("apply_rules: pre-apply dns упал: {}", exc)
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"pre-apply dns упал: {exc}",
+            ) from exc
+
+    # 2. Routing-правила.
     result = await session.execute(select(RoutingRule).where(RoutingRule.server_id == server_id))
     rules = result.scalars().all()
     request = ApplyRulesRequest(
@@ -184,7 +250,6 @@ async def apply_rules(
             for rule in rules
         ],
     )
-    client = AgentClient(host=server.host, port=server.port, token=server.token)
     try:
         response = await client.apply_rules(request=request)
     except AgentUnreachable as exc:

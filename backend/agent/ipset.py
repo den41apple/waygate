@@ -15,22 +15,21 @@ async def apply_custom_ipset(*, request: IpsetApplyRequest) -> IpsetApplyRespons
     cidrs = list(request.cidrs)
     tmp_name = f"{name}_new"
 
+    # Параметры создания должны совпадать у tmp и целевого set'а: после swap
+    # целевой наследует конфигурацию tmp, и при повторном вызове `-exist` падает
+    # с "Set cannot be created" если параметры расходятся (ipset >= 7.x строже).
+    create_args = [
+        "hash:net",
+        "family",
+        "inet",
+        "hashsize",
+        "4096",
+        "maxelem",
+        "1000000",
+    ]
+
     # 1. Свежий tmp ipset (-exist чтобы не падать если уже есть от прошлого).
-    await run_command(
-        [
-            "ipset",
-            "create",
-            "-exist",
-            tmp_name,
-            "hash:net",
-            "family",
-            "inet",
-            "hashsize",
-            "4096",
-            "maxelem",
-            "1000000",
-        ],
-    )
+    await run_command(["ipset", "create", "-exist", tmp_name, *create_args])
     await run_command(["ipset", "flush", tmp_name])
 
     # 2. Массово заливаем CIDR'ы через restore.
@@ -44,7 +43,7 @@ async def apply_custom_ipset(*, request: IpsetApplyRequest) -> IpsetApplyRespons
             raise RuntimeError(f"ipset restore не удался: {exc.stderr.strip()}") from exc
 
     # 3. Целевой сет + atomic swap.
-    await run_command(["ipset", "create", "-exist", name, "hash:net", "family", "inet"])
+    await run_command(["ipset", "create", "-exist", name, *create_args])
     try:
         await run_command(["ipset", "swap", tmp_name, name])
     except CommandError as exc:

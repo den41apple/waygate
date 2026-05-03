@@ -125,6 +125,12 @@ async def deploy_client(*, name: str, config_text: str) -> AwgClientInfo:
     config_path.write_text(serialize_awg_config(config))
     config_path.chmod(0o600)
 
+    # `docker pull` перед run обязателен для image'ей с тегом `:latest` —
+    # без него docker возьмёт закешированную локально версию и пропустит
+    # обновлённый CMD/слой. `check=False`: оффлайн-машина без registry должна
+    # запустить ранее закешированный image, а не падать.
+    await run_command(["docker", "pull", settings.awg_client_image], check=False)
+
     # `--network host` — netdev клиента появляется напрямую на хосте, можно
     # роутить host-трафик через него (`ip route ... dev awg-<name>`).
     # NET_ADMIN + /dev/net/tun обязательны для wg-quick. ENV IFACE говорит

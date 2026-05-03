@@ -103,7 +103,25 @@
 
 **Что сделать:** в `server/api/ipset_groups.py` после `session.commit()` слать `WsEvent(type=EventType.IPSET_GROUP_CREATED, ...)` через `get_manager().broadcast(...)`; добавить три enum-значения в `server/ws/events.py::EventType`; добавить три литерала в `frontend/src/api/types.ts::WsEventType`; раскомментировать handler в `useWS.ts`.
 
-### 13. Унификация AwgClient `name` ↔ `awg-<name>` netdev
+### 13. `/var/log/waygate-update.log` за пределами ReadWritePaths systemd-юнита
+
+**Состояние:** `agent.service` имеет `ProtectSystem=strict` + `ReadWritePaths=/etc/waygate /etc/dnsmasq.d /var/lib/waygate-agent`. Агент пишет в `/var/log/waygate-update.log` при self-update — этот путь не в writable-listе, при попытке самообновления получим `OSError: [Errno 30] Read-only file system`. Та же история, что была с `/etc/dnsmasq.d/waygate.conf`.
+
+**Что сделать:** либо переехать на `/var/lib/waygate-agent/update.log` (уже writable), либо добавить `/var/log/waygate-agent` в ReadWritePaths и переписать константу `_SWAP_LOG_PATH` в `agent/updater.py`. Вариант (a) чище — все агентские артефакты в одной папке.
+
+### 14. `agent/dns.py` должен создавать ipset'ы перед reload dnsmasq
+
+**Состояние:** dnsmasq НЕ создаёт ipset'ы автоматически — он только пишет резолвы в существующие. Если ipset не создан заранее, iptables `--match-set <name>` падает с `Set <name> doesn't exist`. Сейчас server-side workaround в `server/api/rules.py::apply_rules`: перед `apply_dns` для каждого DNS-rule дёргается `/v1/ipset/apply` с пустыми cidrs — это создаёт пустой ipset через `ipset create -exist`. Лишний round-trip для каждой DNS-rule.
+
+**Что сделать:** в `agent/dns.py::apply_dns` добавить шаг «создать ipset если нет» перед reload dnsmasq — `ipset create -exist <name> hash:ip family inet`. После этого workaround на server'е удалить.
+
+### 15. agent/ipset.py: убрать server-side workaround на «already exists»
+
+**Состояние:** баг идемпотентности был — `apply_custom_ipset` создавал tmp set с `hashsize/maxelem`, а целевой — без, после swap параметры расходились, повторный `create -exist` падал с "Set cannot be created: set with the same name already exists". В коде агента исправлено (одинаковые параметры в обоих create), но `server/api/rules.py::apply_rules` пока ловит и игнорирует эту ошибку чтобы работать со старыми wheel'ами агента.
+
+**Что сделать:** после релиза нового wheel'а агента, удалить `try/except` вокруг `apply_custom_ipset` в `server/api/rules.py` — фикс агента сам обеспечит идемпотентность.
+
+### 16. Унификация AwgClient `name` ↔ `awg-<name>` netdev
 
 **Состояние:** имя netdev'а генерится во фронте (`AddRoutingDirectionModal.tsx`) как `` `awg-${client.name.slice(0, 11)}` `` — это дублирует логику из `agent/awg_clients.py::_iface_name`. Если правила генерации netdev-имён в агенте поменяются (Linux IFNAMSIZ=16, поэтому 15 символов и `awg-`-префикс — фиксированы) — фронт и агент рассинхронизируются.
 
