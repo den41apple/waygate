@@ -103,11 +103,39 @@
 
 **Что сделать:** в `server/api/ipset_groups.py` после `session.commit()` слать `WsEvent(type=EventType.IPSET_GROUP_CREATED, ...)` через `get_manager().broadcast(...)`; добавить три enum-значения в `server/ws/events.py::EventType`; добавить три литерала в `frontend/src/api/types.ts::WsEventType`; раскомментировать handler в `useWS.ts`.
 
-### 13. `/var/log/waygate-update.log` за пределами ReadWritePaths systemd-юнита
+### 13. Self-update агента сломан: `_SWAP_LOG_PATH` и `_SWAP_SCRIPT_PATH` в недоступных каталогах
 
-**Состояние:** `agent.service` имеет `ProtectSystem=strict` + `ReadWritePaths=/etc/waygate /etc/dnsmasq.d /var/lib/waygate-agent`. Агент пишет в `/var/log/waygate-update.log` при self-update — этот путь не в writable-listе, при попытке самообновления получим `OSError: [Errno 30] Read-only file system`. Та же история, что была с `/etc/dnsmasq.d/waygate.conf`.
+**Состояние (CRITICAL — блокирует update flow):** `agent.service` имеет `ProtectSystem=strict` + `ReadWritePaths=/etc/waygate /etc/dnsmasq.d /var/lib/waygate-agent` + `PrivateTmp=true`. У `agent/updater.py` две константы попадают в недоступные каталоги:
 
-**Что сделать:** либо переехать на `/var/lib/waygate-agent/update.log` (уже writable), либо добавить `/var/log/waygate-agent` в ReadWritePaths и переписать константу `_SWAP_LOG_PATH` в `agent/updater.py`. Вариант (a) чище — все агентские артефакты в одной папке.
+- `_SWAP_LOG_PATH = /var/log/waygate-update.log` — не в `ReadWritePaths`, `exec >>"$LOG"` падает с `OSError: [Errno 30] Read-only file system`.
+- `_SWAP_SCRIPT_PATH = /tmp/waygate-update-swap.sh` — при `PrivateTmp=true` /tmp приватный для процесса агента; `systemctl restart` гибнет namespace → файл недоступен → swap-скрипт обрывается посередине exec'а. Это была причина update-timeout'ов у пользователя в раннем тестировании.
+
+**Что сделать:** переехать обе константы на `/var/lib/waygate-agent/` (writable, persistent, не приватный):
+- `_SWAP_LOG_PATH = /var/lib/waygate-agent/update.log`
+- `_SWAP_SCRIPT_PATH = /var/lib/waygate-agent/update-swap.sh`
+
+После этого self-update должен работать end-to-end. Опционально вынести оба в `agent/config.py::data_dir` чтобы переопределялись через ENV.
+
+### 13a. Накопленные agent-правки в repo не дошли до сервера `den41`
+
+**Состояние:** в repo с момента последнего деплоя агента накопились критичные правки в `agent/`:
+1. `awg_clients.py::deploy_client` — `docker pull` перед `docker run` (без него локальный кеш image устаревает).
+2. `awg_clients.py::deploy_client` — `--privileged` (sysctl `src_valid_mark` иначе падает на ro-`/proc/sys`).
+3. `shared/awg_config.py::serialize_awg_config` — принудительный `Table = off` (без него awg-quick hijack'ит дефолтный маршрут хоста и обрубает SSH).
+4. `agent/ipset.py::apply_custom_ipset` — одинаковые параметры tmp/целевого set'а (идемпотентность повторного `apply`).
+
+И в unit-файле:
+5. `agent.service` — `/etc/dnsmasq.d` в `ReadWritePaths` (DNS-prereq при apply rules).
+
+Сервер `den41` сейчас работает на старой версии: AWG-клиент **опасен в использовании** (без `Table = off` запуск hijack'ит SSH), DNS-apply падает на read-only `/etc/dnsmasq.d/`.
+
+**Что сделать (в этом порядке):**
+1. Сначала #13 (фикс update-paths) — иначе self-update не доедет до сервера никогда.
+2. Бамп версии в `backend/agent/pyproject.toml`, тег `agent-v0.2.0`, push → workflow `release-agent.yml` соберёт wheel и опубликует.
+3. Серверу `den41` — manual catch-up:
+   - scp нового unit'а в `/etc/systemd/system/waygate-agent.service` + `daemon-reload`.
+   - Через UI Topbar → Update Agent → ввести `0.2.0` (запустит self-update flow с workaround'нутыми путями).
+4. После — снять с BACKLOG `#3` (первый GitHub Release wheel'а), `#13`, `#13a`, `#15` (workaround на ipset already exists), `#14` (agent/dns.py создаёт ipset).
 
 ### 14. `agent/dns.py` должен создавать ipset'ы перед reload dnsmasq
 

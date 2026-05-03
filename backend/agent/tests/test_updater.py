@@ -22,7 +22,7 @@ async def test_validate_version_rejects_dangerous_strings():
         updater._validate_version(version="0.1.0; rm -rf /")
 
 
-async def test_update_agent_writes_swap_script_and_spawns(monkeypatch, _stub_swap):
+async def test_update_agent_writes_swap_script_and_spawns(monkeypatch, tmp_path, _stub_swap):
     """Happy-path: скачиваем wheel, пишем swap-скрипт, отвязанно spawn'им его."""
     downloaded: list[str] = []
 
@@ -31,6 +31,9 @@ async def test_update_agent_writes_swap_script_and_spawns(monkeypatch, _stub_swa
         target.write_bytes(b"PK\x03\x04 fake wheel content")
 
     monkeypatch.setattr(updater, "_download_wheel", fake_download)
+    # Путь живёт в /var/lib/waygate-agent — на dev-машине этой папки нет.
+    monkeypatch.setattr(updater, "_SWAP_SCRIPT_PATH", tmp_path / "update-swap.sh")
+    monkeypatch.setattr(updater, "_SWAP_LOG_PATH", tmp_path / "update.log")
 
     from shared.schemas import UpdateRequest
 
@@ -55,6 +58,7 @@ async def test_update_agent_writes_swap_script_and_spawns(monkeypatch, _stub_swa
     # И сам wheel-путь должен быть упомянут
     assert "/tmp/waygate_agent-0.2.0-py3-none-any.whl" in script_text
     # Логи перенаправлены в файл для диагностики при падении (агент в этот момент
-    # рестартует, journal'у не доверяем).
-    assert "/var/log/waygate-update.log" in script_text
+    # рестартует, journal'у не доверяем). Путь — в data_dir юнита, потому что
+    # /var/log за пределами ReadWritePaths и /tmp гибнет с PrivateTmp.
+    assert str(updater._SWAP_LOG_PATH) in script_text
     assert "set -ex" in script_text  # трейс команд в логе

@@ -19,8 +19,12 @@ _RESTART_TASKS: set[asyncio.Task[None]] = set()
 _VENV_LIVE = "/opt/waygate-agent"
 _VENV_NEW = "/opt/waygate-agent.new"
 _VENV_BACKUP = "/opt/waygate-agent.bak"
-_SWAP_SCRIPT_PATH = Path("/tmp/waygate-update-swap.sh")
-_SWAP_LOG_PATH = Path("/var/log/waygate-update.log")
+# `/var/lib/waygate-agent` уже в `ReadWritePaths` юнита и не приватный (в отличие
+# от `/tmp` с `PrivateTmp=true` и `/var/log` за пределами whitelist'а).
+# Раньше `/tmp/waygate-update-swap.sh` гибнул вместе с namespace при
+# `systemctl restart`, а лог `/var/log/waygate-update.log` падал с EROFS.
+_SWAP_SCRIPT_PATH = Path("/var/lib/waygate-agent/update-swap.sh")
+_SWAP_LOG_PATH = Path("/var/lib/waygate-agent/update.log")
 _RESTART_DELAY_SECONDS = 2  # дать UpdateResponse долететь до сервера
 
 
