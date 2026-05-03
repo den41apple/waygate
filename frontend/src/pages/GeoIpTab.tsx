@@ -33,8 +33,22 @@ export function GeoIpTab({ serverId, showSpark }: Props) {
           <span className="k">Расписание</span>
           <span className="mono">manual · sync now</span>
         </div>
-        <button className="btn primary" disabled>
-          <Icon name="refresh" size={14} /> Sync all
+        <button
+          className="btn primary"
+          disabled={syncList.isPending || lists.length === 0}
+          onClick={async () => {
+            // Запускаем sync всех списков последовательно — параллельный запуск
+            // нагружал бы один и тот же агент, к тому же ipset-операции на target
+            // не любят гонок.
+            for (const item of lists) {
+              await syncList.mutateAsync({
+                geo_list_id: item.id,
+                ipset_name: `geoip-${item.country.toLowerCase()}-v4`,
+              });
+            }
+          }}
+        >
+          <Icon name="refresh" size={14} /> {syncList.isPending ? "Sync…" : "Sync all"}
         </button>
       </div>
 

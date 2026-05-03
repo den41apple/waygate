@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
-import { useUpdateServer } from "../api/servers";
+import { useRefreshServer, useServer, useUpdateServer } from "../api/servers";
 import type { UpdateServerPayload } from "../api/types";
 import { Icon } from "../components/Icon";
 import { IconTile, Toggle } from "../components/primitives";
@@ -16,6 +16,16 @@ const DEFAULT_WHEEL_URL =
 
 export function UpdateAgentModal({ serverId, currentVersion, onClose }: Props) {
   const update = useUpdateServer();
+  const refresh = useRefreshServer();
+  // Перетягиваем актуальную версию: `currentVersion` из useServers() обновляется
+  // только через healthcheck. При открытии модалки делаем refresh — агент
+  // отвечает /v1/status, версия в БД актуализируется.
+  const fresh = useServer(serverId);
+  useEffect(() => {
+    refresh.mutate(serverId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serverId]);
+  const displayedVersion = fresh.data?.version ?? currentVersion;
 
   const [version, setVersion] = useState("");
   const [wheelUrl, setWheelUrl] = useState(DEFAULT_WHEEL_URL);
@@ -51,7 +61,8 @@ export function UpdateAgentModal({ serverId, currentVersion, onClose }: Props) {
         </div>
         <div className="modal-body">
           <div className="hint" style={{ fontSize: 12 }}>
-            Текущая версия: <span className="mono">{currentVersion || "—"}</span>
+            Текущая версия: <span className="mono">{displayedVersion || "—"}</span>
+            {refresh.isPending && <span style={{ color: "var(--text-3)" }}> · обновляю…</span>}
           </div>
 
           <div className="field">

@@ -36,11 +36,15 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   }
 
   if (!response.ok) {
-    let body: unknown;
+    // body можно прочитать только один раз. Читаем как text, затем пытаемся
+    // распарсить JSON — иначе при невалидном JSON `response.json()` consume'ит
+    // stream и `response.text()` падает с `body stream already read`.
+    const text = await response.text();
+    let body: unknown = text;
     try {
-      body = await response.json();
+      body = JSON.parse(text);
     } catch {
-      body = await response.text();
+      // оставляем body как plain text
     }
     const detail = typeof body === "object" && body && "detail" in body
       ? String((body as { detail: unknown }).detail)

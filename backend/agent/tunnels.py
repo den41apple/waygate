@@ -47,13 +47,21 @@ def _is_awg_container(*, image: str, names: str) -> bool:
 
 
 async def _detect_interface(*, container: str) -> str:
-    """Достаёт имя WG-интерфейса внутри контейнера через `wg show interfaces`."""
-    try:
-        output = await run_command(["docker", "exec", container, "wg", "show", "interfaces"])
-    except CommandError:
-        return ""
-    interfaces = output.strip().split()
-    return interfaces[0] if interfaces else ""
+    """Достаёт имя WG-интерфейса внутри контейнера.
+
+    AmneziaWG — форк WireGuard со своим бинарём `awg` (поддерживает поля Jc/Jmin/Jmax/
+    S1/S2/H1-H4). В amnezia-контейнерах стандартный `wg` может отсутствовать, поэтому
+    сперва пробуем `awg`, потом fallback на `wg`.
+    """
+    for binary in ("awg", "wg"):
+        try:
+            output = await run_command(["docker", "exec", container, binary, "show", "interfaces"])
+        except CommandError:
+            continue
+        interfaces = output.strip().split()
+        if interfaces:
+            return interfaces[0]
+    return ""
 
 
 async def list_awg_containers() -> list[AwgContainerInfo]:
@@ -98,13 +106,22 @@ def _parse_wg_dump(text: str) -> list[PeerInfo]:
 
 
 async def _read_wg_peers(*, container: str, interface: str) -> list[PeerInfo]:
-    output = await run_command(
-        ["docker", "exec", container, "wg", "show", interface, "dump"],
-        check=False,
-    )
-    if not output.strip():
-        return []
-    return _parse_wg_dump(output)
+    """Читает peers через `awg show <iface> dump` (или `wg`-fallback).
+
+    Запускает оба бинаря: тот, который вернёт непустой вывод, и используем.
+    Без этого dump на amnezia-контейнере молчит, и UI показывает status=down.
+    """
+    for binary in ("awg", "wg"):
+        try:
+            output = await run_command(
+                ["docker", "exec", container, binary, "show", interface, "dump"],
+                check=False,
+            )
+        except CommandError:
+            continue
+        if output.strip():
+            return _parse_wg_dump(output)
+    return []
 
 
 def _evaluate_status(*, peers: list[PeerInfo]) -> TunnelStatus:

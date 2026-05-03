@@ -1,6 +1,5 @@
 import { useTunnels } from "../api/tunnels";
 import type { PeerInfo, TunnelInfo, TunnelStatus } from "../api/types";
-import { Icon } from "../components/Icon";
 import { Badge, IconTile, Metric, SectionHead } from "../components/primitives";
 
 interface Props {
@@ -80,7 +79,6 @@ export function TunnelsTab({ serverId, showSpark }: Props) {
               <div className="container">{tunnel.container_name}</div>
             </div>
             <Badge kind={badgeKindForTunnel(tunnel.status)}>{tunnel.status}</Badge>
-            <button className="tb-btn"><Icon name="more" size={14} /></button>
           </div>
           <div className="tunnel-meta">
             <span>type <b>amneziawg</b></span>
