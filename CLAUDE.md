@@ -14,7 +14,9 @@ SPEC закрыты + CI/CD + большой кусок техдолга и prod
 Защита: username/password → bcrypt + session-JWT. Первый админ создаётся при
 старте из ENV `WAYGATE_ADMIN_USER`/`WAYGATE_ADMIN_PASSWORD`.
 
-**128 backend-тестов + 7 e2e-тестов проходят**, ruff/format/mypy чисто, frontend
+**137 backend-тестов + 11 e2e-тестов проходят** (+3 integration с реальным
+Docker-контейнером — отключены в `addopts`, гоняются явно через
+`uv run pytest -m integration` ~63 сек), ruff/format/mypy чисто, frontend
 typecheck/build зелёные, docker compose поднимается за ~12 сек.
 
 ## Что где
@@ -91,3 +93,19 @@ cd ../frontend && npm run generate-types
 - **TabId migration в `store/ui.ts`** — старые сессии с `activeTab=geoip|dns`
   валидно мапятся в `lists` через `migrate` хук persist v2. При добавлении новых
   табов и удалении старых — обязательно обновить `migrate` или поднять `version`.
+- **Integration-тесты агента опциональны** — `agent/tests/test_integration.py`
+  с маркером `@pytest.mark.integration` поднимает реальный `--privileged`-контейнер
+  (`backend/agent/Dockerfile`). По умолчанию выключены через
+  `addopts = "-m 'not integration'"`. Запуск: `uv run pytest -m integration`.
+  Ловят то, что моки `fake_run` не ловят: read-only filesystem, отсутствие
+  бинарей, реальные ipset-параметры.
+- **`agent/Dockerfile` использует `docker-ce-cli` из docker-repo, не `docker.io`** —
+  пакет `docker.io` в slim-Debian содержит только daemon (без `/usr/bin/docker`),
+  поэтому `docker ps` из агента падал с `FileNotFoundError`.
+- **`subprocess_runner.run_command` оборачивает `FileNotFoundError` в `CommandError`** —
+  на минималистичных системах (LXC, slim-контейнеры) `systemctl`/`ipset`/etc
+  могут отсутствовать. Вызывающим достаточно одного `except CommandError`,
+  не нужно отдельно ловить `FileNotFoundError`.
+- **При предложении прод-команд думать про сетевые побочки** — `--privileged`
+  без `Table=off` в `[Interface]` AmneziaWG hijack'ит default-route → SSH
+  обрывается. См. `agent/awg_clients.py` и `shared/awg_config.py::serialize_awg_config`.

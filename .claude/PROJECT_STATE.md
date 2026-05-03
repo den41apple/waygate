@@ -46,14 +46,16 @@
 | — | **e2e Playwright**: 6 тестов (auth/onboarding-error+retry/server-crud-via-rest), CI job | ✅ |
 | — | **AddServerModal UX-фикс**: не уходим на «Готово» при ошибке, кнопки Повторить/Назад | ✅ |
 | — | **Routing-directions редизайн**: новая модель `RoutingDirection` (header) → N child-`RoutingRule`'ов с общим fwmark/table_id; UI с multi-select (geo/dns/ipset одной плашкой через одну fwmark), 4 главных таба (Routing/Tunnels/Lists/Metrics), Tunnels с под-табами Клиенты/Серверные, Lists с под-табами GeoIP/DNS/IPset, Custom IPset как третья сущность; data-migration legacy `RoutingRule` встроена в alembic-ревизию `e92c5b1f3a87` (применяется автоматически) | ✅ |
+| — | **Self-update + edit-формы + integration-тесты**: agent `0.2.0` с фикс update-paths (writable `/var/lib/waygate-agent/`); `GET /api/v1/agent-releases` GitHub-прокси + UI dropdown с list версий; PATCH-endpoints для GeoList/Server, расширение IpsetGroupUpdate; edit-режим в 4 модалках + EditServerModal; mypy `check_untyped_defs=true` для тестов; `UV_PROJECT_ENVIRONMENT=/usr/local` в Dockerfile'ах; +4 e2e (directions/dns/server-edit/update-agent); +3 integration с реальным Docker-контейнером | ✅ |
 
 ## Тестирование
 
-- **Backend**: `cd backend && uv run pytest` — **128 passed** (агент + сервер, включая 6 directions-тестов и data-миграцию через alembic).
+- **Backend (unit/api)**: `cd backend && uv run pytest` — **137 passed**.
+- **Backend (integration)**: `cd backend && uv run pytest -m integration` — **3 passed** (~63 сек, поднимает реальный `--privileged`-контейнер с ipset/iptables/dnsmasq, гоняет HTTP к живому granian'у). По умолчанию выключены через `addopts`. Запускать локально с docker daemon (или в CI на release-tags).
 - **Frontend**: `cd frontend && npm run typecheck && npm run build`.
-- **e2e**: `cd frontend && npm run test:e2e` — **7 passed** (~11 сек, реальный backend на sqlite).
+- **e2e**: `cd frontend && npm run test:e2e` — **11 passed** (~20 сек, реальный backend на sqlite). Покрывают auth, server CRUD, AWG-client add, onboarding, **directions**, **DNS**, **server-edit**, **update-agent** (с моком GitHub-прокси).
 - **Compose smoke**: `cd deploy && docker compose up -d --build` — все 4 контейнера healthy за ~12 сек.
-- **CI**: `.github/workflows/ci.yml` гоняет всё это (backend → frontend → e2e) на каждый PR.
+- **CI**: `.github/workflows/ci.yml` гоняет всё это (backend → frontend → e2e) на каждый PR. Integration-тесты добавить отдельным job'ом для release-tags (BACKLOG #18).
 
 ## Ключевые решения, принятые по дороге
 
@@ -119,6 +121,26 @@
   имена `legacy-<iface>` с автоинкрементом при коллизии. Применяется
   автоматически на `alembic upgrade head`.
 
+### Self-update + integration-тесты (Sprint 5)
+- **`/var/lib/waygate-agent/`** — единое writable-место для всех агентских
+  артефактов (`update-swap.sh`, `update.log`, ранее в `/tmp` гибли с
+  `PrivateTmp=true`, в `/var/log` падали на `ProtectSystem=strict`).
+- **`GET /api/v1/agent-releases`** — server-side прокси к GitHub Releases с
+  5-мин кешем (защита от unauthenticated rate-limit 60/час). Фильтр по тегам
+  `agent-v*`, возвращает `[{tag, version, name, published_at, wheel_url}]`.
+  Frontend `useAgentReleases()` → select в `UpdateAgentModal` с default=latest.
+- **Edit-формы** — реюз `AddXxxModal` через prop `editing?: T`. PATCH-endpoint
+  для GeoList и Server (новые), `IpsetGroupUpdate` расширен на name. Pencil-icon
+  в карточках, `EditServerModal` отдельный компонент. Server PATCH меняет только
+  `name`/`region` (host/port/token = переонбординг или token/rotate).
+- **Integration-тесты** — `agent/tests/test_integration.py`, marker
+  `@pytest.mark.integration`. Поднимает `--privileged`-контейнер с агентом,
+  mount `/var/run/docker.sock` (агенту нужен docker CLI для `docker ps`).
+  Build session-scope, контейнер module-scope, HTTP-probe (TCP мало).
+- **`subprocess_runner.run_command` ловит `FileNotFoundError`** — оборачивает
+  в `CommandError(returncode=127)`. Без этого `systemctl reload dnsmasq` на
+  системе без systemd падал в 500 мимо `except CommandError` в agent/dns.py.
+
 ## Известные TODO
 
 Все недоделки и follow-up'ы — в [BACKLOG.md](BACKLOG.md), там 4 раздела:
@@ -161,7 +183,8 @@ backend/
 │   ├── models/                  # SQLModel: server, user, rule, dns, geo, tls, metrics,
 │   │                            #          audit, awg_client, ipset_group, routing_direction
 │   ├── api/                     # servers, rules, directions, ipset_groups, clients, dns,
-│   │                            #          geoip, metrics, tls, provision, audit, auth
+│   │                            #          geoip, metrics, tls, provision, audit, auth,
+│   │                            #          agent_releases (GitHub-прокси)
 │   ├── agent_client/            # aiohttp + tenacity-retry
 │   ├── ws/                      # events, auth (JWT), manager, router
 │   ├── provisioner/             # ssh, steps, registry, service
@@ -184,10 +207,14 @@ frontend/
     │                             # Клиенты/Серверные), ListsTab (sub-tabs GeoIP/DNS/IPset),
     │                             # MetricsTab. Внутренние страницы под Lists:
     │                             # GeoIpTab, DnsTab, IpsetGroupsTab.
-    ├── modals/                   # AddServerModal (SSE), TlsModal, UpdateAgentModal,
+    ├── modals/                   # AddServerModal (SSE), EditServerModal, TlsModal,
+    │                             # UpdateAgentModal (с select версий из
+    │                             # /api/v1/agent-releases),
     │                             # AddRoutingDirectionModal (multi-select),
     │                             # AddDnsModal, AddGeoListModal, AddCustomIpsetModal,
-    │                             # AddAwgClientModal, QrModal
+    │                             # AddAwgClientModal, QrModal.
+    │                             # Все Add*Modal принимают `editing?: T` —
+    │                             # pre-fill + PATCH вместо POST.
     ├── api/                      # типы + fetch + хуки (servers, directions, rules,
     │                             # dns, geoip, ipsetGroups, awgClients, ...)
     ├── ws/                       # useWS — invalidate по EventType (включая direction.*)
