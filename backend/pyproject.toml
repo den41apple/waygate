@@ -38,9 +38,13 @@ exclude = "(^|/)(\\.venv|venv|alembic)/"
 
 [[tool.mypy.overrides]]
 module = ["agent.tests.*", "server.tests.*", "shared.tests.*"]
+# Тестам не требуем аннотировать возврат (всегда `None`), но проверяем тела
+# и заставляем аннотировать **параметры** — fixture'ы хочется типизировать
+# чтобы IDE подсказывала, и чтобы случайно не передать `client` вместо
+# `session_maker`.
 disallow_untyped_defs = false
 disallow_incomplete_defs = false
-check_untyped_defs = false
+check_untyped_defs = true
 
 # SQLModel + mypy strict — column-descriptors (Server.id, .timestamp ...) выглядят
 # как plain int/datetime, но в where/order_by приходят как InstrumentedAttribute,

@@ -29,6 +29,10 @@ class Settings:
     )
     agent_default_port: int = env.int("AGENT_DEFAULT_PORT", default=7743)
     provision_healthcheck_timeout_seconds: int = env.int("PROVISION_HEALTHCHECK_TIMEOUT_SECONDS", default=120)
+    # GitHub-репо где живут agent-wheel-релизы (тег `agent-v*`). Используется
+    # для GET /api/v1/agent-releases — UI показывает список и подсовывает URL'ы
+    # в UpdateAgentModal.
+    agent_releases_repo: str = env.str("AGENT_RELEASES_REPO", default="den41apple/waygate")
 
     # Auth: session JWT для UI и bootstrap первого админа
     session_ttl_seconds: int = env.int("SESSION_TTL_SECONDS", default=12 * 3600)

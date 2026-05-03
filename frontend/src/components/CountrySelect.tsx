@@ -63,6 +63,7 @@ interface Props {
   /** Опционально: id для `<datalist>`; нужен если на странице несколько селекторов. */
   listId?: string;
   className?: string;
+  disabled?: boolean;
 }
 
 export function CountrySelect({
@@ -71,6 +72,7 @@ export function CountrySelect({
   required = false,
   listId = "waygate-country-list",
   className = "input",
+  disabled = false,
 }: Props) {
   const countries = useMemo(() => buildCountries(), []);
   const flag = flagFor(value);
@@ -85,6 +87,7 @@ export function CountrySelect({
         maxLength={2}
         list={listId}
         required={required}
+        disabled={disabled}
         autoComplete="off"
         style={{ paddingLeft: 36 }}
       />

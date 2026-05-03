@@ -23,6 +23,14 @@ class GeoListCreate(BaseModel):
     source_url: str = Field(description="URL zone-файла")
 
 
+class GeoListUpdate(BaseModel):
+    """PATCH-обновление GeoList. country менять нельзя — ipset-имя на агенте
+    привязано к коду (`geoip-<cc>-v4`), переименование оторвёт правила."""
+
+    name: str | None = None
+    source_url: str | None = None
+
+
 class GeoListResponse(BaseModel):
     id: int
     country: str
@@ -79,6 +87,23 @@ async def create_geoip_list(
         status=GeoListStatus.STALE.value,
     )
     session.add(geo_list)
+    await session.commit()
+    await session.refresh(geo_list)
+    return _to_response(geo_list=geo_list)
+
+
+@router.patch("/geoip/lists/{geo_list_id}", response_model=GeoListResponse)
+async def update_geoip_list(
+    geo_list_id: int,
+    request: GeoListUpdate,
+    session: AsyncSession = Depends(get_session),
+) -> GeoListResponse:
+    geo_list = await session.get(GeoList, geo_list_id)
+    if geo_list is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"geo_list id={geo_list_id} не найден")
+    payload = request.model_dump(exclude_unset=True)
+    for field, value in payload.items():
+        setattr(geo_list, field, value)
     await session.commit()
     await session.refresh(geo_list)
     return _to_response(geo_list=geo_list)

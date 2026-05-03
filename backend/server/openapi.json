@@ -9,6 +9,63 @@
         "title": "AcmeChallenge",
         "type": "string"
       },
+      "AgentRelease": {
+        "description": "\u0417\u0430\u043f\u0438\u0441\u044c \u043e \u0440\u0435\u043b\u0438\u0437\u0435 \u0430\u0433\u0435\u043d\u0442\u0430 \u0438\u0437 GitHub Releases.",
+        "properties": {
+          "name": {
+            "description": "\u0417\u0430\u0433\u043e\u043b\u043e\u0432\u043e\u043a \u0440\u0435\u043b\u0438\u0437\u0430 \u0432 GitHub UI",
+            "title": "Name",
+            "type": "string"
+          },
+          "published_at": {
+            "description": "\u041a\u043e\u0433\u0434\u0430 \u043e\u043f\u0443\u0431\u043b\u0438\u043a\u043e\u0432\u0430\u043d",
+            "format": "date-time",
+            "title": "Published At",
+            "type": "string"
+          },
+          "tag": {
+            "description": "Git-\u0442\u0435\u0433 \u0440\u0435\u043b\u0438\u0437\u0430, e.g. agent-v0.2.0",
+            "title": "Tag",
+            "type": "string"
+          },
+          "version": {
+            "description": "\u0427\u0438\u0441\u0442\u0430\u044f \u0432\u0435\u0440\u0441\u0438\u044f \u0431\u0435\u0437 \u043f\u0440\u0435\u0444\u0438\u043a\u0441\u0430, e.g. 0.2.0",
+            "title": "Version",
+            "type": "string"
+          },
+          "wheel_url": {
+            "description": "URL versionless-wheel'\u0430 (waygate_agent-py3-none-any.whl)",
+            "title": "Wheel Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tag",
+          "version",
+          "name",
+          "published_at",
+          "wheel_url"
+        ],
+        "title": "AgentRelease",
+        "type": "object"
+      },
+      "AgentReleasesResponse": {
+        "properties": {
+          "releases": {
+            "description": "\u041e\u0442 \u0441\u0430\u043c\u043e\u0433\u043e \u0441\u0432\u0435\u0436\u0435\u0433\u043e \u043a \u0441\u0442\u0430\u0440\u043e\u043c\u0443 (UI \u0441\u0442\u0430\u0432\u0438\u0442 \u043f\u0435\u0440\u0432\u044b\u0439 \u0434\u0435\u0444\u043e\u043b\u0442\u043e\u043c).",
+            "items": {
+              "$ref": "#/components/schemas/AgentRelease"
+            },
+            "title": "Releases",
+            "type": "array"
+          }
+        },
+        "required": [
+          "releases"
+        ],
+        "title": "AgentReleasesResponse",
+        "type": "object"
+      },
       "ApplyDnsResponse": {
         "properties": {
           "applied": {
@@ -942,6 +999,35 @@
         "title": "GeoListResponse",
         "type": "object"
       },
+      "GeoListUpdate": {
+        "description": "PATCH-\u043e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u0438\u0435 GeoList. country \u043c\u0435\u043d\u044f\u0442\u044c \u043d\u0435\u043b\u044c\u0437\u044f \u2014 ipset-\u0438\u043c\u044f \u043d\u0430 \u0430\u0433\u0435\u043d\u0442\u0435\n\u043f\u0440\u0438\u0432\u044f\u0437\u0430\u043d\u043e \u043a \u043a\u043e\u0434\u0443 (`geoip-<cc>-v4`), \u043f\u0435\u0440\u0435\u0438\u043c\u0435\u043d\u043e\u0432\u0430\u043d\u0438\u0435 \u043e\u0442\u043e\u0440\u0432\u0451\u0442 \u043f\u0440\u0430\u0432\u0438\u043b\u0430.",
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "source_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Url"
+          }
+        },
+        "title": "GeoListUpdate",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -1052,6 +1138,18 @@
               }
             ],
             "title": "Cidrs"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "pattern": "^[a-zA-Z0-9_.-]{1,31}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
           }
         },
         "title": "IpsetGroupUpdate",
@@ -1679,6 +1777,35 @@
         "title": "ServerResponse",
         "type": "object"
       },
+      "ServerUpdate": {
+        "description": "PATCH-\u043e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u0438\u0435 \u043d\u0430\u0441\u0442\u0440\u043e\u0435\u043a Server. host/port/token \u043d\u0435 \u043c\u0435\u043d\u044f\u0435\u043c \u2014 \u0434\u043b\u044f \u043d\u0438\u0445\n\u043b\u0438\u0431\u043e \u043f\u0435\u0440\u0435\u043e\u043d\u0431\u043e\u0440\u0434\u0438\u043d\u0433 (host/port \u2014 \u0442\u0435\u0445\u043d\u0438\u0447\u0435\u0441\u043a\u0430\u044f \u0441\u043c\u0435\u043d\u0430 endpoint'\u0430), \u043b\u0438\u0431\u043e\nPOST /token/rotate (token).",
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "region": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Region"
+          }
+        },
+        "title": "ServerUpdate",
+        "type": "object"
+      },
       "TlsApplyResponse": {
         "properties": {
           "cert_path": {
@@ -2066,6 +2193,60 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/agent-releases": {
+      "get": {
+        "description": "\u0421\u043f\u0438\u0441\u043e\u043a \u0440\u0435\u043b\u0438\u0437\u043e\u0432 \u0441 GitHub (cached 5 \u043c\u0438\u043d).",
+        "operationId": "list_agent_releases_api_v1_agent_releases_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Access Token",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentReleasesResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Agent Releases",
+        "tags": [
+          "agent-releases"
+        ]
+      }
+    },
     "/api/v1/audit": {
       "get": {
         "description": "\u041f\u043e\u0441\u043b\u0435\u0434\u043d\u0438\u0435 \u0437\u0430\u043f\u0438\u0441\u0438 \u0430\u0443\u0434\u0438\u0442\u0430. payload \u043d\u0435 \u0432\u043e\u0437\u0432\u0440\u0430\u0449\u0430\u0435\u043c \u0432 \u043b\u0438\u0441\u0442\u0438\u043d\u0433\u0435 \u2014 \u043e\u043d \u043c\u043e\u0436\u0435\u0442 \u0431\u044b\u0442\u044c \u0431\u043e\u043b\u044c\u0448\u0438\u043c.",
@@ -2521,6 +2702,76 @@
         "tags": [
           "geoip"
         ]
+      },
+      "patch": {
+        "operationId": "update_geoip_list_api_v1_geoip_lists__geo_list_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "geo_list_id",
+            "required": true,
+            "schema": {
+              "title": "Geo List Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Access Token",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GeoListUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GeoListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Geoip List",
+        "tags": [
+          "geoip"
+        ]
       }
     },
     "/api/v1/servers": {
@@ -2811,6 +3062,76 @@
           }
         },
         "summary": "Get Server",
+        "tags": [
+          "servers"
+        ]
+      },
+      "patch": {
+        "operationId": "update_server_api_v1_servers__server_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "server_id",
+            "required": true,
+            "schema": {
+              "title": "Server Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Access Token",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ServerUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Server",
         "tags": [
           "servers"
         ]
@@ -4605,7 +4926,7 @@
     },
     "/api/v1/servers/{server_id}/rules/apply": {
       "post": {
-        "description": "\u0411\u0435\u0440\u0451\u0442 \u0432\u0441\u0451 \u0441\u043e\u0434\u0435\u0440\u0436\u0438\u043c\u043e\u0435 \u0442\u0430\u0431\u043b\u0438\u0446\u044b routing_rule \u0434\u043b\u044f server_id \u0438 \u0448\u043b\u0451\u0442 \u043d\u0430 \u0430\u0433\u0435\u043d\u0442.",
+        "description": "\u0411\u0435\u0440\u0451\u0442 \u0432\u0441\u0451 \u0441\u043e\u0434\u0435\u0440\u0436\u0438\u043c\u043e\u0435 \u0442\u0430\u0431\u043b\u0438\u0446\u044b routing_rule \u0434\u043b\u044f server_id \u0438 \u0448\u043b\u0451\u0442 \u043d\u0430 \u0430\u0433\u0435\u043d\u0442.\n\n\u041f\u0435\u0440\u0435\u0434 \u043f\u0440\u0438\u043c\u0435\u043d\u0435\u043d\u0438\u0435\u043c routing-\u043f\u0440\u0430\u0432\u0438\u043b \u0430\u0432\u0442\u043e\u043c\u0430\u0442\u0438\u0447\u0435\u0441\u043a\u0438 \u0432\u044b\u0437\u044b\u0432\u0430\u0435\u0442\u0441\u044f `/v1/dns/apply` \u2014\n\u044d\u0442\u043e \u0441\u043e\u0437\u0434\u0430\u0451\u0442 ipset'\u044b \u043f\u043e\u0434 dnsmasq, \u043d\u0430 \u043a\u043e\u0442\u043e\u0440\u044b\u0435 \u043f\u043e\u0442\u043e\u043c \u0441\u0441\u044b\u043b\u0430\u044e\u0442\u0441\u044f routing-\u043f\u0440\u0430\u0432\u0438\u043b\u0430\nDNS-\u043d\u0430\u043f\u0440\u0430\u0432\u043b\u0435\u043d\u0438\u0439. \u0411\u0435\u0437 \u044d\u0442\u043e\u0433\u043e `iptables -m set --match-set <name>` \u043f\u0430\u0434\u0430\u0435\u0442 \u0441\n`Set <name> doesn't exist`. GeoIP-ipset'\u044b \u0441\u043e\u0437\u0434\u0430\u044e\u0442\u0441\u044f \u0432\u0440\u0443\u0447\u043d\u0443\u044e \u0447\u0435\u0440\u0435\u0437 `/geoip/lists/{id}/sync`\n\u2014 \u0437\u0434\u0435\u0441\u044c \u043d\u0435 \u0434\u0451\u0440\u0433\u0430\u0435\u043c (\u043c\u0438\u043b\u043b\u0438\u043e\u043d\u044b IPv4, \u0442\u044f\u0436\u0451\u043b\u0430\u044f \u043e\u043f\u0435\u0440\u0430\u0446\u0438\u044f).",
         "operationId": "apply_rules_api_v1_servers__server_id__rules_apply_post",
         "parameters": [
           {

@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
 
-import { useCreateDnsRule, type DnsRuleCreate } from "../api/dns";
+import { useCreateDnsRule, useUpdateDnsRule, type DnsRuleCreate } from "../api/dns";
+import type { DnsRule } from "../api/types";
 import { Icon } from "../components/Icon";
 import { IconTile, Toggle } from "../components/primitives";
 
 interface Props {
   serverId: number;
+  editing?: DnsRule;
   onClose: () => void;
 }
 
@@ -20,14 +22,19 @@ function sanitizeForIpset(raw: string): string {
     .slice(0, 24); // 24 + "dns-" (4) = 28 < 31 (max ipset name)
 }
 
-export function AddDnsModal({ serverId, onClose }: Props) {
+export function AddDnsModal({ serverId, editing, onClose }: Props) {
   const create = useCreateDnsRule(serverId);
+  const update = useUpdateDnsRule(serverId);
+  const isEdit = editing !== undefined;
+  const mutation = isEdit ? update : create;
 
-  const [name, setName] = useState("");
-  const [domainsRaw, setDomainsRaw] = useState("");
-  const [ipsetName, setIpsetName] = useState("");
-  const [ipsetTouched, setIpsetTouched] = useState(false);
-  const [enabled, setEnabled] = useState(true);
+  const [name, setName] = useState(editing?.name ?? "");
+  const [domainsRaw, setDomainsRaw] = useState(editing?.domains.join("\n") ?? "");
+  const [ipsetName, setIpsetName] = useState(editing?.ipset_name ?? "");
+  // В edit-режиме сразу считаем что ipset уже «touched», чтобы не сбрасывать
+  // существующее значение при первом рендере (если name не менялось).
+  const [ipsetTouched, setIpsetTouched] = useState(isEdit);
+  const [enabled, setEnabled] = useState(editing?.enabled ?? true);
 
   // Auto-suggest `dns-<sanitized-name>` пока пользователь не редактирует ipset вручную.
   // Это закрывает 95% случаев и устраняет необходимость думать про consistency
@@ -57,7 +64,11 @@ export function AddDnsModal({ serverId, onClose }: Props) {
       enabled,
     };
     try {
-      await create.mutateAsync(payload);
+      if (isEdit && editing) {
+        await update.mutateAsync({ ruleId: editing.id, patch: payload });
+      } else {
+        await create.mutateAsync(payload);
+      }
       onClose();
     } catch {
       // ошибка покажется ниже
@@ -69,7 +80,8 @@ export function AddDnsModal({ serverId, onClose }: Props) {
       <div className="modal" onClick={(event) => event.stopPropagation()}>
         <div className="modal-head">
           <div className="title">
-            <IconTile color="violet" icon="send" size="sm" /> Добавить DNS-правило
+            <IconTile color="violet" icon="send" size="sm" />{" "}
+            {isEdit ? "Редактировать DNS-правило" : "Добавить DNS-правило"}
           </div>
           <button className="close" onClick={onClose}>
             <Icon name="x" size={16} />
@@ -125,12 +137,12 @@ export function AddDnsModal({ serverId, onClose }: Props) {
             <label>Включить сразу после создания</label>
           </div>
 
-          {create.error && (
+          {mutation.error && (
             <div
               className="hint"
               style={{ background: "var(--red-tint, #4a1f1f)", color: "var(--red, #ef4444)" }}
             >
-              {String(create.error)}
+              {String(mutation.error)}
             </div>
           )}
         </div>
@@ -139,9 +151,11 @@ export function AddDnsModal({ serverId, onClose }: Props) {
           <button
             className="btn primary"
             onClick={submit}
-            disabled={!valid || create.isPending}
+            disabled={!valid || mutation.isPending}
           >
-            {create.isPending ? "Создаю…" : "Создать"}
+            {mutation.isPending
+              ? isEdit ? "Сохраняю…" : "Создаю…"
+              : isEdit ? "Сохранить" : "Создать"}
           </button>
         </div>
       </div>

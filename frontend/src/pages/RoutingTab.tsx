@@ -30,6 +30,7 @@ export function RoutingTab({ serverId, showSpark }: Props) {
   const applyRules = useApplyRules(serverId);
 
   const [showAdd, setShowAdd] = useState(false);
+  const [editing, setEditing] = useState<Direction | null>(null);
 
   // Группировка direction'ов по awg_client
   const grouped = useMemo(() => {
@@ -154,6 +155,7 @@ export function RoutingTab({ serverId, showSpark }: Props) {
                 patch: { enabled: !direction.enabled },
               })
             }
+            onEdit={(direction) => setEditing(direction)}
             onDelete={(direction) => {
               if (window.confirm(`Удалить направление «${direction.name}»?`)) {
                 deleteDirection.mutate(direction.id);
@@ -166,6 +168,13 @@ export function RoutingTab({ serverId, showSpark }: Props) {
       {showAdd && (
         <AddRoutingDirectionModal serverId={serverId} onClose={() => setShowAdd(false)} />
       )}
+      {editing && (
+        <AddRoutingDirectionModal
+          serverId={serverId}
+          editing={editing}
+          onClose={() => setEditing(null)}
+        />
+      )}
     </>
   );
 }
@@ -174,10 +183,11 @@ interface GroupProps {
   awgClient: AwgClient | null;
   directions: Direction[];
   onToggle: (direction: Direction) => void;
+  onEdit: (direction: Direction) => void;
   onDelete: (direction: Direction) => void;
 }
 
-function DirectionGroup({ awgClient, directions, onToggle, onDelete }: GroupProps) {
+function DirectionGroup({ awgClient, directions, onToggle, onEdit, onDelete }: GroupProps) {
   return (
     <div style={{ marginBottom: 16 }}>
       <div
@@ -214,6 +224,7 @@ function DirectionGroup({ awgClient, directions, onToggle, onDelete }: GroupProp
           key={direction.id}
           direction={direction}
           onToggle={() => onToggle(direction)}
+          onEdit={() => onEdit(direction)}
           onDelete={() => onDelete(direction)}
         />
       ))}
@@ -224,10 +235,11 @@ function DirectionGroup({ awgClient, directions, onToggle, onDelete }: GroupProp
 interface CardProps {
   direction: Direction;
   onToggle: () => void;
+  onEdit: () => void;
   onDelete: () => void;
 }
 
-function DirectionCard({ direction, onToggle, onDelete }: CardProps) {
+function DirectionCard({ direction, onToggle, onEdit, onDelete }: CardProps) {
   const { data: geoLists = [] } = useGeoIpLists();
   const { data: dnsRules = [] } = useDnsRules(direction.server_id);
   const { data: ipsetGroups = [] } = useIpsetGroups(direction.server_id);
@@ -263,7 +275,15 @@ function DirectionCard({ direction, onToggle, onDelete }: CardProps) {
         <button
           className="tb-btn"
           style={{ marginLeft: 6 }}
+          onClick={onEdit}
+          title="Редактировать"
+        >
+          <Icon name="edit" size={14} />
+        </button>
+        <button
+          className="tb-btn"
           onClick={onDelete}
+          title="Удалить"
         >
           <Icon name="x" size={14} />
         </button>

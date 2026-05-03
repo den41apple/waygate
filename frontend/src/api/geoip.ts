@@ -27,6 +27,20 @@ export function useCreateGeoList() {
   });
 }
 
+export interface GeoListUpdate {
+  name?: string;
+  source_url?: string;
+}
+
+export function useUpdateGeoList() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, patch }: { id: number; patch: GeoListUpdate }) =>
+      api.patch<GeoList>(`/geoip/lists/${id}`, patch),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: GEOIP_KEY }),
+  });
+}
+
 export function useDeleteGeoList() {
   const queryClient = useQueryClient();
   return useMutation({

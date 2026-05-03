@@ -23,6 +23,10 @@ WORKDIR /app
 COPY backend/ /app/backend/
 
 WORKDIR /app/backend
+# Не плодим .venv — пакеты в system Python (контейнер уже изолирован).
+ENV UV_PROJECT_ENVIRONMENT=/usr/local
+ENV UV_COMPILE_BYTECODE=1
+ENV UV_LINK_MODE=copy
 RUN uv sync --all-packages
 
 ENV PORT=7743

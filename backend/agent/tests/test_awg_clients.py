@@ -1,6 +1,7 @@
 import json
 from collections.abc import Iterable
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -44,7 +45,10 @@ def fake_run(monkeypatch):
     """Перехватывает `run_command`. По умолчанию возвращает пустой stdout, можно
     переопределить через `responses` (mapping prefix→stdout)."""
 
-    state: dict = {"calls": [], "responses": {}, "raise_on": set()}
+    # Внутри значения разных типов (list[list[str]], dict[str, str], set[str]) —
+    # union mypy не narrowing'ит по ключу, а правка всех call-сайтов на dataclass
+    # дороже чем `Any` в тестовом state.
+    state: dict[str, Any] = {"calls": [], "responses": {}, "raise_on": set()}
 
     async def _runner(command: Iterable[str], *, stdin: bytes | None = None, check: bool = True) -> str:
         cmd = list(command)

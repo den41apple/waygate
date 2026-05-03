@@ -10,9 +10,10 @@ interface Props {
   server: ServerSummary | null;
   onTLS: () => void;
   onUpdate: () => void;
+  onEditSettings: () => void;
 }
 
-export function Topbar({ server, onTLS, onUpdate }: Props) {
+export function Topbar({ server, onTLS, onUpdate, onEditSettings }: Props) {
   const refresh = useRefreshServer();
   const rotateToken = useRotateToken();
   const logout = useLogout();
@@ -70,6 +71,13 @@ export function Topbar({ server, onTLS, onUpdate }: Props) {
           onClick={() => setShowSparklines(!showSparklines)}
         >
           <Icon name="activity" size={14} /> {showSparklines ? "spark on" : "spark off"}
+        </button>
+        <button
+          className="tb-btn"
+          onClick={onEditSettings}
+          title="Изменить имя и регион сервера"
+        >
+          <Icon name="edit" size={14} /> Настройки
         </button>
         <button className="tb-btn" onClick={onTLS}><Icon name="lock" size={14} /> TLS</button>
         <button

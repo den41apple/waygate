@@ -18,7 +18,7 @@ async def server_id(client):
 
 
 async def test_apply_tls_calls_agent_and_persists(client, server_id, monkeypatch):
-    captured: dict = {}
+    captured: dict[str, object] = {}
     broadcasts: list[WsEvent] = []
     expires_at = datetime.now(tz=UTC) + timedelta(days=90)
 

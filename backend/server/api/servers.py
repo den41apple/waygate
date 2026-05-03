@@ -118,6 +118,42 @@ async def get_server(
     return _to_response(server=server)
 
 
+class ServerUpdate(BaseModel):
+    """PATCH-обновление настроек Server. host/port/token не меняем — для них
+    либо переонбординг (host/port — техническая смена endpoint'а), либо
+    POST /token/rotate (token)."""
+
+    name: str | None = None
+    region: str | None = None
+
+
+@router.patch("/{server_id}", response_model=ServerResponse)
+async def patch_server_settings(
+    server_id: int,
+    request: ServerUpdate,
+    session: AsyncSession = Depends(get_session),
+) -> ServerResponse:
+    """Не путать с `update_server` ниже (self-update агента, POST /{id}/update)."""
+    server = await session.get(Server, server_id)
+    if server is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"server id={server_id} не найден")
+    payload = request.model_dump(exclude_unset=True)
+    for field, value in payload.items():
+        setattr(server, field, value)
+    await session.commit()
+    await session.refresh(server)
+    logger.info("server обновлён: id={} fields={}", server_id, list(payload.keys()))
+    await get_manager().broadcast(
+        event=WsEvent(
+            type=EventType.SERVER_UPDATED,
+            server_id=server_id,
+            payload={"name": server.name, "region": server.region},
+            timestamp=datetime.now(tz=UTC),
+        ),
+    )
+    return _to_response(server=server)
+
+
 @router.delete("/{server_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_server(
     server_id: int,

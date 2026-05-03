@@ -13,6 +13,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from loguru import logger
 from pydantic import BaseModel, Field
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
@@ -30,6 +31,7 @@ class IpsetGroupCreate(BaseModel):
 
 
 class IpsetGroupUpdate(BaseModel):
+    name: IpsetName | None = None
     cidrs: list[str] | None = None
 
 
@@ -133,10 +135,25 @@ async def update_group(
 ) -> IpsetGroupResponse:
     server = await _load_server(server_id=server_id, session=session)
     group = await _get_group(server_id=server_id, group_id=group_id, session=session)
+    changed = False
+    if request.name is not None and request.name != group.name:
+        group.name = request.name
+        changed = True
     if request.cidrs is not None:
         group.cidrs = list(request.cidrs)
+        changed = True
+    if changed:
         group.updated_at = datetime.now()
-    await session.commit()
+    try:
+        await session.commit()
+    except IntegrityError as exc:
+        # UNIQUE(server_id, name) — пользователь хочет переименовать в имя,
+        # уже занятое другой группой на этом сервере.
+        await session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"ipset-group с именем '{request.name}' уже существует на server_id={server_id}",
+        ) from exc
     await session.refresh(group)
     await _maybe_apply(server=server, group=group, apply=apply)
     return _to_response(group=group)

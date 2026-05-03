@@ -23,11 +23,16 @@ export function useCreateIpsetGroup(serverId: number) {
   });
 }
 
+export interface IpsetGroupPatch {
+  name?: string;
+  cidrs?: string[];
+}
+
 export function useUpdateIpsetGroup(serverId: number) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ groupId, cidrs }: { groupId: number; cidrs: string[] }) =>
-      api.patch<IpsetGroup>(`/servers/${serverId}/ipset-groups/${groupId}`, { cidrs }),
+    mutationFn: ({ groupId, patch }: { groupId: number; patch: IpsetGroupPatch }) =>
+      api.patch<IpsetGroup>(`/servers/${serverId}/ipset-groups/${groupId}`, patch),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ipsetGroupsKey(serverId) }),
   });
 }

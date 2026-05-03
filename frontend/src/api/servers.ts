@@ -61,6 +61,21 @@ export function useUpdateServer() {
   });
 }
 
+export interface ServerSettingsPatch {
+  name?: string;
+  region?: string | null;
+}
+
+/** PATCH /servers/{id} — name/region. Не путать с `useUpdateServer` (self-update агента). */
+export function useEditServerSettings() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ serverId, patch }: { serverId: number; patch: ServerSettingsPatch }) =>
+      api.patch<ServerSummary>(`/servers/${serverId}`, patch),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: SERVERS_KEY }),
+  });
+}
+
 interface RotateTokenResponse {
   rotated: boolean;
 }

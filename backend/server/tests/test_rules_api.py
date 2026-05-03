@@ -86,7 +86,9 @@ async def test_rule_default_scope_is_host(client, server_id):
 
 
 async def test_apply_rules_calls_agent(client, server_id, monkeypatch):
-    captured: dict = {}
+    from typing import Any
+
+    captured: dict[str, Any] = {}
     broadcasts: list[WsEvent] = []
 
     class FakeClient:

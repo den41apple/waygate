@@ -66,6 +66,31 @@ async def test_delete_server_handles_audit_entries(client, session_maker):
         assert entries[0].path == f"/api/v1/servers/{server_id}/rules"
 
 
+async def test_update_server_name_and_region(client):
+    create = await client.post(
+        "/api/v1/servers",
+        json={"host": "10.0.0.5", "port": 7743, "name": "old-name", "token": "tok-x"},
+    )
+    server_id = create.json()["id"]
+
+    patch = await client.patch(
+        f"/api/v1/servers/{server_id}",
+        json={"name": "new-name", "region": "APAC"},
+    )
+    assert patch.status_code == 200
+    body = patch.json()
+    assert body["name"] == "new-name"
+    assert body["region"] == "APAC"
+    # host/port/token PATCH не трогает
+    assert body["host"] == "10.0.0.5"
+    assert body["port"] == 7743
+
+
+async def test_update_unknown_server_404(client):
+    response = await client.patch("/api/v1/servers/99999", json={"name": "x"})
+    assert response.status_code == 404
+
+
 async def test_delete_server_cascades(client):
     response = await client.post(
         "/api/v1/servers",

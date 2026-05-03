@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import { useApplyDns, useDeleteDnsRule, useDnsRules, useUpdateDnsRule } from "../api/dns";
+import type { DnsRule } from "../api/types";
 import { Icon } from "../components/Icon";
 import { AddDnsModal } from "../modals/AddDnsModal";
 import { Badge, IconTile, Metric, MonoPill, SectionHead, Toggle } from "../components/primitives";
@@ -16,6 +17,7 @@ export function DnsTab({ serverId, showSpark }: Props) {
   const deleteRule = useDeleteDnsRule(serverId);
   const applyDns = useApplyDns(serverId);
   const [showAdd, setShowAdd] = useState(false);
+  const [editing, setEditing] = useState<DnsRule | null>(null);
 
   const totalDomains = rules.reduce((acc, rule) => acc + rule.domains.length, 0);
 
@@ -69,8 +71,16 @@ export function DnsTab({ serverId, showSpark }: Props) {
             <button
               className="tb-btn"
               style={{ marginLeft: 6 }}
+              onClick={() => setEditing(rule)}
+              title="Редактировать"
+            >
+              <Icon name="edit" size={14} />
+            </button>
+            <button
+              className="tb-btn"
               onClick={() => deleteRule.mutate(rule.id)}
               disabled={deleteRule.isPending}
+              title="Удалить"
             >
               <Icon name="x" size={14} />
             </button>
@@ -93,6 +103,13 @@ export function DnsTab({ serverId, showSpark }: Props) {
       </button>
 
       {showAdd && <AddDnsModal serverId={serverId} onClose={() => setShowAdd(false)} />}
+      {editing && (
+        <AddDnsModal
+          serverId={serverId}
+          editing={editing}
+          onClose={() => setEditing(null)}
+        />
+      )}
     </>
   );
 }

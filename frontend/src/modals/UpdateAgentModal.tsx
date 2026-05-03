@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
+import { useAgentReleases } from "../api/agentReleases";
 import { useRefreshServer, useServer, useUpdateServer } from "../api/servers";
 import type { UpdateServerPayload } from "../api/types";
 import { Icon } from "../components/Icon";
@@ -21,10 +22,15 @@ interface LogLine {
 const DEFAULT_WHEEL_URL =
   "https://github.com/den41apple/waygate/releases/latest/download/waygate_agent-py3-none-any.whl";
 
+// Спец-значение в select'е чтобы переключиться в ручной ввод (для случая
+// «GitHub недоступен» или «приватный wheel-URL»).
+const MANUAL_TAG = "__manual__";
+
 export function UpdateAgentModal({ serverId, currentVersion, onClose }: Props) {
   const update = useUpdateServer();
   const refresh = useRefreshServer();
   const fresh = useServer(serverId);
+  const releases = useAgentReleases();
   // При открытии модалки — выдёргиваем актуальную версию (БД обновляется только
   // через healthcheck/refresh, иначе тут долго висит prевентивная).
   useEffect(() => {
@@ -33,9 +39,23 @@ export function UpdateAgentModal({ serverId, currentVersion, onClose }: Props) {
   }, [serverId]);
   const displayedVersion = fresh.data?.version ?? currentVersion;
 
-  const [version, setVersion] = useState("");
-  const [wheelUrl, setWheelUrl] = useState(DEFAULT_WHEEL_URL);
+  // Пред-выбор: первый релиз (latest). При недоступности GitHub — MANUAL_TAG.
+  const defaultTag = useMemo(() => {
+    if (releases.data && releases.data.length > 0) return releases.data[0].tag;
+    return MANUAL_TAG;
+  }, [releases.data]);
+  const [selectedTag, setSelectedTag] = useState<string | null>(null);
+  // Эффективный tag — selectedTag (если пользователь выбрал) иначе defaultTag.
+  const tag = selectedTag ?? defaultTag;
+
+  const [manualVersion, setManualVersion] = useState("");
+  const [manualWheelUrl, setManualWheelUrl] = useState(DEFAULT_WHEEL_URL);
   const [waitForReconnect, setWaitForReconnect] = useState(true);
+
+  // Версия и URL — либо из выбранного release, либо из ручных полей.
+  const selectedRelease = releases.data?.find((release) => release.tag === tag);
+  const version = tag === MANUAL_TAG ? manualVersion : selectedRelease?.version ?? "";
+  const wheelUrl = tag === MANUAL_TAG ? manualWheelUrl : selectedRelease?.wheel_url ?? "";
 
   // Step 0 — форма; step 1 — лог в стиле AddServerModal.
   const [step, setStep] = useState<0 | 1>(0);
@@ -132,25 +152,52 @@ export function UpdateAgentModal({ serverId, currentVersion, onClose }: Props) {
 
               <div className="field">
                 <label>Целевая версия</label>
-                <input
-                  className="input"
-                  value={version}
-                  onChange={(event) => setVersion(event.target.value)}
-                  placeholder="0.1.7"
-                />
+                <select
+                  className="select"
+                  value={tag}
+                  onChange={(event) => setSelectedTag(event.target.value)}
+                  disabled={releases.isPending}
+                >
+                  {releases.data?.map((release) => (
+                    <option key={release.tag} value={release.tag}>
+                      {release.version}
+                      {release === releases.data[0] ? " (latest)" : ""}
+                      {release.version === displayedVersion ? " · уже установлено" : ""}
+                    </option>
+                  ))}
+                  <option value={MANUAL_TAG}>— ввести вручную —</option>
+                </select>
+                {releases.error && (
+                  <div className="hint" style={{ fontSize: 11, color: "var(--text-3)" }}>
+                    GitHub недоступен — введи версию и URL вручную.
+                  </div>
+                )}
               </div>
 
-              <div className="field">
-                <label>URL wheel-файла</label>
-                <input
-                  className="input"
-                  value={wheelUrl}
-                  onChange={(event) => setWheelUrl(event.target.value)}
-                />
-                <div className="hint" style={{ fontSize: 11, color: "var(--text-3)" }}>
-                  По умолчанию — последний релиз агента из GitHub.
-                </div>
-              </div>
+              {tag === MANUAL_TAG && (
+                <>
+                  <div className="field">
+                    <label>Версия (вручную)</label>
+                    <input
+                      className="input"
+                      value={manualVersion}
+                      onChange={(event) => setManualVersion(event.target.value)}
+                      placeholder="0.2.0"
+                    />
+                  </div>
+                  <div className="field">
+                    <label>URL wheel-файла</label>
+                    <input
+                      className="input"
+                      value={manualWheelUrl}
+                      onChange={(event) => setManualWheelUrl(event.target.value)}
+                    />
+                    <div className="hint" style={{ fontSize: 11, color: "var(--text-3)" }}>
+                      По умолчанию — `latest/download` из GitHub.
+                    </div>
+                  </div>
+                </>
+              )}
 
               <div
                 className="field"

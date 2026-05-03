@@ -1,17 +1,19 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { useAwgClients } from "../api/awgClients";
-import { useCreateDirection } from "../api/directions";
+import { useCreateDirection, useUpdateDirection } from "../api/directions";
 import { useDnsRules } from "../api/dns";
 import { useGeoIpLists } from "../api/geoip";
 import { useIpsetGroups } from "../api/ipsetGroups";
-import type { DirectionCreate } from "../api/types";
+import type { Direction, DirectionCreate, DirectionUpdate } from "../api/types";
 import { flagFor } from "../components/CountrySelect";
 import { Icon } from "../components/Icon";
 import { IconTile, Toggle } from "../components/primitives";
 
 interface Props {
   serverId: number;
+  /** Если задано — модалка работает в edit-режиме: pre-fill полей и PATCH вместо POST. */
+  editing?: Direction;
   onClose: () => void;
 }
 
@@ -26,38 +28,46 @@ function deriveGateway(interfaceAddress: string | null): string | null {
   return `${octets[0]}.${octets[1]}.${octets[2]}.1`;
 }
 
-export function AddRoutingDirectionModal({ serverId, onClose }: Props) {
+export function AddRoutingDirectionModal({ serverId, editing, onClose }: Props) {
   const create = useCreateDirection(serverId);
+  const update = useUpdateDirection(serverId);
   const { data: awgClients = [] } = useAwgClients(serverId);
   const { data: geoLists = [] } = useGeoIpLists();
   const { data: dnsRules = [] } = useDnsRules(serverId);
   const { data: ipsetGroups = [] } = useIpsetGroups(serverId);
 
-  const [name, setName] = useState("");
-  const [awgClientId, setAwgClientId] = useState<number | null>(null);
-  const [viaInterface, setViaInterface] = useState("");
-  const [viaGateway, setViaGateway] = useState("10.66.66.1");
-  const [scope, setScope] = useState<Scope>("host");
-  const [scopeTarget, setScopeTarget] = useState("");
-  const [enabled, setEnabled] = useState(true);
+  const isEdit = editing !== undefined;
+  const mutation = isEdit ? update : create;
+
+  const [name, setName] = useState(editing?.name ?? "");
+  const [awgClientId, setAwgClientId] = useState<number | null>(editing?.awg_client_id ?? null);
+  const [viaInterface, setViaInterface] = useState(editing?.via_interface ?? "");
+  const [viaGateway, setViaGateway] = useState(editing?.via_gateway ?? "10.66.66.1");
+  const [scope, setScope] = useState<Scope>((editing?.scope ?? "host") as Scope);
+  const [scopeTarget, setScopeTarget] = useState(editing?.scope_target ?? "");
+  const [enabled, setEnabled] = useState(editing?.enabled ?? true);
 
   // Чекбоксы — Set'ами для O(1) toggle
-  const [geoIds, setGeoIds] = useState<Set<number>>(new Set());
-  const [dnsIds, setDnsIds] = useState<Set<number>>(new Set());
-  const [ipsetIds, setIpsetIds] = useState<Set<number>>(new Set());
+  const [geoIds, setGeoIds] = useState<Set<number>>(new Set(editing?.geo_list_ids ?? []));
+  const [dnsIds, setDnsIds] = useState<Set<number>>(new Set(editing?.dns_rule_ids ?? []));
+  const [ipsetIds, setIpsetIds] = useState<Set<number>>(new Set(editing?.ipset_group_ids ?? []));
 
   // Default AWG-клиент — первый running, затем auto-fill via_interface/via_gateway.
+  // В edit-режиме пропускаем (значения уже из existing direction).
   useEffect(() => {
+    if (isEdit) return;
     if (awgClientId !== null || awgClients.length === 0) return;
     const running = awgClients.find((awgClient) => awgClient.status === "running") ?? awgClients[0];
     if (running) {
       setAwgClientId(running.id);
     }
-  }, [awgClients, awgClientId]);
+  }, [awgClients, awgClientId, isEdit]);
 
   // При изменении awg_client_id — подтягиваем netdev и gateway.
+  // В edit-режиме — только если пользователь СМЕНИЛ клиента (не на initial set'е).
   useEffect(() => {
     if (awgClientId === null) return;
+    if (isEdit && awgClientId === editing?.awg_client_id) return;
     const awgClient = awgClients.find((item) => item.id === awgClientId);
     if (!awgClient) return;
     // Имя netdev'а: `awg-<name>[:11]` (см. agent/awg_clients.py::_iface_name).
@@ -65,27 +75,43 @@ export function AddRoutingDirectionModal({ serverId, onClose }: Props) {
     setViaInterface(expectedIface);
     const derived = deriveGateway(awgClient.interface_address);
     if (derived) setViaGateway(derived);
-  }, [awgClientId, awgClients]);
+  }, [awgClientId, awgClients, isEdit, editing?.awg_client_id]);
 
   const valid = name.trim().length > 0 && viaInterface.trim().length > 0 && viaGateway.trim().length > 0;
   const totalSelected = geoIds.size + dnsIds.size + ipsetIds.size;
 
   const submit = async () => {
     if (!valid) return;
-    const payload: DirectionCreate = {
-      name: name.trim(),
-      awg_client_id: awgClientId,
-      via_interface: viaInterface.trim(),
-      via_gateway: viaGateway.trim(),
-      geo_list_ids: [...geoIds],
-      dns_rule_ids: [...dnsIds],
-      ipset_group_ids: [...ipsetIds],
-      scope,
-      scope_target: scope === "container" ? scopeTarget.trim() : null,
-      enabled,
-    };
     try {
-      await create.mutateAsync(payload);
+      if (isEdit && editing) {
+        const patch: DirectionUpdate = {
+          name: name.trim(),
+          awg_client_id: awgClientId,
+          via_interface: viaInterface.trim(),
+          via_gateway: viaGateway.trim(),
+          geo_list_ids: [...geoIds],
+          dns_rule_ids: [...dnsIds],
+          ipset_group_ids: [...ipsetIds],
+          scope,
+          scope_target: scope === "container" ? scopeTarget.trim() : null,
+          enabled,
+        };
+        await update.mutateAsync({ directionId: editing.id, patch });
+      } else {
+        const payload: DirectionCreate = {
+          name: name.trim(),
+          awg_client_id: awgClientId,
+          via_interface: viaInterface.trim(),
+          via_gateway: viaGateway.trim(),
+          geo_list_ids: [...geoIds],
+          dns_rule_ids: [...dnsIds],
+          ipset_group_ids: [...ipsetIds],
+          scope,
+          scope_target: scope === "container" ? scopeTarget.trim() : null,
+          enabled,
+        };
+        await create.mutateAsync(payload);
+      }
       onClose();
     } catch {
       // ошибка покажется ниже
@@ -101,7 +127,8 @@ export function AddRoutingDirectionModal({ serverId, onClose }: Props) {
       >
         <div className="modal-head">
           <div className="title">
-            <IconTile color="violet" icon="route" size="sm" /> Новое направление маршрутизации
+            <IconTile color="violet" icon="route" size="sm" />{" "}
+            {isEdit ? "Редактировать направление" : "Новое направление маршрутизации"}
           </div>
           <button className="close" onClick={onClose}>
             <Icon name="x" size={16} />
@@ -272,12 +299,12 @@ export function AddRoutingDirectionModal({ serverId, onClose }: Props) {
             <label>Включить сразу после создания</label>
           </div>
 
-          {create.error && (
+          {mutation.error && (
             <div
               className="hint"
               style={{ background: "var(--red-tint, #4a1f1f)", color: "var(--red, #ef4444)" }}
             >
-              {String(create.error)}
+              {String(mutation.error)}
             </div>
           )}
         </div>
@@ -287,9 +314,11 @@ export function AddRoutingDirectionModal({ serverId, onClose }: Props) {
           <button
             className="btn primary"
             onClick={submit}
-            disabled={!valid || create.isPending}
+            disabled={!valid || mutation.isPending}
           >
-            {create.isPending ? "Создаю…" : "Создать направление"}
+            {mutation.isPending
+              ? isEdit ? "Сохраняю…" : "Создаю…"
+              : isEdit ? "Сохранить" : "Создать направление"}
           </button>
         </div>
       </div>

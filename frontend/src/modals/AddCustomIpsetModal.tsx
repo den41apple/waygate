@@ -1,11 +1,13 @@
 import { useState } from "react";
 
-import { useCreateIpsetGroup } from "../api/ipsetGroups";
+import { useCreateIpsetGroup, useUpdateIpsetGroup } from "../api/ipsetGroups";
+import type { IpsetGroup } from "../api/types";
 import { Icon } from "../components/Icon";
 import { IconTile } from "../components/primitives";
 
 interface Props {
   serverId: number;
+  editing?: IpsetGroup;
   onClose: () => void;
 }
 
@@ -14,11 +16,14 @@ const NAME_RE = /^[a-zA-Z0-9_-]{1,31}$/;
 // при `ipset restore`).
 const CIDR_RE = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(\/\d{1,2})?$/;
 
-export function AddCustomIpsetModal({ serverId, onClose }: Props) {
+export function AddCustomIpsetModal({ serverId, editing, onClose }: Props) {
   const create = useCreateIpsetGroup(serverId);
+  const update = useUpdateIpsetGroup(serverId);
+  const isEdit = editing !== undefined;
+  const mutation = isEdit ? update : create;
 
-  const [name, setName] = useState("");
-  const [cidrsRaw, setCidrsRaw] = useState("");
+  const [name, setName] = useState(editing?.name ?? "");
+  const [cidrsRaw, setCidrsRaw] = useState(editing?.cidrs.join("\n") ?? "");
 
   const cidrs = cidrsRaw
     .split("\n")
@@ -31,7 +36,14 @@ export function AddCustomIpsetModal({ serverId, onClose }: Props) {
   const submit = async () => {
     if (!valid) return;
     try {
-      await create.mutateAsync({ name: name.trim(), cidrs });
+      if (isEdit && editing) {
+        await update.mutateAsync({
+          groupId: editing.id,
+          patch: { name: name.trim(), cidrs },
+        });
+      } else {
+        await create.mutateAsync({ name: name.trim(), cidrs });
+      }
       onClose();
     } catch {
       // ошибка ниже
@@ -43,7 +55,8 @@ export function AddCustomIpsetModal({ serverId, onClose }: Props) {
       <div className="modal" onClick={(event) => event.stopPropagation()}>
         <div className="modal-head">
           <div className="title">
-            <IconTile color="violet" icon="list" size="sm" /> Custom IPset (свой список CIDR'ов)
+            <IconTile color="violet" icon="list" size="sm" />{" "}
+            {isEdit ? "Редактировать Custom IPset" : "Custom IPset (свой список CIDR'ов)"}
           </div>
           <button className="close" onClick={onClose}>
             <Icon name="x" size={16} />
@@ -86,12 +99,12 @@ export function AddCustomIpsetModal({ serverId, onClose }: Props) {
             </div>
           </div>
 
-          {create.error && (
+          {mutation.error && (
             <div
               className="hint"
               style={{ background: "var(--red-tint, #4a1f1f)", color: "var(--red, #ef4444)" }}
             >
-              {String(create.error)}
+              {String(mutation.error)}
             </div>
           )}
         </div>
@@ -100,9 +113,11 @@ export function AddCustomIpsetModal({ serverId, onClose }: Props) {
           <button
             className="btn primary"
             onClick={submit}
-            disabled={!valid || create.isPending}
+            disabled={!valid || mutation.isPending}
           >
-            {create.isPending ? "Создаю…" : "Создать"}
+            {mutation.isPending
+              ? isEdit ? "Сохраняю…" : "Создаю…"
+              : isEdit ? "Сохранить" : "Создать"}
           </button>
         </div>
       </div>

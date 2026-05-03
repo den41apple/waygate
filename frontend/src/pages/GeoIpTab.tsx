@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import { useDeleteGeoList, useGeoIpLists, useSyncGeoIp } from "../api/geoip";
+import type { GeoList } from "../api/types";
 import { Icon } from "../components/Icon";
 import { AddGeoListModal } from "../modals/AddGeoListModal";
 import { Badge, IconTile, Metric, MonoPill, SectionHead } from "../components/primitives";
@@ -15,6 +16,7 @@ export function GeoIpTab({ serverId, showSpark }: Props) {
   const deleteList = useDeleteGeoList();
   const syncList = useSyncGeoIp(serverId);
   const [showAdd, setShowAdd] = useState(false);
+  const [editing, setEditing] = useState<GeoList | null>(null);
 
   const totalV4 = lists.reduce((acc, item) => acc + item.ipv4_count, 0);
   const totalV6 = lists.reduce((acc, item) => acc + item.ipv6_count, 0);
@@ -117,8 +119,17 @@ export function GeoIpTab({ serverId, showSpark }: Props) {
                   <button
                     className="tb-btn"
                     style={{ marginLeft: 4 }}
+                    onClick={() => setEditing(item)}
+                    title="Редактировать"
+                  >
+                    <Icon name="edit" size={12} />
+                  </button>
+                  <button
+                    className="tb-btn"
+                    style={{ marginLeft: 4 }}
                     onClick={() => deleteList.mutate(item.id)}
                     disabled={deleteList.isPending}
+                    title="Удалить"
                   >
                     <Icon name="x" size={12} />
                   </button>
@@ -130,6 +141,9 @@ export function GeoIpTab({ serverId, showSpark }: Props) {
       </div>
 
       {showAdd && <AddGeoListModal onClose={() => setShowAdd(false)} />}
+      {editing && (
+        <AddGeoListModal editing={editing} onClose={() => setEditing(null)} />
+      )}
     </>
   );
 }

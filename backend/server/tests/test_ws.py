@@ -49,8 +49,8 @@ async def test_manager_broadcast_to_all_clients():
     manager = ConnectionManager()
     client_a = _FakeWebSocket()
     client_b = _FakeWebSocket()
-    await manager.connect(websocket=client_a)
-    await manager.connect(websocket=client_b)
+    await manager.connect(websocket=client_a)  # type: ignore[arg-type]
+    await manager.connect(websocket=client_b)  # type: ignore[arg-type]
 
     from datetime import UTC, datetime
 
@@ -71,8 +71,8 @@ async def test_manager_drops_dead_clients():
     manager = ConnectionManager()
     alive = _FakeWebSocket()
     dead = _FakeWebSocket(dead=True)
-    await manager.connect(websocket=alive)
-    await manager.connect(websocket=dead)
+    await manager.connect(websocket=alive)  # type: ignore[arg-type]
+    await manager.connect(websocket=dead)  # type: ignore[arg-type]
 
     from datetime import UTC, datetime
 
@@ -125,6 +125,7 @@ def test_ws_endpoint_accepts_valid_token_and_streams_event():
         TestClient(app) as test_client,
         test_client.websocket_connect(f"/ws/events?token={token}") as websocket,
     ):
+        assert test_client.portal is not None
         test_client.portal.start_task_soon(emit_event)
         received.append(websocket.receive_json())
 

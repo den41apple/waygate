@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import { useDeleteIpsetGroup, useIpsetGroups } from "../api/ipsetGroups";
+import type { IpsetGroup } from "../api/types";
 import { Icon } from "../components/Icon";
 import { AddCustomIpsetModal } from "../modals/AddCustomIpsetModal";
 import { Metric, MonoPill, SectionHead } from "../components/primitives";
@@ -14,6 +15,7 @@ export function IpsetGroupsTab({ serverId, showSpark }: Props) {
   const { data: groups = [] } = useIpsetGroups(serverId);
   const deleteGroup = useDeleteIpsetGroup(serverId);
   const [showAdd, setShowAdd] = useState(false);
+  const [editing, setEditing] = useState<IpsetGroup | null>(null);
 
   const totalCidrs = groups.reduce((acc, group) => acc + group.cidrs.length, 0);
 
@@ -76,12 +78,21 @@ export function IpsetGroupsTab({ serverId, showSpark }: Props) {
                   <td style={{ textAlign: "right" }}>
                     <button
                       className="tb-btn"
+                      onClick={() => setEditing(group)}
+                      title="Редактировать"
+                    >
+                      <Icon name="edit" size={12} />
+                    </button>
+                    <button
+                      className="tb-btn"
+                      style={{ marginLeft: 4 }}
                       onClick={() => {
                         if (window.confirm(`Удалить ipset «${group.name}»?`)) {
                           deleteGroup.mutate(group.id);
                         }
                       }}
                       disabled={deleteGroup.isPending}
+                      title="Удалить"
                     >
                       <Icon name="x" size={12} />
                     </button>
@@ -94,6 +105,13 @@ export function IpsetGroupsTab({ serverId, showSpark }: Props) {
       )}
 
       {showAdd && <AddCustomIpsetModal serverId={serverId} onClose={() => setShowAdd(false)} />}
+      {editing && (
+        <AddCustomIpsetModal
+          serverId={serverId}
+          editing={editing}
+          onClose={() => setEditing(null)}
+        />
+      )}
     </>
   );
 }

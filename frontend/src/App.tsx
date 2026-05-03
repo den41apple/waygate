@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 import { useCurrentUser } from "./api/auth";
 import { ApiError } from "./api/client";
@@ -12,6 +12,7 @@ import { StatusBar } from "./components/StatusBar";
 import { type TabItem, Tabs } from "./components/Tabs";
 import { Topbar } from "./components/Topbar";
 import { AddServerModal } from "./modals/AddServerModal";
+import { EditServerModal } from "./modals/EditServerModal";
 import { TlsModal } from "./modals/TlsModal";
 import { UpdateAgentModal } from "./modals/UpdateAgentModal";
 import { ListsTab } from "./pages/ListsTab";
@@ -68,6 +69,7 @@ function Dashboard() {
   const setShowTls = useUiStore((state) => state.setShowTls);
   const showUpdate = useUiStore((state) => state.showUpdate);
   const setShowUpdate = useUiStore((state) => state.setShowUpdate);
+  const [showEditServer, setShowEditServer] = useState(false);
   const showSparklines = useUiStore((state) => state.showSparklines);
 
   useEffect(() => {
@@ -112,6 +114,7 @@ function Dashboard() {
           server={activeServer}
           onTLS={() => setShowTls(true)}
           onUpdate={() => setShowUpdate(true)}
+          onEditSettings={() => setShowEditServer(true)}
         />
         <Tabs tab={activeTab} onTab={(tab: TabId) => setActiveTab(tab)} tabs={tabsWithCounts} />
         <div className="content" key={`${activeTab}-${activeServerId ?? "none"}`}>
@@ -143,6 +146,9 @@ function Dashboard() {
           currentVersion={activeServer.version}
           onClose={() => setShowUpdate(false)}
         />
+      )}
+      {showEditServer && activeServer && (
+        <EditServerModal server={activeServer} onClose={() => setShowEditServer(false)} />
       )}
     </div>
   );

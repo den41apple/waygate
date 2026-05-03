@@ -4,6 +4,26 @@
  */
 
 export interface paths {
+    "/api/v1/agent-releases": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Agent Releases
+         * @description Список релизов с GitHub (cached 5 мин).
+         */
+        get: operations["list_agent_releases_api_v1_agent_releases_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/audit": {
         parameters: {
             query?: never;
@@ -142,7 +162,8 @@ export interface paths {
         delete: operations["delete_geoip_list_api_v1_geoip_lists__geo_list_id__delete"];
         options?: never;
         head?: never;
-        patch?: never;
+        /** Update Geoip List */
+        patch: operations["update_geoip_list_api_v1_geoip_lists__geo_list_id__patch"];
         trace?: never;
     };
     "/api/v1/servers": {
@@ -200,7 +221,8 @@ export interface paths {
         delete: operations["delete_server_api_v1_servers__server_id__delete"];
         options?: never;
         head?: never;
-        patch?: never;
+        /** Update Server */
+        patch: operations["update_server_api_v1_servers__server_id__patch"];
         trace?: never;
     };
     "/api/v1/servers/{server_id}/clients": {
@@ -544,6 +566,12 @@ export interface paths {
         /**
          * Apply Rules
          * @description Берёт всё содержимое таблицы routing_rule для server_id и шлёт на агент.
+         *
+         *     Перед применением routing-правил автоматически вызывается `/v1/dns/apply` —
+         *     это создаёт ipset'ы под dnsmasq, на которые потом ссылаются routing-правила
+         *     DNS-направлений. Без этого `iptables -m set --match-set <name>` падает с
+         *     `Set <name> doesn't exist`. GeoIP-ipset'ы создаются вручную через `/geoip/lists/{id}/sync`
+         *     — здесь не дёргаем (миллионы IPv4, тяжёлая операция).
          */
         post: operations["apply_rules_api_v1_servers__server_id__rules_apply_post"];
         delete?: never;
@@ -702,6 +730,46 @@ export interface components {
          * @enum {string}
          */
         AcmeChallenge: "http01" | "dns01";
+        /**
+         * AgentRelease
+         * @description Запись о релизе агента из GitHub Releases.
+         */
+        AgentRelease: {
+            /**
+             * Name
+             * @description Заголовок релиза в GitHub UI
+             */
+            name: string;
+            /**
+             * Published At
+             * Format: date-time
+             * @description Когда опубликован
+             */
+            published_at: string;
+            /**
+             * Tag
+             * @description Git-тег релиза, e.g. agent-v0.2.0
+             */
+            tag: string;
+            /**
+             * Version
+             * @description Чистая версия без префикса, e.g. 0.2.0
+             */
+            version: string;
+            /**
+             * Wheel Url
+             * @description URL versionless-wheel'а (waygate_agent-py3-none-any.whl)
+             */
+            wheel_url: string;
+        };
+        /** AgentReleasesResponse */
+        AgentReleasesResponse: {
+            /**
+             * Releases
+             * @description От самого свежего к старому (UI ставит первый дефолтом).
+             */
+            releases: components["schemas"]["AgentRelease"][];
+        };
         /** ApplyDnsResponse */
         ApplyDnsResponse: {
             /**
@@ -1073,6 +1141,17 @@ export interface components {
             /** Status */
             status: string;
         };
+        /**
+         * GeoListUpdate
+         * @description PATCH-обновление GeoList. country менять нельзя — ipset-имя на агенте
+         *     привязано к коду (`geoip-<cc>-v4`), переименование оторвёт правила.
+         */
+        GeoListUpdate: {
+            /** Name */
+            name?: string | null;
+            /** Source Url */
+            source_url?: string | null;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -1121,6 +1200,8 @@ export interface components {
         IpsetGroupUpdate: {
             /** Cidrs */
             cidrs?: string[] | null;
+            /** Name */
+            name?: string | null;
         };
         /** LoginRequest */
         LoginRequest: {
@@ -1397,6 +1478,18 @@ export interface components {
             /** Version */
             version: string;
         };
+        /**
+         * ServerUpdate
+         * @description PATCH-обновление настроек Server. host/port/token не меняем — для них
+         *     либо переонбординг (host/port — техническая смена endpoint'а), либо
+         *     POST /token/rotate (token).
+         */
+        ServerUpdate: {
+            /** Name */
+            name?: string | null;
+            /** Region */
+            region?: string | null;
+        };
         /** TlsApplyResponse */
         TlsApplyResponse: {
             /**
@@ -1585,6 +1678,39 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    list_agent_releases_api_v1_agent_releases_get: {
+        parameters: {
+            query?: {
+                access_token?: string;
+            };
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentReleasesResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_audit_api_v1_audit_get: {
         parameters: {
             query?: {
@@ -1854,6 +1980,45 @@ export interface operations {
             };
         };
     };
+    update_geoip_list_api_v1_geoip_lists__geo_list_id__patch: {
+        parameters: {
+            query?: {
+                access_token?: string;
+            };
+            header?: {
+                authorization?: string;
+            };
+            path: {
+                geo_list_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GeoListUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GeoListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_servers_api_v1_servers_get: {
         parameters: {
             query?: {
@@ -2017,6 +2182,45 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_server_api_v1_servers__server_id__patch: {
+        parameters: {
+            query?: {
+                access_token?: string;
+            };
+            header?: {
+                authorization?: string;
+            };
+            path: {
+                server_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ServerUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerResponse"];
+                };
             };
             /** @description Validation Error */
             422: {

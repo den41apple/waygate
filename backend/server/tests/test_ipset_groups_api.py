@@ -90,6 +90,42 @@ async def test_update_group_applies(client, server_id, monkeypatch):
     assert fake.applied == [("myset", ["1.1.1.0/24", "5.6.7.0/24"])]
 
 
+async def test_update_group_renames(client, server_id, monkeypatch):
+    _patch_agent(monkeypatch, _FakeAgent())
+    create = await client.post(
+        f"/api/v1/servers/{server_id}/ipset-groups?apply=false",
+        json={"name": "old-name", "cidrs": []},
+    )
+    gid = create.json()["id"]
+
+    response = await client.patch(
+        f"/api/v1/servers/{server_id}/ipset-groups/{gid}?apply=false",
+        json={"name": "new-name"},
+    )
+    assert response.status_code == 200
+    assert response.json()["name"] == "new-name"
+
+
+async def test_update_group_rename_collision_409(client, server_id, monkeypatch):
+    """Переименование в имя другой группы → 409."""
+    _patch_agent(monkeypatch, _FakeAgent())
+    await client.post(
+        f"/api/v1/servers/{server_id}/ipset-groups?apply=false",
+        json={"name": "first", "cidrs": []},
+    )
+    second = await client.post(
+        f"/api/v1/servers/{server_id}/ipset-groups?apply=false",
+        json={"name": "second", "cidrs": []},
+    )
+    second_id = second.json()["id"]
+
+    response = await client.patch(
+        f"/api/v1/servers/{server_id}/ipset-groups/{second_id}?apply=false",
+        json={"name": "first"},
+    )
+    assert response.status_code == 409
+
+
 async def test_delete_group(client, server_id, monkeypatch):
     _patch_agent(monkeypatch, _FakeAgent())
     create = await client.post(

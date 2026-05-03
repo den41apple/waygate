@@ -165,7 +165,21 @@
 
 **Дополнительно:** в `agent/awg_clients.py::deploy_client` добавить `--privileged` (sysctl `src_valid_mark` иначе падает на read-only `/proc/sys`). Без `Table=off` privileged смертельно опасен — поэтому два изменения уходят в один релиз.
 
-### 18. Унификация AwgClient `name` ↔ `awg-<name>` netdev
+### 18. Real-Docker testcontainers для агент-тестов
+
+**Состояние:** агент-тесты сейчас мокают subprocess через monkeypatch (`fake_run`), что покрывает логику но не ловит реальные проблемы (sysctl read-only, awg-quick hijack default-route, ipset с другим типом, и т.п.). Эти баги проявились только на проде.
+
+**Что сделать (опционально, объёмно):** testcontainers поднимает debian-контейнер с installed `docker.io` + `ipset` + `iptables` + `dnsmasq` + `systemd` (через systemd-в-контейнере). Внутри запускается агент через wheel или editable install, тесты дёргают /v1/* endpoints HTTP-клиентом. Требует docker-in-docker, больше 5+ мин в CI, и flaky на ARM-runner'ах.
+
+**Реалистичный путь:** включить в release-pipeline (тег `agent-v*`) как pre-publish gate. Не на каждый PR.
+
+### 19. Аннотации параметров в существующих тестах (постепенно)
+
+**Состояние:** mypy `check_untyped_defs=true` включён для тестов; новые тесты пишутся с аннотациями (`client: AsyncClient`, `monkeypatch: pytest.MonkeyPatch` и т.п.). Существующие ~95 функций — без аннотаций параметров, но тела проверяются через `check_untyped_defs`.
+
+**Что сделать:** при следующем касании старого теста — дописать аннотации параметров. Возврат не аннотируем (всегда None). Не делаем массовый refactor одним PR — слишком много merge-конфликтов.
+
+### 20. Унификация AwgClient `name` ↔ `awg-<name>` netdev
 
 **Состояние:** имя netdev'а генерится во фронте (`AddRoutingDirectionModal.tsx`) как `` `awg-${client.name.slice(0, 11)}` `` — это дублирует логику из `agent/awg_clients.py::_iface_name`. Если правила генерации netdev-имён в агенте поменяются (Linux IFNAMSIZ=16, поэтому 15 символов и `awg-`-префикс — фиксированы) — фронт и агент рассинхронизируются.
 

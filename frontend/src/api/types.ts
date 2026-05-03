@@ -290,3 +290,15 @@ export interface WsEvent {
   server_id: number | null;
   timestamp: string;
 }
+
+export interface AgentRelease {
+  tag: string;
+  version: string;
+  name: string;
+  published_at: string;
+  wheel_url: string;
+}
+
+export interface AgentReleasesResponse {
+  releases: AgentRelease[];
+}

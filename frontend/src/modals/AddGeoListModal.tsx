@@ -1,22 +1,27 @@
 import { useState } from "react";
 
-import { useCreateGeoList, type GeoListCreate } from "../api/geoip";
+import { useCreateGeoList, useUpdateGeoList, type GeoListCreate } from "../api/geoip";
+import type { GeoList } from "../api/types";
 import { CountrySelect } from "../components/CountrySelect";
 import { Icon } from "../components/Icon";
 import { IconTile } from "../components/primitives";
 
 interface Props {
+  editing?: GeoList;
   onClose: () => void;
 }
 
 const COUNTRY_RE = /^[A-Z]{2}$/;
 
-export function AddGeoListModal({ onClose }: Props) {
+export function AddGeoListModal({ editing, onClose }: Props) {
   const create = useCreateGeoList();
+  const update = useUpdateGeoList();
+  const isEdit = editing !== undefined;
+  const mutation = isEdit ? update : create;
 
-  const [country, setCountry] = useState("");
-  const [name, setName] = useState("");
-  const [sourceUrl, setSourceUrl] = useState("");
+  const [country, setCountry] = useState(editing?.country ?? "");
+  const [name, setName] = useState(editing?.name ?? "");
+  const [sourceUrl, setSourceUrl] = useState(editing?.source_url ?? "");
 
   const sourceForCountry = (cc: string) =>
     `https://www.ipdeny.com/ipblocks/data/countries/${cc.toLowerCase()}.zone`;
@@ -28,13 +33,22 @@ export function AddGeoListModal({ onClose }: Props) {
 
   const submit = async () => {
     if (!valid) return;
-    const payload: GeoListCreate = {
-      country,
-      name: name.trim(),
-      source_url: sourceUrl.trim(),
-    };
     try {
-      await create.mutateAsync(payload);
+      if (isEdit && editing) {
+        // country менять нельзя (см. backend GeoListUpdate) — отправляем только
+        // name + source_url. Если они не менялись — экономим запрос.
+        await update.mutateAsync({
+          id: editing.id,
+          patch: { name: name.trim(), source_url: sourceUrl.trim() },
+        });
+      } else {
+        const payload: GeoListCreate = {
+          country,
+          name: name.trim(),
+          source_url: sourceUrl.trim(),
+        };
+        await create.mutateAsync(payload);
+      }
       onClose();
     } catch {
       // ошибка покажется ниже
@@ -46,7 +60,8 @@ export function AddGeoListModal({ onClose }: Props) {
       <div className="modal" onClick={(event) => event.stopPropagation()}>
         <div className="modal-head">
           <div className="title">
-            <IconTile color="violet" icon="globe" size="sm" /> Добавить GeoIP-список
+            <IconTile color="violet" icon="globe" size="sm" />{" "}
+            {isEdit ? "Редактировать GeoIP-список" : "Добавить GeoIP-список"}
           </div>
           <button className="close" onClick={onClose}>
             <Icon name="x" size={16} />
@@ -59,11 +74,13 @@ export function AddGeoListModal({ onClose }: Props) {
               <CountrySelect
                 value={country}
                 onChange={(next) => {
+                  if (isEdit) return;  // country в edit-режиме менять нельзя
                   setCountry(next);
                   if (!sourceUrl && COUNTRY_RE.test(next)) setSourceUrl(sourceForCountry(next));
                   if (!name && COUNTRY_RE.test(next)) setName(next);
                 }}
                 listId="geolist-country-list"
+                disabled={isEdit}
               />
             </div>
             <div className="field">
@@ -90,12 +107,12 @@ export function AddGeoListModal({ onClose }: Props) {
             </div>
           </div>
 
-          {create.error && (
+          {mutation.error && (
             <div
               className="hint"
               style={{ background: "var(--red-tint, #4a1f1f)", color: "var(--red, #ef4444)" }}
             >
-              {String(create.error)}
+              {String(mutation.error)}
             </div>
           )}
         </div>
@@ -104,9 +121,11 @@ export function AddGeoListModal({ onClose }: Props) {
           <button
             className="btn primary"
             onClick={submit}
-            disabled={!valid || create.isPending}
+            disabled={!valid || mutation.isPending}
           >
-            {create.isPending ? "Создаю…" : "Создать"}
+            {mutation.isPending
+              ? isEdit ? "Сохраняю…" : "Создаю…"
+              : isEdit ? "Сохранить" : "Создать"}
           </button>
         </div>
       </div>

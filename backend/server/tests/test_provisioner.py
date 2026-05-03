@@ -1,11 +1,16 @@
 import pytest
 
 from server.provisioner import steps
-from server.provisioner.ssh import CommandResult
+from server.provisioner.ssh import CommandResult, SshSession
 
 
-class FakeSshSession:
-    """Записывает команды, отдаёт заготовки или дефолтный пустой ответ."""
+class FakeSshSession(SshSession):
+    """Записывает команды, отдаёт заготовки или дефолтный пустой ответ.
+
+    Наследует `SshSession` чтобы mypy принимал `ssh=FakeSshSession()` там, где
+    функция ждёт `SshSession`. Реальный `__init__` родителя пропускаем —
+    тут не нужен реальный asyncssh.connection.
+    """
 
     def __init__(self, *, responses: dict[str, CommandResult] | None = None):
         self.responses = responses or {}

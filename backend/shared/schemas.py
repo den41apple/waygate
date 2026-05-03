@@ -399,3 +399,24 @@ class DirectionResponse(BaseModel):
 
 class DirectionListResponse(BaseModel):
     directions: list[DirectionResponse]
+
+
+# ############################################
+# #  /api/v1/agent-releases (GitHub-прокси)
+# ############################################
+
+
+class AgentRelease(BaseModel):
+    """Запись о релизе агента из GitHub Releases."""
+
+    tag: str = Field(description="Git-тег релиза, e.g. agent-v0.2.0")
+    version: str = Field(description="Чистая версия без префикса, e.g. 0.2.0")
+    name: str = Field(description="Заголовок релиза в GitHub UI")
+    published_at: datetime = Field(description="Когда опубликован")
+    wheel_url: str = Field(description="URL versionless-wheel'а (waygate_agent-py3-none-any.whl)")
+
+
+class AgentReleasesResponse(BaseModel):
+    releases: list[AgentRelease] = Field(
+        description="От самого свежего к старому (UI ставит первый дефолтом).",
+    )

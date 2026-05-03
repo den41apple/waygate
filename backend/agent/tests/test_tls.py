@@ -43,7 +43,9 @@ def _generate_self_signed(*, common_name: str = "test.local", domains: list[str]
 @pytest.fixture
 def tls_dir(tmp_path, monkeypatch):
     """Подменяем agent.config.settings.tls_dir на tmp_path и блокируем SIGUSR1."""
-    monkeypatch.setattr(tls_module.settings, "tls_dir", str(tmp_path))
+    # `tls_module.settings` — re-export через `from agent.config import settings`,
+    # mypy не считает его явно экспортированным; обходим через строковый patch.
+    monkeypatch.setattr("agent.tls.settings.tls_dir", str(tmp_path))
     monkeypatch.setattr(tls_module, "_signal_granian_reload", lambda: None)
     return tmp_path
 

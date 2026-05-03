@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 from prometheus_fastapi_instrumentator import Instrumentator
 
+from server.api import agent_releases as agent_releases_router
 from server.api import audit as audit_router
 from server.api import auth as auth_router
 from server.api import clients as clients_router
@@ -97,6 +98,7 @@ def create_app() -> FastAPI:
     app.include_router(clients_router.router, prefix="/api/v1", dependencies=protected)
     app.include_router(ipset_groups_router.router, prefix="/api/v1", dependencies=protected)
     app.include_router(directions_router.router, prefix="/api/v1", dependencies=protected)
+    app.include_router(agent_releases_router.router, prefix="/api/v1", dependencies=protected)
     # WS-роутер сам прописывает свои пути — без общего prefix
     app.include_router(ws_router.router)
 
