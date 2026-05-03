@@ -87,7 +87,9 @@ async def test_status_returns_payload(client, auth_headers):
     payload = response.json()
     assert payload["version"]
     assert payload["hostname"]
-    assert payload["awg_containers"] == [{"name": "awg-ru", "interface": "awg0"}]
+    assert payload["awg_containers"] == [
+        {"name": "awg-ru", "interface": "awg0", "role": "external"},
+    ]
 
 
 @pytest.mark.asyncio

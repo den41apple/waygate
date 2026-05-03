@@ -6,6 +6,7 @@ from loguru import logger
 from agent.subprocess_runner import CommandError, run_command
 from shared.schemas import (
     AwgContainerInfo,
+    AwgContainerRole,
     MetricsSnapshot,
     PeerInfo,
     TunnelInfo,
@@ -13,6 +14,9 @@ from shared.schemas import (
     TunnelsResponse,
     TunnelStatus,
 )
+
+# Лейбл, которым мы помечаем наши waygate-managed-клиенты (см. agent/awg_clients.py).
+_CLIENT_ROLE_LABEL = "io.waygate.role=client"
 
 # Substring-маркеры в image/Names docker-контейнера, по которым считаем что это
 # AmneziaWG-контейнер. Должны совпадать с grep-паттерном в `provisioner/steps.py`
@@ -64,16 +68,30 @@ async def _detect_interface(*, container: str) -> str:
     return ""
 
 
+def _has_client_label(*, labels: str) -> bool:
+    """Проверяет что в labels-CSV из `docker ps` есть наш role=client.
+
+    Формат поля Labels: `key1=value1,key2=value2,...`.
+    """
+    if not labels:
+        return False
+    return _CLIENT_ROLE_LABEL in labels.split(",")
+
+
 async def list_awg_containers() -> list[AwgContainerInfo]:
     containers = await _list_running_containers()
     result: list[AwgContainerInfo] = []
     for container in containers:
         image = container.get("Image", "")
         names = container.get("Names", "")
-        if not _is_awg_container(image=image, names=names):
+        labels = container.get("Labels", "")
+        is_client = _has_client_label(labels=labels)
+        # Наши клиенты идут безусловно. Внешние — по substring-fallback.
+        if not is_client and not _is_awg_container(image=image, names=names):
             continue
         interface = await _detect_interface(container=names)
-        result.append(AwgContainerInfo(name=names, interface=interface or "awg0"))
+        role = AwgContainerRole.CLIENT if is_client else AwgContainerRole.EXTERNAL
+        result.append(AwgContainerInfo(name=names, interface=interface or "awg0", role=role))
     return result
 
 

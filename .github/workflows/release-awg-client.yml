@@ -1,0 +1,59 @@
+name: Release awg-client image
+
+# Билдит docker-образ для AmneziaWG-клиента и пушит в GHCR.
+# Триггеры:
+#   - push в master, если затронут Dockerfile или релевантные файлы
+#   - тег awg-client-v* — для версионных релизов
+#
+# Тег `latest` обновляется на каждом push в master.
+
+on:
+  push:
+    branches: [master, main]
+    paths:
+      - "backend/agent/awg-client.Dockerfile"
+      - ".github/workflows/release-awg-client.yml"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-push:
+    name: Build and push awg-client to GHCR
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/waygate-awg-client
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=branch
+            type=sha,prefix=sha-,format=short
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: backend/agent
+          file: backend/agent/awg-client.Dockerfile
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import { useCreateRule, type RoutingRuleCreate } from "../api/rules";
+import { useTunnels } from "../api/tunnels";
 import { Icon } from "../components/Icon";
 import { IconTile, Toggle } from "../components/primitives";
 
@@ -10,11 +11,17 @@ interface Props {
   onClose: () => void;
 }
 
+type Scope = "host" | "container";
+
 const COUNTRY_RE = /^[A-Z]{2}$/;
 const IPSET_NAME_RE = /^[a-zA-Z0-9_-]{1,31}$/;
 
 export function AddRuleModal({ serverId, awgContainers, onClose }: Props) {
   const create = useCreateRule(serverId);
+  // Список туннелей нужен только для container-scope: какой контейнер выбрать
+  // как target. При host-scope этот список не используется.
+  const { data: tunnelsData } = useTunnels(serverId);
+  const tunnelContainers = tunnelsData?.tunnels.map((tunnel) => tunnel.container_name) ?? [];
 
   const [country, setCountry] = useState("");
   const [ipsetName, setIpsetName] = useState("");
@@ -23,6 +30,8 @@ export function AddRuleModal({ serverId, awgContainers, onClose }: Props) {
   const [viaInterface, setViaInterface] = useState(awgContainers[0] ?? "");
   const [viaGateway, setViaGateway] = useState("10.0.0.1");
   const [enabled, setEnabled] = useState(true);
+  const [scope, setScope] = useState<Scope>("host");
+  const [scopeTarget, setScopeTarget] = useState<string>(tunnelContainers[0] ?? "");
 
   const valid =
     COUNTRY_RE.test(country)
@@ -30,7 +39,8 @@ export function AddRuleModal({ serverId, awgContainers, onClose }: Props) {
     && fwmark > 0
     && tableId > 0
     && viaInterface.trim().length > 0
-    && viaGateway.trim().length > 0;
+    && viaGateway.trim().length > 0
+    && (scope === "host" || scopeTarget.trim().length > 0);
 
   const submit = async () => {
     if (!valid) return;
@@ -42,6 +52,8 @@ export function AddRuleModal({ serverId, awgContainers, onClose }: Props) {
       via_interface: viaInterface.trim(),
       via_gateway: viaGateway.trim(),
       enabled,
+      scope,
+      scope_target: scope === "container" ? scopeTarget.trim() : null,
     };
     try {
       await create.mutateAsync(payload);
@@ -140,6 +152,55 @@ export function AddRuleModal({ serverId, awgContainers, onClose }: Props) {
               />
             </div>
           </div>
+
+          <div className="field">
+            <label>Где применять правило</label>
+            <div className="tab-switcher">
+              <button
+                className={scope === "host" ? "active" : ""}
+                onClick={() => setScope("host")}
+                type="button"
+              >
+                Хост (вся ВМ)
+              </button>
+              <button
+                className={scope === "container" ? "active" : ""}
+                onClick={() => setScope("container")}
+                type="button"
+              >
+                Контейнер (внутри netns)
+              </button>
+            </div>
+            <div className="hint" style={{ fontSize: 11, color: "var(--text-3)", marginTop: 6 }}>
+              {scope === "host"
+                ? "Стандарт: iptables/ip rule на хосте — для исходящего трафика ВМ."
+                : "Внутри netns указанного docker-контейнера через nsenter — для двойного VPN, когда трафик клиентов AWG-server-контейнера нужно роутить через свой клиентский туннель."}
+            </div>
+          </div>
+
+          {scope === "container" && (
+            <div className="field">
+              <label>Имя контейнера</label>
+              {tunnelContainers.length > 0 ? (
+                <select
+                  className="select"
+                  value={scopeTarget}
+                  onChange={(event) => setScopeTarget(event.target.value)}
+                >
+                  {tunnelContainers.map((name) => (
+                    <option key={name} value={name}>{name}</option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  className="input"
+                  value={scopeTarget}
+                  onChange={(event) => setScopeTarget(event.target.value)}
+                  placeholder="amnezia-awg2"
+                />
+              )}
+            </div>
+          )}
 
           <div className="field" style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
             <Toggle on={enabled} onClick={() => setEnabled(!enabled)} />

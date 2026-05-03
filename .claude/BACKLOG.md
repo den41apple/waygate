@@ -97,6 +97,7 @@
 
 **Состояние:** правила/DNS-записи создаются (модалки), удаляются и toggle'ятся. Полноценная **edit-форма** (изменение IP/маски/доменов уже существующей записи) пока только через REST/curl. Для UX-полноты можно добавить инлайн-edit на карточке (или открывать `AddRuleModal` в режиме edit). Не критично — через UI можно delete + create.
 
+
 ---
 
 ## Что уже закрыто (для истории)
@@ -105,6 +106,27 @@
 - ✅ **Username/password + bcrypt + JWT** (Variant B). `User` модель + миграция + bcrypt(12 rounds). Сессионный JWT через `server/auth/session.py`, FastAPI-dependency `require_user` принимает Bearer-header или `?access_token=` query-param (для EventSource). Глобально защищены все `/api/v1/*` кроме `/auth/login`. Bootstrap первого админа из ENV (`WAYGATE_ADMIN_USER`/`WAYGATE_ADMIN_PASSWORD`) в lifespan.
 - ✅ **Frontend login flow** — Zustand persist-стор `waygate-auth`, LoginPage, App-guard, кнопка «Выход» в Topbar. `client.ts` добавляет Authorization header, на 401 от `/auth/me` чистит стор.
 - ✅ **Audit-middleware** теперь пишет `username` из session-JWT.
+
+### Scope-маршрутизация (host / container) — двойной VPN
+- ✅ **`RoutingScope` enum** (`shared/schemas.py`): `host` (default) и `container`. `RoutingRule` дополнен полями `scope` и `scope_target` (имя docker-контейнера).
+- ✅ **SQLModel `RoutingRule`** + alembic миграция `add_column scope/scope_target` с дефолтом `"host"` для существующих записей (zero-downtime).
+- ✅ **`agent/routing.py` рефакторинг**: единый `_apply_rules_in_scope` принимает `_ScopeContext` с `command_prefix`. Для host — пустой prefix, для container — `["nsenter", "-t", str(pid), "-n"]` (PID контейнера резолвится через `docker inspect`). Группировка `_group_by_scope` — несколько правил с одним target шерят один контекст. Каждый netns обрабатывается независимо: своя idempotent diff-логика для iptables/ip rule/ip route.
+- ✅ **Control-plane API** (`server/api/rules.py`): `RuleCreate`/`RuleUpdate`/`RuleResponse` принимают/отдают `scope` + `scope_target`. Старые клиенты без scope продолжают работать (default = host).
+- ✅ **Frontend `AddRuleModal`**: tab-switcher «Хост (вся ВМ)» vs «Контейнер (внутри netns)». При выборе container — select из `useTunnels(serverId).tunnels[*].container_name`. На карточке правила (`RoutingTab`) — pill `host` или `🐳 amnezia-awg2`.
+- ✅ **Тесты**: 2 новых на routing (container-сценарий с `nsenter`, изоляция host/container в одном batch'е) и 2 на rules-API (CRUD со scope=container, default scope=host).
+- **Pre-conditions для прода**: на target нужен `nsenter` (часть `util-linux` — есть везде кроме совсем минималистичных образов) и привилегии `NET_ADMIN`/`SYS_ADMIN` для входа в чужой netns. Агент уже работает как root через systemd, дополнительной настройки compose не требуется.
+
+### AmneziaWG-клиенты — managed deployment через UI
+- ✅ **Свой docker-образ `waygate-awg-client`** (Dockerfile в `backend/agent/awg-client.Dockerfile`, alpine + amneziawg-tools/-go + iptables + tini). CI собирает и пушит в GHCR. Workflow `.github/workflows/release-awg-client.yml`.
+- ✅ **Парсер `.conf` AmneziaWG 2.0** (`backend/shared/awg_config.py`) — все 19 параметров `[Interface]` (Address/DNS/PrivateKey/Jc/Jmin/Jmax/S1-S4/H1-H4/I1-I5) + 5 параметров `[Peer]` + валидация base64-ключей и Endpoint. 14 юнит-тестов на edge-cases.
+- ✅ **Шифрование конфигов в БД** (`backend/server/auth/secrets.py`) — Fernet с ключом через HKDF из `SECRET_KEY`. Конфиг с PrivateKey не лежит в БД plaintext'ом.
+- ✅ **Agent endpoints `/v1/clients/*`** (`backend/agent/awg_clients.py`) — POST (deploy с автоустановкой docker через `get.docker.com` если нет), GET list, /start, /stop, DELETE, /qr (через `qrencode`), /config. Контейнеры с label `io.waygate.role=client`, имя `waygate-amnezia-client-<name>`. Auto-restart через `--restart unless-stopped`.
+- ✅ **Control-plane CRUD** (`backend/server/api/clients.py`) — `POST /servers/{id}/clients`, GET list, DELETE, /start, /stop, /config (декрипт + `Content-Disposition: attachment`), /qr (прокси PNG). Модель `AwgClient` + alembic-миграция.
+- ✅ **WS-events**: `awg_client.created/.deleted/.status_changed` — фронт инвалидирует список без F5.
+- ✅ **Frontend**: модалка `AddAwgClientModal` с drag-n-drop `.conf`-файла, preview распарсенных полей, валидация на лету. Карточки клиентов в `TunnelsTab` с кнопками Start/Stop/QR/Скачать .conf/Удалить + модалка просмотра QR.
+- ✅ **Detection role** (`backend/agent/tunnels.py`): `AwgContainerInfo` теперь содержит `role` (`client` если наш label, `external` для user'ских контейнеров).
+- ✅ **Audit**: `_SENSITIVE_KEYS` расширены на `config_text`, `PrivateKey`, `PresharedKey`.
+- ✅ **Тесты**: 14 на парсер, 5 на Fernet, 6 на агентский deploy/list/lifecycle, 7 на control-plane CRUD + шифрование round-trip, 1 e2e (открытие модалки + drag-n-drop сценарий с интерсептом запроса).
 
 ### Re-онбординг + удаление сервера в UI + timezone в metrics_poller
 - ✅ **Upsert по host в `POST /servers/provision`** — повторный онбординг на тот же IP/DNS обновляет существующий `Server`-record вместо создания дубликата. Связанные `rules/dns/metrics/tls` сохраняются. Тест `test_provision_reuses_existing_record_for_same_host` зафиксировал поведение.

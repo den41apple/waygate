@@ -1,4 +1,5 @@
 from server.models.audit import AuditEntry
+from server.models.awg_client import AwgClient, AwgClientStatus
 from server.models.dns_rule import DnsRule
 from server.models.geo_list import GeoList
 from server.models.metrics import MetricsPoint
@@ -9,6 +10,8 @@ from server.models.user import User
 
 __all__ = [
     "AuditEntry",
+    "AwgClient",
+    "AwgClientStatus",
     "DnsRule",
     "GeoList",
     "MetricsPoint",

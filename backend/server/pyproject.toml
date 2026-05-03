@@ -17,6 +17,7 @@ dependencies = [
   "tenacity>=9.0",
   "pyjwt>=2.10",
   "bcrypt>=4.2",
+  "cryptography>=43",
   "prometheus-fastapi-instrumentator>=7.0",
   "waygate-shared",
 ]

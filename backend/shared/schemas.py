@@ -49,9 +49,18 @@ class UpdateStatus(StrEnum):
 # ############################################
 
 
+class AwgContainerRole(StrEnum):
+    CLIENT = "client"  # развёрнут через Waygate (есть label io.waygate.role=client)
+    EXTERNAL = "external"  # подняли руками или это server-side AWG-контейнер
+
+
 class AwgContainerInfo(BaseModel):
     name: str = Field(description="Имя Docker-контейнера AmneziaWG")
     interface: str = Field(description="Сетевой интерфейс (awg0, awg1 ...)")
+    role: AwgContainerRole = Field(
+        default=AwgContainerRole.EXTERNAL,
+        description="Откуда взялся контейнер: client (наш) или external (user'ский)",
+    )
 
 
 class AgentStatus(BaseModel):
@@ -109,6 +118,11 @@ class TunnelsResponse(BaseModel):
 # ############################################
 
 
+class RoutingScope(StrEnum):
+    HOST = "host"  # iptables/ip rule на самом хосте
+    CONTAINER = "container"  # внутри netns docker-контейнера через nsenter
+
+
 class RoutingRule(BaseModel):
     country: CountryCode = Field(description="Код страны ISO 3166-1 alpha-2 (RU, BY ...)")
     ipset_name: IpsetName = Field(description="Имя ipset-множества (russia, belarus ...)")
@@ -117,6 +131,11 @@ class RoutingRule(BaseModel):
     via_interface: InterfaceName = Field(description="Исходящий интерфейс (awg0 ...)")
     via_gateway: str = Field(description="IP-адрес шлюза")
     enabled: bool = Field(description="Активно ли правило")
+    scope: RoutingScope = Field(default=RoutingScope.HOST, description="Где применять правило")
+    scope_target: str | None = Field(
+        default=None,
+        description="Имя docker-контейнера для scope=container (e.g. amnezia-awg2)",
+    )
 
 
 class ApplyRulesRequest(BaseModel):
@@ -236,3 +255,51 @@ class UpdateResponse(BaseModel):
 
 class TokenRotateResponse(BaseModel):
     token: str = Field(description="Новый Bearer-токен для аутентификации")
+
+
+# ############################################
+# #  /v1/clients (AmneziaWG-клиенты — managed deployment)
+# ############################################
+
+
+# Имя контейнера: для управления docker'ом и для file-system path'а под конфиг.
+# Финальное имя контейнера на target — `waygate-amnezia-client-<name>`.
+AwgClientName = Annotated[str, StringConstraints(pattern=r"^[a-z0-9][a-z0-9-]{0,29}$")]
+
+
+class AwgClientStatus(StrEnum):
+    PENDING = "pending"  # docker run ещё не отработал
+    RUNNING = "running"  # контейнер up, awg-quick поднял интерфейс
+    STOPPED = "stopped"  # контейнер существует но остановлен
+    ERROR = "error"  # docker run упал, или контейнер crashed
+
+
+class CreateAwgClientRequest(BaseModel):
+    name: AwgClientName = Field(description="Короткий уникальный идентификатор (a-z0-9-)")
+    config_text: str = Field(description="Полный .conf-файл клиента в plaintext")
+
+
+class AwgClientInfo(BaseModel):
+    """Информация о клиенте для возврата control-plane'у и UI."""
+
+    name: str = Field(description="Идентификатор клиента")
+    container_name: str = Field(description="Полное docker-имя контейнера")
+    status: AwgClientStatus = Field(description="Текущий статус")
+    peer_endpoint: str | None = Field(default=None, description="host:port VPN-сервера из [Peer]")
+    peer_pubkey: str | None = Field(default=None, description="Публичный ключ VPN-сервера из [Peer]")
+    interface_address: str | None = Field(default=None, description="Address из [Interface]")
+
+
+class CreateAwgClientResponse(BaseModel):
+    client: AwgClientInfo
+
+
+class ListAwgClientsResponse(BaseModel):
+    clients: list[AwgClientInfo]
+
+
+class AwgClientActionResponse(BaseModel):
+    """Ответ на /start, /stop, /delete — просто текущий статус."""
+
+    name: str
+    status: AwgClientStatus

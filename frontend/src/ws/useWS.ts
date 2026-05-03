@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { fetchWsToken } from "../api/auth";
+import { awgClientsKey } from "../api/awgClients";
 import { dnsKey } from "../api/dns";
 import { GEOIP_KEY } from "../api/geoip";
 import { rulesKey } from "../api/rules";
@@ -64,6 +65,13 @@ export function useWebSocket(): void {
         case "provision.progress":
           // SSE-стрим уже доносит детали в AddServerModal; здесь просто пинг
           queryClient.invalidateQueries({ queryKey: SERVERS_KEY });
+          break;
+        case "awg_client.created":
+        case "awg_client.deleted":
+        case "awg_client.status_changed":
+          if (event.server_id != null) {
+            queryClient.invalidateQueries({ queryKey: awgClientsKey(event.server_id) });
+          }
           break;
         default:
           break;

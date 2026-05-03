@@ -18,6 +18,11 @@ _SENSITIVE_KEYS = frozenset(
         "key_pem",
         "dns_api_key",
         "token",
+        "config_text",  # .conf AWG-клиента — содержит PrivateKey
+        "PrivateKey",
+        "private_key",
+        "PresharedKey",
+        "preshared_key",
     },
 )
 _SERVER_ID_RE = re.compile(r"^/api/v1/servers/(\d+)")

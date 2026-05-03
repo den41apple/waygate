@@ -154,6 +154,148 @@
         "title": "AuditRange",
         "type": "string"
       },
+      "AwgClientListResponse": {
+        "properties": {
+          "clients": {
+            "items": {
+              "$ref": "#/components/schemas/AwgClientResponse"
+            },
+            "title": "Clients",
+            "type": "array"
+          }
+        },
+        "required": [
+          "clients"
+        ],
+        "title": "AwgClientListResponse",
+        "type": "object"
+      },
+      "AwgClientResponse": {
+        "properties": {
+          "container_name": {
+            "title": "Container Name",
+            "type": "string"
+          },
+          "country": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Country"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "interface_address": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Interface Address"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "peer_endpoint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Peer Endpoint"
+          },
+          "peer_pubkey": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Peer Pubkey"
+          },
+          "server_id": {
+            "title": "Server Id",
+            "type": "integer"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "server_id",
+          "name",
+          "container_name",
+          "status",
+          "country",
+          "peer_endpoint",
+          "peer_pubkey",
+          "interface_address",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "AwgClientResponse",
+        "type": "object"
+      },
+      "CreateClientPayload": {
+        "properties": {
+          "config_text": {
+            "description": "\u041f\u043e\u043b\u043d\u044b\u0439 .conf-\u0444\u0430\u0439\u043b",
+            "title": "Config Text",
+            "type": "string"
+          },
+          "country": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "ISO-2 \u043a\u043e\u0434 \u0441\u0442\u0440\u0430\u043d\u044b VPN",
+            "title": "Country"
+          },
+          "name": {
+            "description": "\u0418\u0434\u0435\u043d\u0442\u0438\u0444\u0438\u043a\u0430\u0442\u043e\u0440 \u043a\u043b\u0438\u0435\u043d\u0442\u0430 (a-z0-9-)",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,29}$",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "config_text"
+        ],
+        "title": "CreateClientPayload",
+        "type": "object"
+      },
       "DnsProvider": {
         "enum": [
           "cloudflare",
@@ -719,6 +861,14 @@
         "title": "RotateTokenResponse",
         "type": "object"
       },
+      "RoutingScope": {
+        "enum": [
+          "host",
+          "container"
+        ],
+        "title": "RoutingScope",
+        "type": "string"
+      },
       "RuleCreate": {
         "properties": {
           "country": {
@@ -740,6 +890,23 @@
             "description": "\u0418\u043c\u044f ipset \u043d\u0430 \u0430\u0433\u0435\u043d\u0442\u0435",
             "title": "Ipset Name",
             "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/RoutingScope",
+            "default": "host",
+            "description": "\u0413\u0434\u0435 \u043f\u0440\u0438\u043c\u0435\u043d\u044f\u0442\u044c (host|container)"
+          },
+          "scope_target": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "\u0418\u043c\u044f docker-\u043a\u043e\u043d\u0442\u0435\u0439\u043d\u0435\u0440\u0430 \u0434\u043b\u044f scope=container",
+            "title": "Scope Target"
           },
           "table_id": {
             "description": "\u0422\u0430\u0431\u043b\u0438\u0446\u0430 \u043c\u0430\u0440\u0448\u0440\u0443\u0442\u0438\u0437\u0430\u0446\u0438\u0438",
@@ -806,6 +973,21 @@
             "title": "Ipset Name",
             "type": "string"
           },
+          "scope": {
+            "title": "Scope",
+            "type": "string"
+          },
+          "scope_target": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scope Target"
+          },
           "server_id": {
             "title": "Server Id",
             "type": "integer"
@@ -832,7 +1014,9 @@
           "table_id",
           "via_interface",
           "via_gateway",
-          "enabled"
+          "enabled",
+          "scope",
+          "scope_target"
         ],
         "title": "RuleResponse",
         "type": "object"
@@ -860,6 +1044,27 @@
               }
             ],
             "title": "Fwmark"
+          },
+          "scope": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RoutingScope"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "scope_target": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scope Target"
           },
           "table_id": {
             "anyOf": [
@@ -2169,6 +2374,484 @@
         "summary": "Get Server",
         "tags": [
           "servers"
+        ]
+      }
+    },
+    "/api/v1/servers/{server_id}/clients": {
+      "get": {
+        "operationId": "list_clients_api_v1_servers__server_id__clients_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "server_id",
+            "required": true,
+            "schema": {
+              "title": "Server Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Access Token",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AwgClientListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Clients",
+        "tags": [
+          "awg-clients"
+        ]
+      },
+      "post": {
+        "operationId": "create_client_api_v1_servers__server_id__clients_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "server_id",
+            "required": true,
+            "schema": {
+              "title": "Server Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Access Token",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateClientPayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AwgClientResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Client",
+        "tags": [
+          "awg-clients"
+        ]
+      }
+    },
+    "/api/v1/servers/{server_id}/clients/{client_id}": {
+      "delete": {
+        "operationId": "delete_client_api_v1_servers__server_id__clients__client_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "server_id",
+            "required": true,
+            "schema": {
+              "title": "Server Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "client_id",
+            "required": true,
+            "schema": {
+              "title": "Client Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Access Token",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Client",
+        "tags": [
+          "awg-clients"
+        ]
+      }
+    },
+    "/api/v1/servers/{server_id}/clients/{client_id}/config": {
+      "get": {
+        "description": "\u0412\u043e\u0437\u0432\u0440\u0430\u0449\u0430\u0435\u0442 \u0440\u0430\u0441\u0448\u0438\u0444\u0440\u043e\u0432\u0430\u043d\u043d\u044b\u0439 .conf \u2014 \u0434\u043b\u044f \u0441\u043a\u0430\u0447\u0438\u0432\u0430\u043d\u0438\u044f \u0444\u0430\u0439\u043b\u0430 \u0438\u0437 UI.",
+        "operationId": "get_client_config_api_v1_servers__server_id__clients__client_id__config_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "server_id",
+            "required": true,
+            "schema": {
+              "title": "Server Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "client_id",
+            "required": true,
+            "schema": {
+              "title": "Client Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Access Token",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Client Config",
+        "tags": [
+          "awg-clients"
+        ]
+      }
+    },
+    "/api/v1/servers/{server_id}/clients/{client_id}/qr": {
+      "get": {
+        "description": "\u041f\u0440\u043e\u043a\u0441\u0438 PNG-\u0431\u0430\u0439\u0442\u043e\u0432 QR-\u043a\u043e\u0434\u0430 \u0441 \u0430\u0433\u0435\u043d\u0442\u0430 (\u0433\u0435\u043d\u0435\u0440\u0438\u0440\u0443\u0435\u0442\u0441\u044f \u0447\u0435\u0440\u0435\u0437 qrencode).",
+        "operationId": "get_client_qr_api_v1_servers__server_id__clients__client_id__qr_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "server_id",
+            "required": true,
+            "schema": {
+              "title": "Server Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "client_id",
+            "required": true,
+            "schema": {
+              "title": "Client Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Access Token",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Client Qr",
+        "tags": [
+          "awg-clients"
+        ]
+      }
+    },
+    "/api/v1/servers/{server_id}/clients/{client_id}/start": {
+      "post": {
+        "operationId": "start_client_api_v1_servers__server_id__clients__client_id__start_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "server_id",
+            "required": true,
+            "schema": {
+              "title": "Server Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "client_id",
+            "required": true,
+            "schema": {
+              "title": "Client Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Access Token",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AwgClientResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Start Client",
+        "tags": [
+          "awg-clients"
+        ]
+      }
+    },
+    "/api/v1/servers/{server_id}/clients/{client_id}/stop": {
+      "post": {
+        "operationId": "stop_client_api_v1_servers__server_id__clients__client_id__stop_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "server_id",
+            "required": true,
+            "schema": {
+              "title": "Server Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "client_id",
+            "required": true,
+            "schema": {
+              "title": "Client Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Access Token",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AwgClientResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Stop Client",
+        "tags": [
+          "awg-clients"
         ]
       }
     },

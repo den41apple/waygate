@@ -20,6 +20,8 @@ export interface ServerListResponse {
   servers: ServerSummary[];
 }
 
+export type RoutingScope = "host" | "container";
+
 export interface RoutingRule {
   id: number;
   server_id: number;
@@ -30,6 +32,8 @@ export interface RoutingRule {
   via_interface: string;
   via_gateway: string;
   enabled: boolean;
+  scope: RoutingScope;
+  scope_target: string | null;
 }
 
 export interface RoutingRuleListResponse {
@@ -169,6 +173,32 @@ export interface UpdateStartResponse {
   stream_url: string;
 }
 
+export type AwgClientStatus = "pending" | "running" | "stopped" | "error";
+
+export interface AwgClient {
+  id: number;
+  server_id: number;
+  name: string;
+  container_name: string;
+  status: AwgClientStatus;
+  country: string | null;
+  peer_endpoint: string | null;
+  peer_pubkey: string | null;
+  interface_address: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AwgClientListResponse {
+  clients: AwgClient[];
+}
+
+export interface AwgClientCreate {
+  name: string;
+  country?: string | null;
+  config_text: string;
+}
+
 export type WsEventType =
   | "server.created"
   | "server.deleted"
@@ -179,7 +209,10 @@ export type WsEventType =
   | "dns.applied"
   | "geoip.synced"
   | "tls.applied"
-  | "provision.progress";
+  | "provision.progress"
+  | "awg_client.created"
+  | "awg_client.deleted"
+  | "awg_client.status_changed";
 
 export interface WsEvent {
   type: WsEventType;

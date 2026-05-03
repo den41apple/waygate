@@ -8,6 +8,7 @@ BUMP := python3 scripts/bump_version.py
 .PHONY: help \
         release-info release-agent release-agent-push \
         release-server release-server-push \
+        build-awg-client-image \
         test test-backend test-frontend test-e2e \
         compose-up compose-down
 
@@ -20,6 +21,7 @@ help:
 	@echo "    release-agent-push    То же + git push origin master <tag>"
 	@echo "    release-server        Bump backend/server/pyproject.toml + commit + tag (локально)"
 	@echo "    release-server-push   То же + git push"
+	@echo "    build-awg-client-image  Собрать docker-образ awg-клиента локально"
 	@echo ""
 	@echo "  Тесты:"
 	@echo "    test                  Backend + frontend + e2e"
@@ -83,6 +85,11 @@ release-agent-push:
 
 release-server-push:
 	@$(MAKE) _release-push PYPROJECT=backend/server/pyproject.toml TAG_PREFIX=server
+
+# ---------- Docker-образы ----------
+
+build-awg-client-image:
+	docker build -f backend/agent/awg-client.Dockerfile -t waygate-awg-client:dev backend/agent/
 
 # ---------- Тесты ----------
 

@@ -22,6 +22,8 @@ export interface RoutingRuleCreate {
   via_interface: string;
   via_gateway: string;
   enabled?: boolean;
+  scope?: "host" | "container";
+  scope_target?: string | null;
 }
 
 export function useCreateRule(serverId: number) {

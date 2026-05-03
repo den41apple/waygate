@@ -1,10 +1,23 @@
+"""Идемпотентное применение правил маршрутизации.
+
+Поддерживает два scope:
+- `host` — iptables/ip rule/ip route на самом target. Применяется напрямую через
+  `subprocess`. Это default-поведение, оно работает с rules, у которых scope не
+  указан (legacy).
+- `container` — те же команды, но **внутри netns** docker-контейнера через
+  `nsenter -t <pid> -n`. Используется чтобы маршрутизировать трафик клиентов
+  AmneziaWG-server-контейнера через клиентский AWG-туннель (двойной VPN).
+  Каждый netns имеет собственный набор iptables/ip rule/ipset — изоляция.
+"""
+
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 from loguru import logger
 
 from agent.subprocess_runner import CommandError, run_command
-from shared.schemas import ApplyRulesResponse, RoutingRule
+from shared.schemas import ApplyRulesResponse, RoutingRule, RoutingScope
 
 _IPTABLES_MARK_RE = re.compile(
     r"-A\s+PREROUTING\s+-m\s+set\s+--match-set\s+(?P<ipset>\S+)\s+dst\s+-j\s+MARK"
@@ -43,12 +56,51 @@ class _ActiveRoute:
     interface: str
 
 
+@dataclass(frozen=True)
+class _ScopeContext:
+    """Где исполнять команды. Для host это пустой prefix, для container — nsenter."""
+
+    name: str  # "host" или "container:<имя>" — для логов и errors
+    command_prefix: list[str]  # пустой для host, ["nsenter", "-t", str(pid), "-n"] для container
+
+
+async def _resolve_container_pid(*, container: str) -> int:
+    """Получает PID контейнера через `docker inspect` для nsenter -t."""
+    output = await run_command(
+        ["docker", "inspect", "-f", "{{.State.Pid}}", container],
+    )
+    pid = int(output.strip())
+    if pid <= 0:
+        raise CommandError(
+            command=["docker", "inspect", container],
+            returncode=1,
+            stderr=f"контейнер {container!r} не запущен (pid={pid})",
+        )
+    return pid
+
+
+async def _build_scope_context(*, scope: RoutingScope, scope_target: str | None) -> _ScopeContext:
+    if scope is RoutingScope.HOST:
+        return _ScopeContext(name="host", command_prefix=[])
+    if scope_target is None:
+        raise CommandError(
+            command=["scope-resolve"],
+            returncode=1,
+            stderr="scope=container требует scope_target — имя docker-контейнера",
+        )
+    pid = await _resolve_container_pid(container=scope_target)
+    return _ScopeContext(
+        name=f"container:{scope_target}",
+        command_prefix=["nsenter", "-t", str(pid), "-n"],
+    )
+
+
 def _parse_mark(value: str) -> int:
     return int(value, 16) if value.startswith("0x") else int(value)
 
 
-async def _read_iptables_marks() -> dict[str, _ActiveMark]:
-    output = await run_command(["iptables", "-t", "mangle", "-S", "PREROUTING"])
+async def _read_iptables_marks(*, ctx: _ScopeContext) -> dict[str, _ActiveMark]:
+    output = await run_command([*ctx.command_prefix, "iptables", "-t", "mangle", "-S", "PREROUTING"])
     marks: dict[str, _ActiveMark] = {}
     for line in output.splitlines():
         match = _IPTABLES_MARK_RE.search(line)
@@ -62,8 +114,8 @@ async def _read_iptables_marks() -> dict[str, _ActiveMark]:
     return marks
 
 
-async def _read_ip_rules() -> dict[int, _ActiveIpRule]:
-    output = await run_command(["ip", "rule", "show"])
+async def _read_ip_rules(*, ctx: _ScopeContext) -> dict[int, _ActiveIpRule]:
+    output = await run_command([*ctx.command_prefix, "ip", "rule", "show"])
     rules: dict[int, _ActiveIpRule] = {}
     for line in output.splitlines():
         match = _IP_RULE_RE.match(line)
@@ -74,8 +126,11 @@ async def _read_ip_rules() -> dict[int, _ActiveIpRule]:
     return rules
 
 
-async def _read_default_route(*, table_id: int) -> _ActiveRoute | None:
-    output = await run_command(["ip", "route", "show", "table", str(table_id)], check=False)
+async def _read_default_route(*, ctx: _ScopeContext, table_id: int) -> _ActiveRoute | None:
+    output = await run_command(
+        [*ctx.command_prefix, "ip", "route", "show", "table", str(table_id)],
+        check=False,
+    )
     for line in output.splitlines():
         match = _IP_ROUTE_DEFAULT_RE.match(line)
         if match is None:
@@ -88,9 +143,10 @@ async def _read_default_route(*, table_id: int) -> _ActiveRoute | None:
     return None
 
 
-async def _add_iptables_mark(*, ipset_name: str, fwmark: int) -> None:
+async def _add_iptables_mark(*, ctx: _ScopeContext, ipset_name: str, fwmark: int) -> None:
     await run_command(
         [
+            *ctx.command_prefix,
             "iptables",
             "-t",
             "mangle",
@@ -109,9 +165,10 @@ async def _add_iptables_mark(*, ipset_name: str, fwmark: int) -> None:
     )
 
 
-async def _remove_iptables_mark(*, ipset_name: str, fwmark: int) -> None:
+async def _remove_iptables_mark(*, ctx: _ScopeContext, ipset_name: str, fwmark: int) -> None:
     await run_command(
         [
+            *ctx.command_prefix,
             "iptables",
             "-t",
             "mangle",
@@ -130,18 +187,19 @@ async def _remove_iptables_mark(*, ipset_name: str, fwmark: int) -> None:
     )
 
 
-async def _add_ip_rule(*, fwmark: int, table_id: int) -> None:
-    await run_command(["ip", "rule", "add", "fwmark", str(fwmark), "table", str(table_id)])
+async def _add_ip_rule(*, ctx: _ScopeContext, fwmark: int, table_id: int) -> None:
+    await run_command([*ctx.command_prefix, "ip", "rule", "add", "fwmark", str(fwmark), "table", str(table_id)])
 
 
-async def _remove_ip_rule(*, fwmark: int, table_id: int) -> None:
-    await run_command(["ip", "rule", "del", "fwmark", str(fwmark), "table", str(table_id)])
+async def _remove_ip_rule(*, ctx: _ScopeContext, fwmark: int, table_id: int) -> None:
+    await run_command([*ctx.command_prefix, "ip", "rule", "del", "fwmark", str(fwmark), "table", str(table_id)])
 
 
-async def _replace_default_route(*, gateway: str, interface: str, table_id: int) -> None:
+async def _replace_default_route(*, ctx: _ScopeContext, gateway: str, interface: str, table_id: int) -> None:
     # ip route replace атомарно создаёт или обновляет default-маршрут в таблице
     await run_command(
         [
+            *ctx.command_prefix,
             "ip",
             "route",
             "replace",
@@ -156,33 +214,37 @@ async def _replace_default_route(*, gateway: str, interface: str, table_id: int)
     )
 
 
-async def _delete_default_route(*, table_id: int) -> None:
-    await run_command(["ip", "route", "del", "default", "table", str(table_id)], check=False)
+async def _delete_default_route(*, ctx: _ScopeContext, table_id: int) -> None:
+    await run_command(
+        [*ctx.command_prefix, "ip", "route", "del", "default", "table", str(table_id)],
+        check=False,
+    )
 
 
-async def _ensure_mark(*, rule: RoutingRule, current: _ActiveMark | None) -> bool:
+async def _ensure_mark(*, ctx: _ScopeContext, rule: RoutingRule, current: _ActiveMark | None) -> bool:
     if current is not None and current.fwmark == rule.fwmark:
         return False
     if current is not None:
-        await _remove_iptables_mark(ipset_name=current.ipset_name, fwmark=current.fwmark)
-    await _add_iptables_mark(ipset_name=rule.ipset_name, fwmark=rule.fwmark)
+        await _remove_iptables_mark(ctx=ctx, ipset_name=current.ipset_name, fwmark=current.fwmark)
+    await _add_iptables_mark(ctx=ctx, ipset_name=rule.ipset_name, fwmark=rule.fwmark)
     return True
 
 
-async def _ensure_ip_rule(*, rule: RoutingRule, current: _ActiveIpRule | None) -> bool:
+async def _ensure_ip_rule(*, ctx: _ScopeContext, rule: RoutingRule, current: _ActiveIpRule | None) -> bool:
     if current is not None and current.table_id == rule.table_id:
         return False
     if current is not None:
-        await _remove_ip_rule(fwmark=current.fwmark, table_id=current.table_id)
-    await _add_ip_rule(fwmark=rule.fwmark, table_id=rule.table_id)
+        await _remove_ip_rule(ctx=ctx, fwmark=current.fwmark, table_id=current.table_id)
+    await _add_ip_rule(ctx=ctx, fwmark=rule.fwmark, table_id=rule.table_id)
     return True
 
 
-async def _ensure_default_route(*, rule: RoutingRule) -> bool:
-    current = await _read_default_route(table_id=rule.table_id)
+async def _ensure_default_route(*, ctx: _ScopeContext, rule: RoutingRule) -> bool:
+    current = await _read_default_route(ctx=ctx, table_id=rule.table_id)
     if current is not None and current.gateway == rule.via_gateway and current.interface == rule.via_interface:
         return False
     await _replace_default_route(
+        ctx=ctx,
         gateway=rule.via_gateway,
         interface=rule.via_interface,
         table_id=rule.table_id,
@@ -192,6 +254,7 @@ async def _ensure_default_route(*, rule: RoutingRule) -> bool:
 
 async def _remove_orphans(
     *,
+    ctx: _ScopeContext,
     current_marks: dict[str, _ActiveMark],
     current_ip_rules: dict[int, _ActiveIpRule],
     desired_by_ipset: dict[str, RoutingRule],
@@ -204,59 +267,61 @@ async def _remove_orphans(
         if ipset_name in desired_by_ipset:
             continue
         try:
-            await _remove_iptables_mark(ipset_name=ipset_name, fwmark=mark.fwmark)
+            await _remove_iptables_mark(ctx=ctx, ipset_name=ipset_name, fwmark=mark.fwmark)
             current_marks.pop(ipset_name, None)
         except CommandError as exc:
-            errors.append(f"remove orphan mark {ipset_name}: {exc}")
+            errors.append(f"[{ctx.name}] remove orphan mark {ipset_name}: {exc}")
 
     orphan_tables: set[int] = set()
     for fwmark, ip_rule in list(current_ip_rules.items()):
         if fwmark in desired_fwmarks:
             continue
         try:
-            await _remove_ip_rule(fwmark=fwmark, table_id=ip_rule.table_id)
+            await _remove_ip_rule(ctx=ctx, fwmark=fwmark, table_id=ip_rule.table_id)
             current_ip_rules.pop(fwmark, None)
             orphan_tables.add(ip_rule.table_id)
         except CommandError as exc:
-            errors.append(f"remove orphan ip rule fwmark={fwmark}: {exc}")
+            errors.append(f"[{ctx.name}] remove orphan ip rule fwmark={fwmark}: {exc}")
 
     for table_id in orphan_tables - desired_tables:
         try:
-            await _delete_default_route(table_id=table_id)
+            await _delete_default_route(ctx=ctx, table_id=table_id)
         except CommandError as exc:
-            errors.append(f"remove orphan route table={table_id}: {exc}")
+            errors.append(f"[{ctx.name}] remove orphan route table={table_id}: {exc}")
 
 
-async def _read_state(*, errors: list[str]) -> tuple[dict[str, _ActiveMark], dict[int, _ActiveIpRule]]:
+async def _read_state(
+    *,
+    ctx: _ScopeContext,
+    errors: list[str],
+) -> tuple[dict[str, _ActiveMark], dict[int, _ActiveIpRule]]:
     try:
-        marks = await _read_iptables_marks()
+        marks = await _read_iptables_marks(ctx=ctx)
     except CommandError as exc:
-        errors.append(f"read iptables marks: {exc}")
+        errors.append(f"[{ctx.name}] read iptables marks: {exc}")
         marks = {}
     try:
-        ip_rules = await _read_ip_rules()
+        ip_rules = await _read_ip_rules(ctx=ctx)
     except CommandError as exc:
-        errors.append(f"read ip rules: {exc}")
+        errors.append(f"[{ctx.name}] read ip rules: {exc}")
         ip_rules = {}
     return marks, ip_rules
 
 
-async def apply_rules(*, rules: list[RoutingRule]) -> ApplyRulesResponse:
-    """Применяет правила маршрутизации идемпотентно: diff текущего и желаемого.
+async def _apply_rules_in_scope(
+    *,
+    ctx: _ScopeContext,
+    rules: list[RoutingRule],
+    errors: list[str],
+) -> tuple[int, int]:
+    """Применяет диф для одного scope. Возвращает (applied, skipped)."""
+    desired_by_ipset = {rule.ipset_name: rule for rule in rules}
+    desired_fwmarks = {rule.fwmark for rule in rules}
+    desired_tables = {rule.table_id for rule in rules}
 
-    1. Считываем текущее состояние iptables mangle PREROUTING, ip rule, ip route.
-    2. Удаляем компоненты, которых нет в желаемом списке (orphan-cleanup).
-    3. Для каждого желаемого правила добавляем/заменяем недостающие компоненты.
-    4. applied = правил, где хотя бы один компонент изменён; skipped = всё совпало.
-    """
-    desired = [rule for rule in rules if rule.enabled]
-    desired_by_ipset = {rule.ipset_name: rule for rule in desired}
-    desired_fwmarks = {rule.fwmark for rule in desired}
-    desired_tables = {rule.table_id for rule in desired}
-    errors: list[str] = []
-
-    current_marks, current_ip_rules = await _read_state(errors=errors)
+    current_marks, current_ip_rules = await _read_state(ctx=ctx, errors=errors)
     await _remove_orphans(
+        ctx=ctx,
         current_marks=current_marks,
         current_ip_rules=current_ip_rules,
         desired_by_ipset=desired_by_ipset,
@@ -267,20 +332,70 @@ async def apply_rules(*, rules: list[RoutingRule]) -> ApplyRulesResponse:
 
     applied = 0
     skipped = 0
-    for rule in desired:
+    for rule in rules:
         try:
-            mark_changed = await _ensure_mark(rule=rule, current=current_marks.get(rule.ipset_name))
-            rule_changed = await _ensure_ip_rule(rule=rule, current=current_ip_rules.get(rule.fwmark))
-            route_changed = await _ensure_default_route(rule=rule)
+            mark_changed = await _ensure_mark(
+                ctx=ctx,
+                rule=rule,
+                current=current_marks.get(rule.ipset_name),
+            )
+            rule_changed = await _ensure_ip_rule(
+                ctx=ctx,
+                rule=rule,
+                current=current_ip_rules.get(rule.fwmark),
+            )
+            route_changed = await _ensure_default_route(ctx=ctx, rule=rule)
         except CommandError as exc:
-            errors.append(f"apply {rule.ipset_name}: {exc}")
+            errors.append(f"[{ctx.name}] apply {rule.ipset_name}: {exc}")
             continue
         if mark_changed or rule_changed or route_changed:
             applied += 1
         else:
             skipped += 1
+    return applied, skipped
+
+
+def _scope_key(*, rule: RoutingRule) -> tuple[RoutingScope, str | None]:
+    """Группирующий ключ — (scope, scope_target)."""
+    return (rule.scope, rule.scope_target)
+
+
+def _group_by_scope(rules: Iterable[RoutingRule]) -> dict[tuple[RoutingScope, str | None], list[RoutingRule]]:
+    groups: dict[tuple[RoutingScope, str | None], list[RoutingRule]] = {}
+    for rule in rules:
+        groups.setdefault(_scope_key(rule=rule), []).append(rule)
+    return groups
+
+
+async def apply_rules(*, rules: list[RoutingRule]) -> ApplyRulesResponse:
+    """Применяет правила маршрутизации идемпотентно.
+
+    Группирует правила по (scope, scope_target). Для каждой группы строит
+    `_ScopeContext` (host или nsenter в netns container'а) и вызывает один и тот
+    же diff-applier с этим контекстом. Это сохраняет идемпотентность в каждом
+    netns независимо.
+    """
+    desired = [rule for rule in rules if rule.enabled]
+    errors: list[str] = []
+
+    total_applied = 0
+    total_skipped = 0
+    for (scope, target), group_rules in _group_by_scope(desired).items():
+        try:
+            ctx = await _build_scope_context(scope=scope, scope_target=target)
+        except CommandError as exc:
+            label = f"container:{target}" if scope is RoutingScope.CONTAINER else "host"
+            errors.append(f"[{label}] resolve scope: {exc}")
+            continue
+        applied, skipped = await _apply_rules_in_scope(
+            ctx=ctx,
+            rules=group_rules,
+            errors=errors,
+        )
+        total_applied += applied
+        total_skipped += skipped
 
     for err in errors:
         logger.warning("apply_rules: {}", err)
 
-    return ApplyRulesResponse(applied=applied, skipped=skipped, errors=errors)
+    return ApplyRulesResponse(applied=total_applied, skipped=total_skipped, errors=errors)

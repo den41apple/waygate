@@ -11,7 +11,7 @@ from server.db import get_session
 from server.models import RoutingRule, Server
 from server.ws.events import EventType, WsEvent
 from server.ws.manager import get_manager
-from shared.schemas import ApplyRulesRequest, ApplyRulesResponse
+from shared.schemas import ApplyRulesRequest, ApplyRulesResponse, RoutingScope
 from shared.schemas import RoutingRule as AgentRoutingRule
 
 router = APIRouter(prefix="/servers/{server_id}/rules", tags=["rules"])
@@ -25,6 +25,11 @@ class RuleCreate(BaseModel):
     via_interface: str = Field(description="Исходящий интерфейс на агенте")
     via_gateway: str = Field(description="Шлюз внутри туннеля")
     enabled: bool = Field(default=True)
+    scope: RoutingScope = Field(default=RoutingScope.HOST, description="Где применять (host|container)")
+    scope_target: str | None = Field(
+        default=None,
+        description="Имя docker-контейнера для scope=container",
+    )
 
 
 class RuleUpdate(BaseModel):
@@ -33,6 +38,8 @@ class RuleUpdate(BaseModel):
     table_id: int | None = None
     via_interface: str | None = None
     via_gateway: str | None = None
+    scope: RoutingScope | None = None
+    scope_target: str | None = None
 
 
 class RuleResponse(BaseModel):
@@ -45,6 +52,8 @@ class RuleResponse(BaseModel):
     via_interface: str
     via_gateway: str
     enabled: bool
+    scope: str
+    scope_target: str | None
 
 
 class RuleListResponse(BaseModel):
@@ -64,6 +73,8 @@ def _to_response(*, rule: RoutingRule) -> RuleResponse:
         via_interface=rule.via_interface,
         via_gateway=rule.via_gateway,
         enabled=rule.enabled,
+        scope=rule.scope,
+        scope_target=rule.scope_target,
     )
 
 
@@ -102,6 +113,8 @@ async def create_rule(
         via_interface=request.via_interface,
         via_gateway=request.via_gateway,
         enabled=request.enabled,
+        scope=request.scope.value,
+        scope_target=request.scope_target,
     )
     session.add(rule)
     await session.commit()
@@ -120,8 +133,10 @@ async def update_rule(
     if rule is None or rule.server_id != server_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"rule id={rule_id} не найден")
     update_data = request.model_dump(exclude_unset=True)
-    for field, value in update_data.items():
-        setattr(rule, field, value)
+    for field, raw_value in update_data.items():
+        # RoutingScope enum → строка для SQLModel-колонки `scope`.
+        new_value = raw_value.value if isinstance(raw_value, RoutingScope) else raw_value
+        setattr(rule, field, new_value)
     await session.commit()
     await session.refresh(rule)
     return _to_response(rule=rule)
@@ -159,6 +174,8 @@ async def apply_rules(
                 via_interface=rule.via_interface,
                 via_gateway=rule.via_gateway,
                 enabled=rule.enabled,
+                scope=RoutingScope(rule.scope),
+                scope_target=rule.scope_target,
             )
             for rule in rules
         ],

@@ -46,6 +46,45 @@ async def test_rule_crud(client, server_id):
     assert response.json()["rules"] == []
 
 
+async def test_rule_create_with_scope_container(client, server_id):
+    """Правило со scope=container хранит scope_target и отдаёт его в response."""
+    response = await client.post(
+        f"/api/v1/servers/{server_id}/rules",
+        json={
+            "country": "DE",
+            "ipset_name": "dns-streaming",
+            "fwmark": 200,
+            "table_id": 200,
+            "via_interface": "awg0",
+            "via_gateway": "10.66.66.1",
+            "scope": "container",
+            "scope_target": "amnezia-awg2",
+        },
+    )
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["scope"] == "container"
+    assert body["scope_target"] == "amnezia-awg2"
+
+
+async def test_rule_default_scope_is_host(client, server_id):
+    """Старые клиенты, не передающие scope, продолжают работать с scope=host."""
+    response = await client.post(
+        f"/api/v1/servers/{server_id}/rules",
+        json={
+            "country": "RU",
+            "ipset_name": "geoip-ru-v4",
+            "fwmark": 100,
+            "table_id": 100,
+            "via_interface": "awg0",
+            "via_gateway": "10.0.0.1",
+        },
+    )
+    assert response.status_code == 201
+    assert response.json()["scope"] == "host"
+    assert response.json()["scope_target"] is None
+
+
 async def test_apply_rules_calls_agent(client, server_id, monkeypatch):
     captured: dict = {}
     broadcasts: list[WsEvent] = []

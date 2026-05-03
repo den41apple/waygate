@@ -15,3 +15,7 @@ class RoutingRule(SQLModel, table=True):
     via_interface: str
     via_gateway: str
     enabled: bool = Field(default=True)
+    # Где применять: "host" — текущее поведение, "container" — внутри netns
+    # указанного контейнера через nsenter.
+    scope: str = Field(default="host")
+    scope_target: str | None = Field(default=None)

@@ -4,10 +4,11 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi.responses import Response
 from loguru import logger
 from prometheus_fastapi_instrumentator import Instrumentator
 
-from agent import __version__
+from agent import __version__, awg_clients
 from agent.auth import verify_bearer_token
 from agent.config import settings
 from agent.dns import apply_dns as dns_apply
@@ -30,8 +31,12 @@ from shared.schemas import (
     ApplyDnsResponse,
     ApplyRulesRequest,
     ApplyRulesResponse,
+    AwgClientActionResponse,
+    CreateAwgClientRequest,
+    CreateAwgClientResponse,
     GeoIpSyncRequest,
     GeoIpSyncResponse,
+    ListAwgClientsResponse,
     MetricsSnapshot,
     TlsApplyResponse,
     TlsConfig,
@@ -240,3 +245,95 @@ async def post_update(request: UpdateRequest) -> UpdateResponse:
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(exc),
         ) from exc
+
+
+# ############################################
+# #  /v1/clients (AmneziaWG-клиенты — managed deployment)
+# ############################################
+
+
+def _client_error(*, exc: awg_clients.AwgClientError, http_status: int = status.HTTP_400_BAD_REQUEST) -> HTTPException:
+    return HTTPException(status_code=http_status, detail=str(exc))
+
+
+@app.post(
+    "/v1/clients",
+    response_model=CreateAwgClientResponse,
+    dependencies=[Depends(verify_bearer_token)],
+)
+async def post_clients(request: CreateAwgClientRequest) -> CreateAwgClientResponse:
+    try:
+        info = await awg_clients.deploy_client(name=request.name, config_text=request.config_text)
+    except awg_clients.AwgClientError as exc:
+        raise _client_error(exc=exc) from exc
+    return CreateAwgClientResponse(client=info)
+
+
+@app.get(
+    "/v1/clients",
+    response_model=ListAwgClientsResponse,
+    dependencies=[Depends(verify_bearer_token)],
+)
+async def get_clients() -> ListAwgClientsResponse:
+    clients = await awg_clients.list_managed_clients()
+    return ListAwgClientsResponse(clients=clients)
+
+
+@app.post(
+    "/v1/clients/{name}/start",
+    response_model=AwgClientActionResponse,
+    dependencies=[Depends(verify_bearer_token)],
+)
+async def post_client_start(name: str) -> AwgClientActionResponse:
+    try:
+        new_status = await awg_clients.start_client(name=name)
+    except awg_clients.AwgClientError as exc:
+        raise _client_error(exc=exc, http_status=status.HTTP_502_BAD_GATEWAY) from exc
+    return AwgClientActionResponse(name=name, status=new_status)
+
+
+@app.post(
+    "/v1/clients/{name}/stop",
+    response_model=AwgClientActionResponse,
+    dependencies=[Depends(verify_bearer_token)],
+)
+async def post_client_stop(name: str) -> AwgClientActionResponse:
+    try:
+        new_status = await awg_clients.stop_client(name=name)
+    except awg_clients.AwgClientError as exc:
+        raise _client_error(exc=exc, http_status=status.HTTP_502_BAD_GATEWAY) from exc
+    return AwgClientActionResponse(name=name, status=new_status)
+
+
+@app.delete(
+    "/v1/clients/{name}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(verify_bearer_token)],
+)
+async def delete_client_endpoint(name: str) -> Response:
+    await awg_clients.delete_client(name=name)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@app.get(
+    "/v1/clients/{name}/qr",
+    dependencies=[Depends(verify_bearer_token)],
+)
+async def get_client_qr(name: str) -> Response:
+    try:
+        png = await awg_clients.generate_qr(name=name)
+    except awg_clients.AwgClientError as exc:
+        raise _client_error(exc=exc, http_status=status.HTTP_404_NOT_FOUND) from exc
+    return Response(content=png, media_type="image/png")
+
+
+@app.get(
+    "/v1/clients/{name}/config",
+    dependencies=[Depends(verify_bearer_token)],
+)
+async def get_client_config_endpoint(name: str) -> Response:
+    try:
+        text = await awg_clients.get_client_config(name=name)
+    except awg_clients.AwgClientError as exc:
+        raise _client_error(exc=exc, http_status=status.HTTP_404_NOT_FOUND) from exc
+    return Response(content=text, media_type="text/plain; charset=utf-8")

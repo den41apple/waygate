@@ -1,6 +1,18 @@
+import { useState } from "react";
+
+import {
+  downloadConfigUrl,
+  qrUrl,
+  useAwgClients,
+  useDeleteAwgClient,
+  useStartAwgClient,
+  useStopAwgClient,
+} from "../api/awgClients";
 import { useTunnels } from "../api/tunnels";
-import type { PeerInfo, TunnelInfo, TunnelStatus } from "../api/types";
+import type { AwgClient, AwgClientStatus, PeerInfo, TunnelInfo, TunnelStatus } from "../api/types";
+import { Icon } from "../components/Icon";
 import { Badge, IconTile, Metric, SectionHead } from "../components/primitives";
+import { AddAwgClientModal } from "../modals/AddAwgClientModal";
 
 interface Props {
   serverId: number;
@@ -34,9 +46,130 @@ function shortKey(publicKey: string): string {
   return `${publicKey.slice(0, 8)}…${publicKey.slice(-4)}`;
 }
 
+function clientStatusBadge(status: AwgClientStatus): "online" | "degraded" | "offline" | "amber" | "error" {
+  if (status === "running") return "online";
+  if (status === "stopped") return "offline";
+  if (status === "error") return "error";
+  return "amber";
+}
+
+interface ManagedClientCardProps {
+  serverId: number;
+  client: AwgClient;
+  onShowQr: (client: AwgClient) => void;
+}
+
+function ManagedClientCard({ serverId, client, onShowQr }: ManagedClientCardProps) {
+  const startMutation = useStartAwgClient(serverId);
+  const stopMutation = useStopAwgClient(serverId);
+  const deleteMutation = useDeleteAwgClient(serverId);
+
+  const isRunning = client.status === "running";
+
+  return (
+    <div className="card">
+      <div className="tunnel-head">
+        <IconTile color={isRunning ? "green" : "amber"} icon="tunnel" />
+        <div className="name-block">
+          <div className="name">
+            {client.name}
+            {client.country && <span className="mono" style={{ marginLeft: 8, color: "var(--text-3)" }}>[{client.country}]</span>}
+          </div>
+          <div className="container">{client.container_name}</div>
+        </div>
+        <Badge kind={clientStatusBadge(client.status)}>{client.status}</Badge>
+      </div>
+      <div className="tunnel-meta">
+        <span>endpoint <b className="mono">{client.peer_endpoint ?? "—"}</b></span>
+        <span>address <b className="mono">{client.interface_address ?? "—"}</b></span>
+      </div>
+      <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
+        {isRunning ? (
+          <button
+            className="tb-btn"
+            onClick={() => stopMutation.mutate(client.id)}
+            disabled={stopMutation.isPending}
+          >
+            <Icon name="lock" size={14} /> Stop
+          </button>
+        ) : (
+          <button
+            className="tb-btn"
+            onClick={() => startMutation.mutate(client.id)}
+            disabled={startMutation.isPending}
+          >
+            <Icon name="play" size={14} /> Start
+          </button>
+        )}
+        <button className="tb-btn" onClick={() => onShowQr(client)}>
+          <Icon name="globe" size={14} /> QR
+        </button>
+        <a
+          className="tb-btn"
+          href={downloadConfigUrl(serverId, client.id)}
+          download={`${client.name}.conf`}
+          style={{ textDecoration: "none" }}
+        >
+          <Icon name="download" size={14} /> .conf
+        </a>
+        <button
+          className="tb-btn"
+          onClick={() => {
+            if (window.confirm(`Удалить клиента ${client.name}? Контейнер будет снесён.`)) {
+              deleteMutation.mutate(client.id);
+            }
+          }}
+          disabled={deleteMutation.isPending}
+          style={{ color: "var(--red, #ef4444)" }}
+        >
+          <Icon name="x" size={14} /> Удалить
+        </button>
+      </div>
+    </div>
+  );
+}
+
+interface QrModalProps {
+  serverId: number;
+  client: AwgClient;
+  onClose: () => void;
+}
+
+function QrModal({ serverId, client, onClose }: QrModalProps) {
+  return (
+    <div className="modal-veil" onClick={onClose}>
+      <div className="modal" onClick={(event) => event.stopPropagation()} style={{ maxWidth: 420 }}>
+        <div className="modal-head">
+          <div className="title">
+            <IconTile color="violet" icon="globe" size="sm" /> QR-код · {client.name}
+          </div>
+          <button className="close" onClick={onClose}><Icon name="x" size={16} /></button>
+        </div>
+        <div className="modal-body" style={{ textAlign: "center" }}>
+          <img
+            src={qrUrl(serverId, client.id)}
+            alt="QR-код .conf"
+            style={{ maxWidth: "100%", background: "#fff", padding: 16, borderRadius: 8 }}
+          />
+          <div className="hint" style={{ fontSize: 11, color: "var(--text-3)", marginTop: 12 }}>
+            Отсканируйте в мобильном AmneziaWG-приложении для импорта.
+          </div>
+        </div>
+        <div className="modal-foot">
+          <button className="btn primary" onClick={onClose}>Закрыть</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function TunnelsTab({ serverId, showSpark }: Props) {
   const { data, isLoading, isError, error } = useTunnels(serverId);
   const tunnels: TunnelInfo[] = data?.tunnels ?? [];
+  const { data: awgClients = [] } = useAwgClients(serverId);
+
+  const [showAdd, setShowAdd] = useState(false);
+  const [qrTarget, setQrTarget] = useState<AwgClient | null>(null);
   const totalPeers = tunnels.reduce((acc, tunnel) => acc + tunnel.peers.length, 0);
   const upPeers = tunnels.flatMap((tunnel) => tunnel.peers).filter((peer) => {
     if (peer.last_handshake === null) return false;
@@ -55,7 +188,30 @@ export function TunnelsTab({ serverId, showSpark }: Props) {
         <Metric label="TX всего" value={formatBytes(totalTx)} sub="по всем пирам" icon="trending-up" tileColor="pink" sparkSeed={17} showSpark={showSpark} />
       </div>
 
-      <SectionHead title="AWG-интерфейсы" count={tunnels.length}>
+      <SectionHead title="Управляемые клиенты" count={awgClients.length}>
+        <button className="tb-btn primary" onClick={() => setShowAdd(true)}>
+          <Icon name="plus" size={14} /> Добавить клиента
+        </button>
+      </SectionHead>
+
+      {awgClients.length === 0 && (
+        <div className="hint">
+          Нет развёрнутых AmneziaWG-клиентов. Импортируйте `.conf` через «Добавить
+          клиента» — Waygate поднимет docker-контейнер и подцепит туннель к
+          доступным маршрутизирующим правилам.
+        </div>
+      )}
+
+      {awgClients.map((awgClient) => (
+        <ManagedClientCard
+          key={awgClient.id}
+          serverId={serverId}
+          client={awgClient}
+          onShowQr={setQrTarget}
+        />
+      ))}
+
+      <SectionHead title="AWG-интерфейсы (обнаруженные)" count={tunnels.length}>
         <span style={{ fontSize: 11, color: "var(--text-3)" }}>обновляется каждые 30с</span>
       </SectionHead>
 
@@ -131,6 +287,11 @@ export function TunnelsTab({ serverId, showSpark }: Props) {
           )}
         </div>
       ))}
+
+      {showAdd && <AddAwgClientModal serverId={serverId} onClose={() => setShowAdd(false)} />}
+      {qrTarget && (
+        <QrModal serverId={serverId} client={qrTarget} onClose={() => setQrTarget(null)} />
+      )}
     </>
   );
 }

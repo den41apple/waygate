@@ -3,7 +3,7 @@ from collections.abc import Iterable
 import pytest
 
 from agent import routing
-from shared.schemas import RoutingRule
+from shared.schemas import RoutingRule, RoutingScope
 
 
 class _FakeRunner:
@@ -131,6 +131,101 @@ async def test_apply_rules_removes_orphans(monkeypatch, make_rule):
     rule_dels = _calls_starting_with(runner.calls, ("ip", "rule", "del"))
     assert any("belarus" in call for call in deletes)
     assert any("0x200" not in str(call) for call in rule_dels)  # удалили fwmark 512
+
+
+@pytest.mark.asyncio
+async def test_apply_rules_in_container_uses_nsenter(monkeypatch, make_rule):
+    """scope=container: agent резолвит PID через docker inspect и префиксует
+    все iptables/ip-команды через `nsenter -t <pid> -n`. Группа host'а исполняется
+    отдельно (без prefix), даже если присутствует в том же batch."""
+    runner = _FakeRunner(
+        responses={
+            ("docker", "inspect", "-f"): "12345\n",
+            ("nsenter", "-t", "12345", "-n", "iptables", "-t", "mangle", "-S", "PREROUTING"): "-P PREROUTING ACCEPT\n",
+            ("nsenter", "-t", "12345", "-n", "ip", "rule", "show"): "0:\tfrom all lookup local\n",
+            ("nsenter", "-t", "12345", "-n", "ip", "route", "show", "table", "100"): "",
+        },
+    )
+    monkeypatch.setattr(routing, "run_command", runner)
+
+    rule = RoutingRule(
+        country="RU",
+        ipset_name="russia",
+        fwmark=256,
+        table_id=100,
+        via_interface="awg0",
+        via_gateway="10.0.0.1",
+        enabled=True,
+        scope=RoutingScope.CONTAINER,
+        scope_target="amnezia-awg2",
+    )
+    response = await routing.apply_rules(rules=[rule])
+
+    assert response.applied == 1
+    assert response.errors == []
+    # Все iptables/ip команды выполнены через nsenter
+    nsenter_iptables_adds = _calls_starting_with(
+        runner.calls,
+        ("nsenter", "-t", "12345", "-n", "iptables", "-t", "mangle", "-A"),
+    )
+    nsenter_ip_rule_adds = _calls_starting_with(
+        runner.calls,
+        ("nsenter", "-t", "12345", "-n", "ip", "rule", "add"),
+    )
+    nsenter_ip_route_replaces = _calls_starting_with(
+        runner.calls,
+        ("nsenter", "-t", "12345", "-n", "ip", "route", "replace"),
+    )
+    assert len(nsenter_iptables_adds) == 1
+    assert len(nsenter_ip_rule_adds) == 1
+    assert len(nsenter_ip_route_replaces) == 1
+    # И что docker inspect был
+    assert _calls_starting_with(runner.calls, ("docker", "inspect"))
+
+
+@pytest.mark.asyncio
+async def test_apply_rules_isolates_host_and_container_scopes(monkeypatch, make_rule):
+    """Two rules: одна host, одна container — каждая в своём netns, не пересекаются."""
+    runner = _FakeRunner(
+        responses={
+            ("docker", "inspect", "-f"): "9999\n",
+            # host-сторона
+            ("iptables", "-t", "mangle", "-S", "PREROUTING"): "-P PREROUTING ACCEPT\n",
+            ("ip", "rule", "show"): "",
+            ("ip", "route", "show", "table", "100"): "",
+            # container-сторона
+            ("nsenter", "-t", "9999", "-n", "iptables", "-t", "mangle", "-S", "PREROUTING"): "-P PREROUTING ACCEPT\n",
+            ("nsenter", "-t", "9999", "-n", "ip", "rule", "show"): "",
+            ("nsenter", "-t", "9999", "-n", "ip", "route", "show", "table", "200"): "",
+        },
+    )
+    monkeypatch.setattr(routing, "run_command", runner)
+
+    host_rule = make_rule(ipset_name="host-ipset", fwmark=0x100, table_id=100)
+    container_rule = RoutingRule(
+        country="DE",
+        ipset_name="container-ipset",
+        fwmark=0x200,
+        table_id=200,
+        via_interface="awg0",
+        via_gateway="10.66.66.1",
+        enabled=True,
+        scope=RoutingScope.CONTAINER,
+        scope_target="amnezia-awg2",
+    )
+    response = await routing.apply_rules(rules=[host_rule, container_rule])
+
+    assert response.applied == 2
+    # Host-команды БЕЗ nsenter prefix
+    host_adds = [call for call in runner.calls if call[:1] == ("iptables",) and "-A" in call and "host-ipset" in call]
+    # Container-команды С nsenter prefix
+    container_adds = [
+        call
+        for call in runner.calls
+        if call[:4] == ("nsenter", "-t", "9999", "-n") and "-A" in call and "container-ipset" in call
+    ]
+    assert len(host_adds) == 1
+    assert len(container_adds) == 1
 
 
 @pytest.mark.asyncio

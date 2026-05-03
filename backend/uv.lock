@@ -1558,7 +1558,7 @@ wheels = [
 
 [[package]]
 name = "waygate-agent"
-version = "0.1.8"
+version = "0.1.9"
 source = { editable = "agent" }
 dependencies = [
     { name = "acme" },
@@ -1598,6 +1598,7 @@ dependencies = [
     { name = "asyncpg" },
     { name = "asyncssh" },
     { name = "bcrypt" },
+    { name = "cryptography" },
     { name = "envparse" },
     { name = "fastapi" },
     { name = "granian" },
@@ -1618,6 +1619,7 @@ requires-dist = [
     { name = "asyncpg", specifier = ">=0.29" },
     { name = "asyncssh", specifier = ">=2.18" },
     { name = "bcrypt", specifier = ">=4.2" },
+    { name = "cryptography", specifier = ">=43" },
     { name = "envparse", specifier = ">=0.2" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "granian", specifier = ">=1.6" },

@@ -64,6 +64,13 @@ export function RoutingTab({ serverId, awgContainers, showSpark }: Props) {
             </div>
             <Badge kind={rule.enabled ? "online" : "offline"}>{rule.enabled ? "active" : "paused"}</Badge>
             <span className="mono-pill">table {rule.table_id}</span>
+            <span
+              className="mono-pill"
+              title={rule.scope === "container" ? `Применяется внутри netns ${rule.scope_target}` : "На уровне хоста"}
+              style={rule.scope === "container" ? { background: "var(--accent-tint-2, #2a1a4a)", color: "var(--accent)" } : undefined}
+            >
+              {rule.scope === "container" ? `🐳 ${rule.scope_target}` : "host"}
+            </span>
             <Toggle
               on={rule.enabled}
               onClick={() => updateRule.mutate({ ruleId: rule.id, patch: { enabled: !rule.enabled } })}

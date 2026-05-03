@@ -11,6 +11,9 @@ RUN apt-get update && \
         dnsmasq \
         wireguard-tools \
         ca-certificates \
+        curl \
+        qrencode \
+        docker.io \
         && \
     rm -rf /var/lib/apt/lists/*
 

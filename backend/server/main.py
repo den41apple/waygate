@@ -10,6 +10,7 @@ from prometheus_fastapi_instrumentator import Instrumentator
 
 from server.api import audit as audit_router
 from server.api import auth as auth_router
+from server.api import clients as clients_router
 from server.api import dns as dns_router
 from server.api import geoip as geoip_router
 from server.api import metrics as metrics_router
@@ -91,6 +92,7 @@ def create_app() -> FastAPI:
     app.include_router(tls_router.router, prefix="/api/v1", dependencies=protected)
     app.include_router(tunnels_router.router, prefix="/api/v1", dependencies=protected)
     app.include_router(audit_router.router, prefix="/api/v1", dependencies=protected)
+    app.include_router(clients_router.router, prefix="/api/v1", dependencies=protected)
     # WS-роутер сам прописывает свои пути — без общего prefix
     app.include_router(ws_router.router)
 

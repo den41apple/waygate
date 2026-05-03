@@ -875,6 +875,36 @@ input, textarea, select { font: inherit; color: inherit; }
 }
 .chart-head .legend b { color: var(--text); font-weight: 600; font-family: var(--mono); }
 
+.chart-tooltip {
+  position: absolute;
+  top: 8px;
+  background: rgba(15, 17, 22, 0.92);
+  border: 1px solid var(--border, #1f232b);
+  border-left: 3px solid var(--accent);
+  border-radius: 8px;
+  padding: 8px 12px 9px;
+  pointer-events: none;
+  white-space: nowrap;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.32);
+  font-family: var(--mono, ui-monospace, monospace);
+  z-index: 2;
+}
+.chart-tooltip .t-time {
+  font-size: 11px;
+  color: var(--text-3, #6c7280);
+  margin-bottom: 2px;
+}
+.chart-tooltip .t-value {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  margin-bottom: 1px;
+}
+.chart-tooltip .t-sub {
+  font-size: 11px;
+  color: var(--text-3, #6c7280);
+}
+
 .range-switch {
   display: inline-flex;
   background: var(--bg-2);

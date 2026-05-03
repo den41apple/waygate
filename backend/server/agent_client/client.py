@@ -12,8 +12,12 @@ from shared.schemas import (
     ApplyDnsResponse,
     ApplyRulesRequest,
     ApplyRulesResponse,
+    AwgClientActionResponse,
+    CreateAwgClientRequest,
+    CreateAwgClientResponse,
     GeoIpSyncRequest,
     GeoIpSyncResponse,
+    ListAwgClientsResponse,
     MetricsSnapshot,
     TlsApplyResponse,
     TlsConfig,
@@ -135,6 +139,91 @@ class AgentClient:
 
     async def update(self, *, request: UpdateRequest) -> UpdateResponse:
         return UpdateResponse.model_validate(await self._post(path="/update", payload=request))
+
+    # ---------- AWG-клиенты (managed deployment) ----------
+
+    async def create_client(
+        self,
+        *,
+        request: CreateAwgClientRequest,
+    ) -> CreateAwgClientResponse:
+        return CreateAwgClientResponse.model_validate(
+            await self._post(path="/clients", payload=request),
+        )
+
+    @retry(
+        retry=retry_if_exception_type(AgentUnreachable),
+        wait=wait_exponential(multiplier=1, max=8),
+        stop=stop_after_attempt(3),
+        reraise=True,
+    )
+    async def list_clients(self) -> ListAwgClientsResponse:
+        return ListAwgClientsResponse.model_validate(await self._get(path="/clients"))
+
+    async def start_client(self, *, name: str) -> AwgClientActionResponse:
+        return AwgClientActionResponse.model_validate(
+            await self._post_empty(path=f"/clients/{name}/start"),
+        )
+
+    async def stop_client(self, *, name: str) -> AwgClientActionResponse:
+        return AwgClientActionResponse.model_validate(
+            await self._post_empty(path=f"/clients/{name}/stop"),
+        )
+
+    async def delete_client(self, *, name: str) -> None:
+        url = f"{self._base_url}/clients/{name}"
+        try:
+            async with (
+                aiohttp.ClientSession(timeout=self._timeout) as session,
+                session.delete(url, headers=self._headers, ssl=self._ssl_param()) as response,
+            ):
+                if response.status >= 400 and response.status != 404:
+                    text = await response.text()
+                    raise AgentClientError(f"DELETE /clients/{name} → HTTP {response.status}: {text}")
+        except (TimeoutError, aiohttp.ClientConnectionError) as exc:
+            raise AgentUnreachable(f"DELETE /clients/{name}: {exc}") from exc
+
+    async def get_client_qr(self, *, name: str) -> bytes:
+        return await self._get_bytes(path=f"/clients/{name}/qr")
+
+    async def get_client_config(self, *, name: str) -> str:
+        text_bytes = await self._get_bytes(path=f"/clients/{name}/config")
+        return text_bytes.decode("utf-8")
+
+    async def _post_empty(self, *, path: str) -> dict[str, Any]:
+        """POST без body — для /start, /stop endpoints без request-схемы."""
+        url = f"{self._base_url}{path}"
+        try:
+            async with (
+                aiohttp.ClientSession(timeout=self._timeout) as session,
+                session.post(
+                    url,
+                    headers={**self._headers, "Content-Type": "application/json"},
+                    json={},
+                    ssl=self._ssl_param(),
+                ) as response,
+            ):
+                if response.status >= 400:
+                    text = await response.text()
+                    raise AgentClientError(f"POST {path} → HTTP {response.status}: {text}")
+                return await _read_json(response=response)
+        except (TimeoutError, aiohttp.ClientConnectionError) as exc:
+            raise AgentUnreachable(f"POST {path}: {exc}") from exc
+
+    async def _get_bytes(self, *, path: str) -> bytes:
+        """GET для бинарных ответов (image/png, text/plain) — без JSON-парсинга."""
+        url = f"{self._base_url}{path}"
+        try:
+            async with (
+                aiohttp.ClientSession(timeout=self._timeout) as session,
+                session.get(url, headers=self._headers, ssl=self._ssl_param()) as response,
+            ):
+                if response.status >= 400:
+                    text = await response.text()
+                    raise AgentClientError(f"GET {path} → HTTP {response.status}: {text}")
+                return await response.read()
+        except (TimeoutError, aiohttp.ClientConnectionError) as exc:
+            raise AgentUnreachable(f"GET {path}: {exc}") from exc
 
     async def rotate_token(self) -> TokenRotateResponse:
         # POST без тела — посылаем явно через aiohttp в обход _post (он требует BaseModel).

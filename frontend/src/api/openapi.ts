@@ -203,6 +203,115 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/servers/{server_id}/clients": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Clients */
+        get: operations["list_clients_api_v1_servers__server_id__clients_get"];
+        put?: never;
+        /** Create Client */
+        post: operations["create_client_api_v1_servers__server_id__clients_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/servers/{server_id}/clients/{client_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Client */
+        delete: operations["delete_client_api_v1_servers__server_id__clients__client_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/servers/{server_id}/clients/{client_id}/config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Client Config
+         * @description Возвращает расшифрованный .conf — для скачивания файла из UI.
+         */
+        get: operations["get_client_config_api_v1_servers__server_id__clients__client_id__config_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/servers/{server_id}/clients/{client_id}/qr": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Client Qr
+         * @description Прокси PNG-байтов QR-кода с агента (генерируется через qrencode).
+         */
+        get: operations["get_client_qr_api_v1_servers__server_id__clients__client_id__qr_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/servers/{server_id}/clients/{client_id}/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start Client */
+        post: operations["start_client_api_v1_servers__server_id__clients__client_id__start_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/servers/{server_id}/clients/{client_id}/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Stop Client */
+        post: operations["stop_client_api_v1_servers__server_id__clients__client_id__stop_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/servers/{server_id}/dns": {
         parameters: {
             query?: never;
@@ -584,6 +693,60 @@ export interface components {
          * @enum {string}
          */
         AuditRange: "1h" | "24h" | "7d";
+        /** AwgClientListResponse */
+        AwgClientListResponse: {
+            /** Clients */
+            clients: components["schemas"]["AwgClientResponse"][];
+        };
+        /** AwgClientResponse */
+        AwgClientResponse: {
+            /** Container Name */
+            container_name: string;
+            /** Country */
+            country: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Id */
+            id: number;
+            /** Interface Address */
+            interface_address: string | null;
+            /** Name */
+            name: string;
+            /** Peer Endpoint */
+            peer_endpoint: string | null;
+            /** Peer Pubkey */
+            peer_pubkey: string | null;
+            /** Server Id */
+            server_id: number;
+            /** Status */
+            status: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** CreateClientPayload */
+        CreateClientPayload: {
+            /**
+             * Config Text
+             * @description Полный .conf-файл
+             */
+            config_text: string;
+            /**
+             * Country
+             * @description ISO-2 код страны VPN
+             */
+            country?: string | null;
+            /**
+             * Name
+             * @description Идентификатор клиента (a-z0-9-)
+             */
+            name: string;
+        };
         /**
          * DnsProvider
          * @enum {string}
@@ -841,6 +1004,11 @@ export interface components {
              */
             rotated: boolean;
         };
+        /**
+         * RoutingScope
+         * @enum {string}
+         */
+        RoutingScope: "host" | "container";
         /** RuleCreate */
         RuleCreate: {
             /**
@@ -863,6 +1031,16 @@ export interface components {
              * @description Имя ipset на агенте
              */
             ipset_name: string;
+            /**
+             * @description Где применять (host|container)
+             * @default host
+             */
+            scope: components["schemas"]["RoutingScope"];
+            /**
+             * Scope Target
+             * @description Имя docker-контейнера для scope=container
+             */
+            scope_target?: string | null;
             /**
              * Table Id
              * @description Таблица маршрутизации
@@ -896,6 +1074,10 @@ export interface components {
             id: number;
             /** Ipset Name */
             ipset_name: string;
+            /** Scope */
+            scope: string;
+            /** Scope Target */
+            scope_target: string | null;
             /** Server Id */
             server_id: number;
             /** Table Id */
@@ -911,6 +1093,9 @@ export interface components {
             enabled?: boolean | null;
             /** Fwmark */
             fwmark?: number | null;
+            scope?: components["schemas"]["RoutingScope"] | null;
+            /** Scope Target */
+            scope_target?: string | null;
             /** Table Id */
             table_id?: number | null;
             /** Via Gateway */
@@ -1598,6 +1783,258 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_clients_api_v1_servers__server_id__clients_get: {
+        parameters: {
+            query?: {
+                access_token?: string;
+            };
+            header?: {
+                authorization?: string;
+            };
+            path: {
+                server_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AwgClientListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_client_api_v1_servers__server_id__clients_post: {
+        parameters: {
+            query?: {
+                access_token?: string;
+            };
+            header?: {
+                authorization?: string;
+            };
+            path: {
+                server_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateClientPayload"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AwgClientResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_client_api_v1_servers__server_id__clients__client_id__delete: {
+        parameters: {
+            query?: {
+                access_token?: string;
+            };
+            header?: {
+                authorization?: string;
+            };
+            path: {
+                server_id: number;
+                client_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_client_config_api_v1_servers__server_id__clients__client_id__config_get: {
+        parameters: {
+            query?: {
+                access_token?: string;
+            };
+            header?: {
+                authorization?: string;
+            };
+            path: {
+                server_id: number;
+                client_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_client_qr_api_v1_servers__server_id__clients__client_id__qr_get: {
+        parameters: {
+            query?: {
+                access_token?: string;
+            };
+            header?: {
+                authorization?: string;
+            };
+            path: {
+                server_id: number;
+                client_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    start_client_api_v1_servers__server_id__clients__client_id__start_post: {
+        parameters: {
+            query?: {
+                access_token?: string;
+            };
+            header?: {
+                authorization?: string;
+            };
+            path: {
+                server_id: number;
+                client_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AwgClientResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    stop_client_api_v1_servers__server_id__clients__client_id__stop_post: {
+        parameters: {
+            query?: {
+                access_token?: string;
+            };
+            header?: {
+                authorization?: string;
+            };
+            path: {
+                server_id: number;
+                client_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AwgClientResponse"];
+                };
             };
             /** @description Validation Error */
             422: {
