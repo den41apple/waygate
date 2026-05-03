@@ -249,6 +249,16 @@ def serialize_awg_config(config: AwgFullConfig) -> str:
         if snake in interface_dump:
             interface_kv.append((ini_key, str(interface_dump[snake])))
 
+    # `Table = off` — критичная директива wg-quick: подними netdev/IP/peer/sysctl,
+    # но НЕ трогай ip rule / ip route. Без этого awg-quick по дефолту с
+    # `AllowedIPs = 0.0.0.0/0` делает hijack всего трафика хоста через VPN
+    # (`ip rule not fwmark 51820 table 51820 → ip route 0.0.0.0/0 dev awg-X`),
+    # и если туннель не поднялся, хост теряет связь — теряется SSH, выход
+    # только через console-доступ хостера. Waygate использует AWG-клиент как
+    # просто netdev на хосте; маршрутизацию делает agent через apply_rules с
+    # уникальным fwmark/table_id.
+    interface_kv.append(("Table", "off"))
+
     peer_kv: list[tuple[str, str]] = []
     peer_dump = config.peer.model_dump(exclude_none=True)
     for ini_key in peer_order:

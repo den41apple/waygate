@@ -34,3 +34,4 @@ frontend/.auth/
 .env
 .env.local
 .DS_Store
+command.txt

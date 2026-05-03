@@ -121,7 +121,23 @@
 
 **Что сделать:** после релиза нового wheel'а агента, удалить `try/except` вокруг `apply_custom_ipset` в `server/api/rules.py` — фикс агента сам обеспечит идемпотентность.
 
-### 16. Унификация AwgClient `name` ↔ `awg-<name>` netdev
+### 16. Reconcile AwgClient.status ↔ реальное состояние docker-контейнера
+
+**Состояние:** `AwgClient.status` в БД показывает `running`, но соответствующего docker-контейнера на агенте может не быть (например, кто-то сделал `docker rm` руками или контейнер вылетел на старте и не оставил трупа). UI на основе stale-БД показывает «active» — пользователь думает что всё ОК, потом получает «netdev awg-X не найден» при apply routing-правил.
+
+**Что сделать:** добавить в healthcheck-таску (`server/tasks/healthcheck.py` или новая периодическая reconcile-таска) — для каждого `AwgClient` дёргать `/v1/clients/{name}/status` на агенте, агент проверяет `docker inspect` и возвращает реальное состояние; server обновляет `AwgClient.status` если расходится. Также — broadcast WS-event `awg_client.status_changed` чтобы UI обновился без F5.
+
+### 17. AmneziaWG-клиент должен работать с `Table = off` (отключить hijack дефолтного маршрута)
+
+**Состояние (КРИТИЧНО):** awg-quick по дефолту с `AllowedIPs = 0.0.0.0/0` и `Table = auto` создаёт `ip rule not fwmark 51820 table 51820` + `ip route 0.0.0.0/0 dev awg-X table 51820` — это hijack всего трафика хоста через VPN. Если туннель не поднялся (handshake fail), хост теряет связь — у пользователя `den41` SSH вылетел при первом успешном запуске awg-quick с `--privileged` (раньше awg-quick откатывался на sysctl-ошибке, теперь с privileged идёт до конца и оставляет broken hijack).
+
+**Архитектурное противоречие:** Waygate использует AWG-клиент как просто **netdev на хосте**, а маршрутизацию делает сам через `apply_rules` (уникальные fwmark/table_id из RoutingDirection). Hijack от awg-quick лишний и опасный.
+
+**Что сделать:** при сохранении `.conf` на агенте автоматически дописывать `Table = off` в секцию `[Interface]`. Это документированная опция wg-quick: netdev/IP/peer/sysctl поднимаются, ip rule/ip route не трогаются. Поправка в `agent/awg_clients.py::deploy_client` ИЛИ в `shared/awg_config.py::serialize_awg_config`. После релиза нового wheel'а + перезапуска клиентов с `--privileged` + `Table=off` всё должно работать.
+
+**Дополнительно:** в `agent/awg_clients.py::deploy_client` добавить `--privileged` (sysctl `src_valid_mark` иначе падает на read-only `/proc/sys`). Без `Table=off` privileged смертельно опасен — поэтому два изменения уходят в один релиз.
+
+### 18. Унификация AwgClient `name` ↔ `awg-<name>` netdev
 
 **Состояние:** имя netdev'а генерится во фронте (`AddRoutingDirectionModal.tsx`) как `` `awg-${client.name.slice(0, 11)}` `` — это дублирует логику из `agent/awg_clients.py::_iface_name`. Если правила генерации netdev-имён в агенте поменяются (Linux IFNAMSIZ=16, поэтому 15 символов и `awg-`-префикс — фиксированы) — фронт и агент рассинхронизируются.
 

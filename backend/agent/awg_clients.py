@@ -145,6 +145,12 @@ async def deploy_client(*, name: str, config_text: str) -> AwgClientInfo:
                 "unless-stopped",
                 "--network",
                 "host",
+                # `--privileged` нужен для записи sysctl `net.ipv4.conf.all.src_valid_mark=1`,
+                # которую awg-quick делает в /proc/sys (read-only с обычными cap'ами при
+                # `--network host`). Безопасно ТОЛЬКО в паре с `Table = off` в конфиге
+                # (выставляется в shared/awg_config.py::serialize_awg_config) — иначе
+                # awg-quick hijack'нет default-route хоста и обрубит SSH.
+                "--privileged",
                 "--cap-add",
                 "NET_ADMIN",
                 "--device",
