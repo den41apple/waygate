@@ -1,8 +1,21 @@
+import asyncio
+
 import pytest
 
 from server.api import servers as servers_api
+from server.tasks import update_runner as update_runner_module
+from server.update_registry import get_update_registry
 from server.ws.events import EventType, WsEvent
 from shared.schemas import AgentStatus, UpdateResponse, UpdateStatus
+
+
+@pytest.fixture(autouse=True)
+def _clear_update_registry():
+    """Registry — module-level singleton. Между тестами зачищаем, иначе job
+    от предыдущего теста виден следующему (если server_id совпадает)."""
+    get_update_registry()._jobs.clear()
+    yield
+    get_update_registry()._jobs.clear()
 
 
 @pytest.fixture
@@ -14,16 +27,22 @@ async def server_id(client):
     return response.json()["id"]
 
 
-async def test_update_calls_agent_and_waits_for_reconnect(client, server_id, monkeypatch):
-    captured: dict = {}
+async def test_update_starts_background_job_and_streams_done(
+    client,
+    server_id,
+    monkeypatch,
+    session_maker,
+):
+    """Happy-path: POST /update → 202 (job started) → SSE-стрим эмиттит progress
+    + done; БД обновляется на подтверждённую версию; WS event broadcast'ится."""
     broadcasts: list[WsEvent] = []
 
     class FakeClient:
         def __init__(self, **kwargs):
-            captured["init"] = kwargs
+            self.host = kwargs.get("host", "")
+            self.port = kwargs.get("port", 0)
 
         async def update(self, *, request):
-            captured["update_request"] = request
             return UpdateResponse(previous_version="0.1.0", status=UpdateStatus.RESTARTING)
 
         async def status(self):
@@ -41,27 +60,55 @@ async def test_update_calls_agent_and_waits_for_reconnect(client, server_id, mon
             broadcasts.append(event)
 
     fake_manager = FakeManager()
-
-    monkeypatch.setattr(servers_api, "AgentClient", FakeClient)
-    monkeypatch.setattr(servers_api, "get_manager", lambda: fake_manager)
+    monkeypatch.setattr(update_runner_module, "AgentClient", FakeClient)
+    monkeypatch.setattr(update_runner_module, "get_manager", lambda: fake_manager)
+    monkeypatch.setattr(servers_api, "get_session_maker", lambda: session_maker)
+    # Polling-интервал короче чтобы тест шёл быстро.
+    monkeypatch.setattr(update_runner_module, "_RECONNECT_POLL_INTERVAL_SECONDS", 0.01)
 
     response = await client.post(
         f"/api/v1/servers/{server_id}/update",
         json={"version": "0.2.0", "wheel_url": "https://example.com/wheel.whl"},
     )
-    assert response.status_code == 200
+    assert response.status_code == 202
     body = response.json()
-    assert body["previous_version"] == "0.1.0"
-    assert body["status"] == "restarting"
+    assert body["server_id"] == server_id
+    assert body["target_version"] == "0.2.0"
+    assert body["stream_url"] == f"/api/v1/servers/{server_id}/update/stream"
 
-    assert captured["update_request"].version == "0.2.0"
-    assert any(event.type is EventType.SERVER_AGENT_UPDATED for event in broadcasts)
+    # Дать background-task завершиться
+    job = get_update_registry().get(server_id=server_id)
+    assert job is not None and job.task is not None
+    await asyncio.wait_for(job.task, timeout=2)
 
+    # Стрим должен реплеить историю и завершиться "end"
+    async with client.stream("GET", f"/api/v1/servers/{server_id}/update/stream") as stream:
+        assert stream.status_code == 200
+        text_chunks: list[str] = []
+        async for line in stream.aiter_lines():
+            text_chunks.append(line)
+            if '"type": "end"' in line or '"type":"end"' in line:
+                break
+
+    full = "\n".join(text_chunks)
+    assert "Запрашиваю агент" in full
+    assert "Версия 0.2.0 подтверждена" in full
+    assert "done" in full
+
+    # Версия в БД и WS event
     response = await client.get(f"/api/v1/servers/{server_id}")
     assert response.json()["version"] == "0.2.0"
+    assert any(event.type is EventType.SERVER_AGENT_UPDATED for event in broadcasts)
 
 
-async def test_update_returns_502_when_agent_unreachable(client, server_id, monkeypatch):
+async def test_update_emits_error_when_agent_unreachable(
+    client,
+    server_id,
+    monkeypatch,
+    session_maker,
+):
+    """Если агент недоступен — POST всё равно вернёт 202 (job стартовал),
+    но в стриме придёт error-event, БД не обновляется."""
     from server.agent_client import AgentUnreachable
 
     class FakeClient:
@@ -71,10 +118,47 @@ async def test_update_returns_502_when_agent_unreachable(client, server_id, monk
         async def update(self, *, request):
             raise AgentUnreachable("connection refused")
 
-    monkeypatch.setattr(servers_api, "AgentClient", FakeClient)
+    monkeypatch.setattr(update_runner_module, "AgentClient", FakeClient)
+    monkeypatch.setattr(servers_api, "get_session_maker", lambda: session_maker)
 
     response = await client.post(
         f"/api/v1/servers/{server_id}/update",
         json={"version": "0.2.0", "wheel_url": "https://example.com/wheel.whl"},
     )
-    assert response.status_code == 502
+    assert response.status_code == 202
+
+    job = get_update_registry().get(server_id=server_id)
+    assert job is not None and job.task is not None
+    await asyncio.wait_for(job.task, timeout=2)
+
+    async with client.stream("GET", f"/api/v1/servers/{server_id}/update/stream") as stream:
+        body_text = ""
+        async for line in stream.aiter_lines():
+            body_text += line + "\n"
+            if '"type": "end"' in line or '"type":"end"' in line:
+                break
+
+    assert "error" in body_text
+    assert "connection refused" in body_text
+
+
+async def test_update_404_when_server_missing(client):
+    response = await client.post(
+        "/api/v1/servers/9999/update",
+        json={"version": "0.2.0", "wheel_url": "https://example.com/wheel.whl"},
+    )
+    assert response.status_code == 404
+
+
+async def test_update_stream_404_when_no_active_job(client):
+    """Stream 404 когда для server_id не было активных update-job'ов.
+    Не используем фикстуру `server_id` — registry singleton общий между тестами,
+    и более ранние тесты могли оставить запись по id=1."""
+    response = await client.post(
+        "/api/v1/servers",
+        json={"host": "10.0.0.123", "port": 7743, "name": "fresh", "token": "tok"},
+    )
+    fresh_id = response.json()["id"]
+
+    response = await client.get(f"/api/v1/servers/{fresh_id}/update/stream")
+    assert response.status_code == 404

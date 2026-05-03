@@ -461,9 +461,31 @@ export interface paths {
         put?: never;
         /**
          * Update Server
-         * @description Триггерит self-update агента и (опционально) ждёт reconnect с новой версией.
+         * @description Запускает self-update агента в background-таске. Прогресс отдаётся через
+         *     `GET /servers/{id}/update/stream` (SSE), чтобы UI мог рендерить лог как при
+         *     онбординге, а HTTP-запрос не висел десятки секунд в ожидании reconnect.
          */
         post: operations["update_server_api_v1_servers__server_id__update_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/servers/{server_id}/update/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Update Stream
+         * @description SSE-стрим лога self-update'а. Реплеит историю + стримит до finish.
+         */
+        get: operations["update_stream_api_v1_servers__server_id__update_stream_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1077,16 +1099,6 @@ export interface components {
              */
             tunnels: components["schemas"]["TunnelInfo"][];
         };
-        /** UpdateResponse */
-        UpdateResponse: {
-            /**
-             * Previous Version
-             * @description Версия агента до обновления
-             */
-            previous_version: string;
-            /** @description Статус — всегда restarting */
-            status: components["schemas"]["UpdateStatus"];
-        };
         /** UpdateServerRequest */
         UpdateServerRequest: {
             /**
@@ -1106,11 +1118,18 @@ export interface components {
              */
             wheel_url: string;
         };
-        /**
-         * UpdateStatus
-         * @enum {string}
-         */
-        UpdateStatus: "restarting";
+        /** UpdateStartResponse */
+        UpdateStartResponse: {
+            /** Server Id */
+            server_id: number;
+            /**
+             * Stream Url
+             * @description Относительный URL для подписки на лог апдейта через EventSource
+             */
+            stream_url: string;
+            /** Target Version */
+            target_version: string;
+        };
         /** UserResponse */
         UserResponse: {
             /** Is Admin */
@@ -2266,12 +2285,47 @@ export interface operations {
         };
         responses: {
             /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UpdateStartResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_stream_api_v1_servers__server_id__update_stream_get: {
+        parameters: {
+            query?: {
+                access_token?: string;
+            };
+            header?: {
+                authorization?: string;
+            };
+            path: {
+                server_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["UpdateResponse"];
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */

@@ -1288,25 +1288,6 @@
         "title": "TunnelsResponse",
         "type": "object"
       },
-      "UpdateResponse": {
-        "properties": {
-          "previous_version": {
-            "description": "\u0412\u0435\u0440\u0441\u0438\u044f \u0430\u0433\u0435\u043d\u0442\u0430 \u0434\u043e \u043e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u0438\u044f",
-            "title": "Previous Version",
-            "type": "string"
-          },
-          "status": {
-            "$ref": "#/components/schemas/UpdateStatus",
-            "description": "\u0421\u0442\u0430\u0442\u0443\u0441 \u2014 \u0432\u0441\u0435\u0433\u0434\u0430 restarting"
-          }
-        },
-        "required": [
-          "previous_version",
-          "status"
-        ],
-        "title": "UpdateResponse",
-        "type": "object"
-      },
       "UpdateServerRequest": {
         "properties": {
           "version": {
@@ -1333,12 +1314,29 @@
         "title": "UpdateServerRequest",
         "type": "object"
       },
-      "UpdateStatus": {
-        "enum": [
-          "restarting"
+      "UpdateStartResponse": {
+        "properties": {
+          "server_id": {
+            "title": "Server Id",
+            "type": "integer"
+          },
+          "stream_url": {
+            "description": "\u041e\u0442\u043d\u043e\u0441\u0438\u0442\u0435\u043b\u044c\u043d\u044b\u0439 URL \u0434\u043b\u044f \u043f\u043e\u0434\u043f\u0438\u0441\u043a\u0438 \u043d\u0430 \u043b\u043e\u0433 \u0430\u043f\u0434\u0435\u0439\u0442\u0430 \u0447\u0435\u0440\u0435\u0437 EventSource",
+            "title": "Stream Url",
+            "type": "string"
+          },
+          "target_version": {
+            "title": "Target Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "server_id",
+          "target_version",
+          "stream_url"
         ],
-        "title": "UpdateStatus",
-        "type": "string"
+        "title": "UpdateStartResponse",
+        "type": "object"
       },
       "UserResponse": {
         "properties": {
@@ -3377,7 +3375,7 @@
     },
     "/api/v1/servers/{server_id}/update": {
       "post": {
-        "description": "\u0422\u0440\u0438\u0433\u0433\u0435\u0440\u0438\u0442 self-update \u0430\u0433\u0435\u043d\u0442\u0430 \u0438 (\u043e\u043f\u0446\u0438\u043e\u043d\u0430\u043b\u044c\u043d\u043e) \u0436\u0434\u0451\u0442 reconnect \u0441 \u043d\u043e\u0432\u043e\u0439 \u0432\u0435\u0440\u0441\u0438\u0435\u0439.",
+        "description": "\u0417\u0430\u043f\u0443\u0441\u043a\u0430\u0435\u0442 self-update \u0430\u0433\u0435\u043d\u0442\u0430 \u0432 background-\u0442\u0430\u0441\u043a\u0435. \u041f\u0440\u043e\u0433\u0440\u0435\u0441\u0441 \u043e\u0442\u0434\u0430\u0451\u0442\u0441\u044f \u0447\u0435\u0440\u0435\u0437\n`GET /servers/{id}/update/stream` (SSE), \u0447\u0442\u043e\u0431\u044b UI \u043c\u043e\u0433 \u0440\u0435\u043d\u0434\u0435\u0440\u0438\u0442\u044c \u043b\u043e\u0433 \u043a\u0430\u043a \u043f\u0440\u0438\n\u043e\u043d\u0431\u043e\u0440\u0434\u0438\u043d\u0433\u0435, \u0430 HTTP-\u0437\u0430\u043f\u0440\u043e\u0441 \u043d\u0435 \u0432\u0438\u0441\u0435\u043b \u0434\u0435\u0441\u044f\u0442\u043a\u0438 \u0441\u0435\u043a\u0443\u043d\u0434 \u0432 \u043e\u0436\u0438\u0434\u0430\u043d\u0438\u0438 reconnect.",
         "operationId": "update_server_api_v1_servers__server_id__update_post",
         "parameters": [
           {
@@ -3421,11 +3419,11 @@
           "required": true
         },
         "responses": {
-          "200": {
+          "202": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/UpdateResponse"
+                  "$ref": "#/components/schemas/UpdateStartResponse"
                 }
               }
             },
@@ -3443,6 +3441,67 @@
           }
         },
         "summary": "Update Server",
+        "tags": [
+          "servers"
+        ]
+      }
+    },
+    "/api/v1/servers/{server_id}/update/stream": {
+      "get": {
+        "description": "SSE-\u0441\u0442\u0440\u0438\u043c \u043b\u043e\u0433\u0430 self-update'\u0430. \u0420\u0435\u043f\u043b\u0435\u0438\u0442 \u0438\u0441\u0442\u043e\u0440\u0438\u044e + \u0441\u0442\u0440\u0438\u043c\u0438\u0442 \u0434\u043e finish.",
+        "operationId": "update_stream_api_v1_servers__server_id__update_stream_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "server_id",
+            "required": true,
+            "schema": {
+              "title": "Server Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Access Token",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Stream",
         "tags": [
           "servers"
         ]

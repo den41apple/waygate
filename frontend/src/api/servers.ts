@@ -5,8 +5,8 @@ import type {
   ProvisionPayload,
   ServerListResponse,
   ServerSummary,
-  UpdateResponse,
   UpdateServerPayload,
+  UpdateStartResponse,
 } from "./types";
 
 export const SERVERS_KEY = ["servers"] as const;
@@ -52,11 +52,12 @@ export function useProvisionServer() {
 }
 
 export function useUpdateServer() {
-  const queryClient = useQueryClient();
+  // Возвращает 202 + stream_url СРАЗУ — фронт сам открывает EventSource на
+  // /servers/{id}/update/stream и рендерит лог. Прежний синхронный flow ждал
+  // до 120с в одном запросе и упирался в браузерные таймауты.
   return useMutation({
     mutationFn: ({ serverId, payload }: { serverId: number; payload: UpdateServerPayload }) =>
-      api.post<UpdateResponse>(`/servers/${serverId}/update`, payload),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: SERVERS_KEY }),
+      api.post<UpdateStartResponse>(`/servers/${serverId}/update`, payload),
   });
 }
 

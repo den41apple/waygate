@@ -163,9 +163,10 @@ export interface UpdateServerPayload {
   wait_for_reconnect?: boolean;
 }
 
-export interface UpdateResponse {
-  previous_version: string;
-  status: "restarting";
+export interface UpdateStartResponse {
+  server_id: number;
+  target_version: string;
+  stream_url: string;
 }
 
 export type WsEventType =

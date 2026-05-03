@@ -28,15 +28,17 @@ async def _download_zone_file(*, url: str) -> str:
 
 
 def _build_restore_input(*, set_name: str, cidrs: list[str]) -> bytes:
-    # `create ... -exist` — не падаем если сет с таким именем уже есть
-    # (например, _new остался от прошлой попытки, и destroy не сработал из-за
-    # ссылки из iptables). `flush` после — гарантия что внутри пусто перед add'ами,
-    # иначе старые элементы могли бы накопиться.
-    lines = [
-        f"create {set_name} hash:net family inet hashsize 4096 maxelem 1000000 -exist",
-        f"flush {set_name}",
-    ]
-    lines.extend(f"add {set_name} {cidr}" for cidr in cidrs)
+    """Билдит stdin для `ipset restore` — только `add`-строки.
+
+    Раньше тут были `create ... -exist` + `flush`, но `ipset restore` парсит
+    позиционные команды строго и игнорирует/ругается на флаг `-exist` в этом
+    контексте. Поэтому create + flush делаем отдельными CLI-вызовами в
+    `sync_list`, а restore используется только для атомарной массовой загрузки
+    элементов.
+    """
+    lines = [f"add {set_name} {cidr}" for cidr in cidrs]
+    if not lines:
+        return b""
     return ("\n".join(lines) + "\n").encode("utf-8")
 
 
@@ -63,16 +65,37 @@ async def sync_list(
 
     tmp_name = f"{ipset_name}_new"
 
-    # Если _new остался от прошлой неудачной попытки — снести
-    await run_command(["ipset", "destroy", tmp_name], check=False)
+    # 1. Создаём tmp_name. `-exist` для CLI-create не падает на дубликате
+    #    (если destroy от прошлой попытки не сработал — например, _new залочен
+    #    iptables-правилом).
+    await run_command(
+        [
+            "ipset",
+            "create",
+            "-exist",
+            tmp_name,
+            "hash:net",
+            "family",
+            "inet",
+            "hashsize",
+            "4096",
+            "maxelem",
+            "1000000",
+        ],
+    )
+    # 2. Очищаем — без этого старые элементы накопились бы при повторном sync.
+    await run_command(["ipset", "flush", tmp_name])
 
+    # 3. Массово заливаем элементы через restore.
     restore_input = _build_restore_input(set_name=tmp_name, cidrs=cidrs)
-    try:
-        await run_command(["ipset", "restore"], stdin=restore_input)
-    except CommandError as exc:
-        await run_command(["ipset", "destroy", tmp_name], check=False)
-        raise RuntimeError(f"ipset restore не удался: {exc.stderr.strip()}") from exc
+    if restore_input:
+        try:
+            await run_command(["ipset", "restore"], stdin=restore_input)
+        except CommandError as exc:
+            await run_command(["ipset", "destroy", tmp_name], check=False)
+            raise RuntimeError(f"ipset restore не удался: {exc.stderr.strip()}") from exc
 
+    # 4. Создаём целевой сет (если ещё нет) — потом swap.
     await run_command(
         ["ipset", "create", "-exist", ipset_name, "hash:net", "family", "inet"],
     )

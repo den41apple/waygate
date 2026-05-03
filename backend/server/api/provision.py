@@ -133,7 +133,8 @@ async def provision_server(
 
 
 def _format_sse(*, payload: dict[str, object]) -> str:
-    return f"data: {json.dumps(payload, default=str)}\n\n"
+    # ensure_ascii=False — кириллический лог идёт читаемым в SSE-стрим.
+    return f"data: {json.dumps(payload, default=str, ensure_ascii=False)}\n\n"
 
 
 @router.get("/{server_id}/provision/stream")

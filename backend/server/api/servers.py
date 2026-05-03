@@ -1,7 +1,10 @@
 import asyncio
+import json
+from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 from loguru import logger
 from pydantic import BaseModel, Field
 from sqlalchemy import update
@@ -9,8 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import delete, select
 
 from server.agent_client import AgentClient, AgentClientError, AgentUnreachable
-from server.config import settings
-from server.db import get_session
+from server.db import get_session, get_session_maker
 from server.models import (
     AuditEntry,
     DnsRule,
@@ -20,9 +22,10 @@ from server.models import (
     ServerStatus,
     TlsConfigRow,
 )
+from server.tasks.update_runner import run_update
+from server.update_registry import get_update_registry
 from server.ws.events import EventType, WsEvent
 from server.ws.manager import get_manager
-from shared.schemas import UpdateRequest, UpdateResponse
 
 router = APIRouter(prefix="/servers", tags=["servers"])
 
@@ -151,64 +154,87 @@ class UpdateServerRequest(BaseModel):
     wait_for_reconnect: bool = Field(default=True, description="Дождаться появления новой версии")
 
 
-@router.post("/{server_id}/update", response_model=UpdateResponse)
+class UpdateStartResponse(BaseModel):
+    server_id: int
+    target_version: str
+    stream_url: str = Field(
+        description="Относительный URL для подписки на лог апдейта через EventSource",
+    )
+
+
+@router.post(
+    "/{server_id}/update",
+    response_model=UpdateStartResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
 async def update_server(
     server_id: int,
     request: UpdateServerRequest,
     session: AsyncSession = Depends(get_session),
-) -> UpdateResponse:
-    """Триггерит self-update агента и (опционально) ждёт reconnect с новой версией."""
+) -> UpdateStartResponse:
+    """Запускает self-update агента в background-таске. Прогресс отдаётся через
+    `GET /servers/{id}/update/stream` (SSE), чтобы UI мог рендерить лог как при
+    онбординге, а HTTP-запрос не висел десятки секунд в ожидании reconnect."""
     server = await session.get(Server, server_id)
     if server is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"server id={server_id} не найден")
-    client = AgentClient(host=server.host, port=server.port, token=server.token)
+
+    registry = get_update_registry()
     try:
-        response = await client.update(request=UpdateRequest(version=request.version, wheel_url=request.wheel_url))
-    except AgentUnreachable as exc:
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"агент недоступен: {exc}") from exc
-    except AgentClientError as exc:
-        logger.error("update: агент вернул ошибку: {}", exc)
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+        job = await registry.create(server_id=server_id)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
-    if request.wait_for_reconnect:
-        # Ждём пока агент перезапустится и status.version совпадёт с целевой
-        deadline_seconds = settings.provision_healthcheck_timeout_seconds
-        new_version = await _wait_for_version(
-            client=client,
+    job.task = asyncio.create_task(
+        run_update(
+            job=job,
+            server_id=server_id,
             target_version=request.version,
-            timeout_seconds=deadline_seconds,
+            wheel_url=request.wheel_url,
+            wait_for_reconnect=request.wait_for_reconnect,
+            session_maker=get_session_maker(),
+        ),
+    )
+    logger.info("update: запущен server_id={} target={}", server_id, request.version)
+
+    return UpdateStartResponse(
+        server_id=server_id,
+        target_version=request.version,
+        stream_url=f"/api/v1/servers/{server_id}/update/stream",
+    )
+
+
+def _format_sse(*, payload: dict[str, object]) -> str:
+    # ensure_ascii=False — чтобы русский лог не приходил escaped как Аг...
+    return f"data: {json.dumps(payload, default=str, ensure_ascii=False)}\n\n"
+
+
+@router.get("/{server_id}/update/stream")
+async def update_stream(server_id: int) -> StreamingResponse:
+    """SSE-стрим лога self-update'а. Реплеит историю + стримит до finish."""
+    job = get_update_registry().get(server_id=server_id)
+    if job is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"для server_id={server_id} нет активного update'а",
         )
-        if new_version is not None:
-            server.version = new_version
-            server.status = ServerStatus.ONLINE.value
-            await session.commit()
-            await get_manager().broadcast(
-                event=WsEvent(
-                    type=EventType.SERVER_AGENT_UPDATED,
-                    server_id=server_id,
-                    payload={
-                        "previous_version": response.previous_version,
-                        "version": new_version,
-                    },
-                    timestamp=datetime.now(tz=UTC),
-                ),
+
+    async def event_generator() -> AsyncIterator[str]:
+        async for event in job.subscribe():
+            yield _format_sse(
+                payload={
+                    "type": event.type.value,
+                    "message": event.message,
+                    "timestamp": event.timestamp.isoformat(),
+                },
             )
-    return response
+        yield _format_sse(payload={"type": "end"})
 
-
-async def _wait_for_version(*, client: AgentClient, target_version: str, timeout_seconds: int) -> str | None:
-    """Polling /v1/status пока version не совпадёт с target. None при таймауте."""
-    deadline = asyncio.get_event_loop().time() + timeout_seconds
-    while asyncio.get_event_loop().time() < deadline:
-        try:
-            status_response = await client.status()
-        except (AgentUnreachable, AgentClientError):
-            await asyncio.sleep(2)
-            continue
-        if status_response.version == target_version:
-            return status_response.version
-        await asyncio.sleep(2)
-    return None
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 class RotateTokenResponse(BaseModel):
