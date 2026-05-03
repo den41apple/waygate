@@ -7,7 +7,9 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from loguru import logger
 from pydantic import BaseModel, Field, model_validator
+from sqlalchemy import desc
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel import select
 
 from server.api.servers import ServerResponse
 from server.config import settings
@@ -65,15 +67,37 @@ async def provision_server(
     Клиент получает id и сразу подписывается на /provision/stream чтобы видеть лог.
     """
     agent_port = request.agent_port or settings.agent_default_port
-    server = Server(
-        host=request.host,
-        port=agent_port,
-        name=request.name,
-        token="",  # будет установлен по итогам провижионинга
-        region=request.region,
-        status=ServerStatus.PROVISIONING.value,
+    # Upsert по host: если запись с таким IP/DNS уже есть (re-онбординг после
+    # ручной чистки агента на target) — переиспользуем её, сбрасываем токен и
+    # переводим в PROVISIONING. Связанные сущности (rules/dns/metrics/tls) не
+    # трогаем — пользователь, как правило, ожидает их сохранения.
+    # `.first()` (а не `.scalar_one_or_none()`) — на проде до этого фикса могли
+    # накопиться дубликаты по host; берём самую свежую и продолжаем работать.
+    # Чистка дубликатов — через UI/REST DELETE, отдельной операцией.
+    existing_result = await session.execute(
+        select(Server).where(Server.host == request.host).order_by(desc(Server.id)),
     )
-    session.add(server)
+    existing = existing_result.scalars().first()
+    if existing is not None:
+        existing.token = ""
+        existing.name = request.name
+        existing.region = request.region
+        existing.port = agent_port
+        existing.status = ServerStatus.PROVISIONING.value
+        existing.version = ""
+        existing.awg_containers = []
+        server = existing
+        logger.info("provision: переиспользую server id={} host={}", server.id, server.host)
+    else:
+        server = Server(
+            host=request.host,
+            port=agent_port,
+            name=request.name,
+            token="",  # будет установлен по итогам провижионинга
+            region=request.region,
+            status=ServerStatus.PROVISIONING.value,
+        )
+        session.add(server)
     await session.commit()
     await session.refresh(server)
     if server.id is None:

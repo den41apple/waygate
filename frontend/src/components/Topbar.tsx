@@ -9,9 +9,10 @@ import { Badge } from "./primitives";
 interface Props {
   server: ServerSummary | null;
   onTLS: () => void;
+  onUpdate: () => void;
 }
 
-export function Topbar({ server, onTLS }: Props) {
+export function Topbar({ server, onTLS, onUpdate }: Props) {
   const refresh = useRefreshServer();
   const rotateToken = useRotateToken();
   const logout = useLogout();
@@ -71,6 +72,13 @@ export function Topbar({ server, onTLS }: Props) {
           <Icon name="activity" size={14} /> {showSparklines ? "spark on" : "spark off"}
         </button>
         <button className="tb-btn" onClick={onTLS}><Icon name="lock" size={14} /> TLS</button>
+        <button
+          className="tb-btn"
+          onClick={onUpdate}
+          title="Установить новую версию агента"
+        >
+          <Icon name="download" size={14} /> Обновить агент
+        </button>
         <button
           className="tb-btn"
           onClick={onRotate}

@@ -9,12 +9,14 @@ export interface UiStore {
   activeTab: TabId;
   showAddServer: boolean;
   showTls: boolean;
+  showUpdate: boolean;
   theme: Theme;
   showSparklines: boolean;
   setActiveServerId: (id: number | null) => void;
   setActiveTab: (tab: TabId) => void;
   setShowAddServer: (open: boolean) => void;
   setShowTls: (open: boolean) => void;
+  setShowUpdate: (open: boolean) => void;
   setTheme: (theme: Theme) => void;
   setShowSparklines: (show: boolean) => void;
 }
@@ -26,12 +28,14 @@ export const useUiStore = create<UiStore>()(
       activeTab: "routing",
       showAddServer: false,
       showTls: false,
+      showUpdate: false,
       theme: "dark",
       showSparklines: true,
       setActiveServerId: (id) => set({ activeServerId: id }),
       setActiveTab: (tab) => set({ activeTab: tab }),
       setShowAddServer: (open) => set({ showAddServer: open }),
       setShowTls: (open) => set({ showTls: open }),
+      setShowUpdate: (open) => set({ showUpdate: open }),
       setTheme: (theme) => set({ theme }),
       setShowSparklines: (show) => set({ showSparklines: show }),
     }),

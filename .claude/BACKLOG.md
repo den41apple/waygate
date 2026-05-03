@@ -93,18 +93,9 @@
 
 **Что сделать (опционально):** если нужна reprovision-функция без участия оператора — шифровать через `cryptography.fernet` ключом из `SECRET_KEY` и хранить в `Server.encrypted_ssh_creds`. Для MVP политика «минимум attack surface» оставлена.
 
-### 11. UI-формы для CRUD ресурсов (Add* модалки)
+### 11. Edit-форма для существующих правил/DNS
 
-**Состояние:** на табах Routing/DNS/GeoIP есть кнопки `+ Добавить ...` (`<button class="add-card">` в `*Tab.tsx`) — это перенесённый из дизайн-прототипа placeholder без `onClick`. Backend CRUD (`POST /servers/{id}/rules`, `POST /servers/{id}/dns`, `POST /geoip/lists`, `POST /servers/{id}/update`) готов и протестирован, но фронт его пока вызывает только из e2e-тестов / curl. Реализованы только `AddServerModal` (онбординг) и `TlsModal`.
-
-**Что сделать:**
-- `AddRuleModal` — country/cidr/domain → via_interface (выбор из `awg_containers` сервера) + via_gateway + table_id + priority + enabled. Подключить к `useCreateRule()` который уже есть в `api/rules.ts`.
-- `AddDnsModal` — domain/answer/ttl. Подключить к `useCreateDnsRule()`.
-- `SyncGeoListModal` — country (ISO-2 select) + url-источника. Подключить к `useSyncGeoList()`.
-- `UpdateAgentModal` — version + wheel_url, форма-обёртка над `useUpdateServer()`.
-- TunnelsTab оставляем read-only (тоннели создаются через docker outside-of-scope).
-
-Каждая модалка повторяет структуру `AddServerModal`/`TlsModal` (form → submit → invalidateQueries). Расширить e2e-покрытие на эти flow одновременно.
+**Состояние:** правила/DNS-записи создаются (модалки), удаляются и toggle'ятся. Полноценная **edit-форма** (изменение IP/маски/доменов уже существующей записи) пока только через REST/curl. Для UX-полноты можно добавить инлайн-edit на карточке (или открывать `AddRuleModal` в режиме edit). Не критично — через UI можно delete + create.
 
 ---
 
@@ -114,6 +105,18 @@
 - ✅ **Username/password + bcrypt + JWT** (Variant B). `User` модель + миграция + bcrypt(12 rounds). Сессионный JWT через `server/auth/session.py`, FastAPI-dependency `require_user` принимает Bearer-header или `?access_token=` query-param (для EventSource). Глобально защищены все `/api/v1/*` кроме `/auth/login`. Bootstrap первого админа из ENV (`WAYGATE_ADMIN_USER`/`WAYGATE_ADMIN_PASSWORD`) в lifespan.
 - ✅ **Frontend login flow** — Zustand persist-стор `waygate-auth`, LoginPage, App-guard, кнопка «Выход» в Topbar. `client.ts` добавляет Authorization header, на 401 от `/auth/me` чистит стор.
 - ✅ **Audit-middleware** теперь пишет `username` из session-JWT.
+
+### Re-онбординг + удаление сервера в UI + timezone в metrics_poller
+- ✅ **Upsert по host в `POST /servers/provision`** — повторный онбординг на тот же IP/DNS обновляет существующий `Server`-record вместо создания дубликата. Связанные `rules/dns/metrics/tls` сохраняются. Тест `test_provision_reuses_existing_record_for_same_host` зафиксировал поведение.
+- ✅ **Кнопка удаления сервера в Sidebar** — `<button class="sb-del">` с иконкой `x`, видна на hover-карточке. `window.confirm()` с именем/host для подтверждения. Сбрасывает `activeServerId` если удалён активный сервер. Через `useDeleteServer` → WS-event `server.deleted` → invalidate → исчезает из списка.
+- ✅ **Timezone-fix в `metrics_poller`** — `snapshot.timestamp` от агента приходит aware (Pydantic ISO-8601), стрипается в naive UTC перед записью в `TIMESTAMP WITHOUT TIME ZONE` колонку. asyncpg больше не падает с `can't subtract offset-naive and offset-aware datetimes`. Retention-cleanup cutoff остался naive (унифицировано).
+
+### UI-формы для CRUD ресурсов
+- ✅ **`AddRuleModal`** (`frontend/src/modals/AddRuleModal.tsx`) — country (ISO-2), ipset, fwmark, table_id, via_interface (select из `awg_containers`), via_gateway, enabled-toggle. Подключена к `useCreateRule()`.
+- ✅ **`AddDnsModal`** — name, domains (textarea, parse по `\n`), ipset, enabled-toggle. Через `useCreateDnsRule()`.
+- ✅ **`AddGeoListModal`** — country (ISO-2), name, source_url. Auto-fill URL для ipdeny.com при вводе страны. Через `useCreateGeoList()`.
+- ✅ **`UpdateAgentModal`** — version, wheel_url (default — `/latest/download/...`), wait_for_reconnect-toggle. Открывается из Topbar. Через `useUpdateServer()`.
+- Кнопки `+ Добавить ...` на табах теперь живые. `TunnelsTab` остался read-only (тоннели создаются через docker outside-of-scope).
 
 ### e2e Playwright
 - ✅ **Конфиг + 6 тестов**: auth (4 — форма/wrong/login/logout), server-onboarding (1 — error-flow с retry-кнопкой), server-crud (1 — REST→reload→sidebar). Реальный backend (sqlite e2e_test.db, мигрирующийся при старте), реальный frontend (`vite dev` с proxy). Время прогона ~7-8 секунд.

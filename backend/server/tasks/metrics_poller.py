@@ -29,10 +29,18 @@ async def _poll_server(*, server: Server, session: AsyncSession) -> None:
 
     rx_total = sum(tunnel.rx_bytes for tunnel in snapshot.tunnels)
     tx_total = sum(tunnel.tx_bytes for tunnel in snapshot.tunnels)
+    # `snapshot.timestamp` приходит aware (Pydantic ISO-8601 → tz-aware), а
+    # колонка БД — TIMESTAMP WITHOUT TIME ZONE. Стрипаем TZ к naive UTC, иначе
+    # asyncpg на INSERT делает arithmetic aware−naive и падает с TypeError.
+    timestamp_naive_utc = (
+        snapshot.timestamp.astimezone(UTC).replace(tzinfo=None)
+        if snapshot.timestamp.tzinfo is not None
+        else snapshot.timestamp
+    )
     session.add(
         MetricsPoint(
             server_id=server.id,
-            timestamp=snapshot.timestamp,
+            timestamp=timestamp_naive_utc,
             rx_bytes=rx_total,
             tx_bytes=tx_total,
         ),
@@ -52,6 +60,8 @@ async def _poll_server(*, server: Server, session: AsyncSession) -> None:
 
 
 async def _retention_cleanup(*, session: AsyncSession) -> None:
+    # Колонка `metrics_points.timestamp` — TIMESTAMP WITHOUT TIME ZONE, так что
+    # cutoff тоже naive. Сравнение в SQL — между двумя naive UTC datetime'ами.
     cutoff = datetime.now() - timedelta(days=settings.metrics_retention_days)
     await session.execute(delete(MetricsPoint).where(MetricsPoint.timestamp < cutoff))
 

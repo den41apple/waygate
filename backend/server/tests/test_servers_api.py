@@ -24,6 +24,48 @@ async def test_get_unknown_server_404(client):
     assert response.status_code == 404
 
 
+async def test_delete_server_handles_audit_entries(client, session_maker):
+    """Регрессия на FK violation: `audit_entries.server_id` ссылается на
+    `server.id`. До фикса DELETE падал с IntegrityError на проде, так как
+    очищались только rules/dns/metrics/tls, а audit оставался висеть. Аудит —
+    историческая запись, удалять её жалко, но FK обнуляется."""
+    from server.models import AuditEntry
+
+    response = await client.post(
+        "/api/v1/servers",
+        json={"host": "10.0.0.42", "port": 7743, "name": "edge-de", "token": "tok-de"},
+    )
+    server_id = response.json()["id"]
+
+    # Имитируем audit-middleware (он в тестах не активен — пишет в production-engine).
+    async with session_maker() as session:
+        session.add(
+            AuditEntry(
+                method="POST",
+                path=f"/api/v1/servers/{server_id}/rules",
+                server_id=server_id,
+                status_code=201,
+                user="test-admin",
+                ip="127.0.0.1",
+                payload={"country": "DE"},
+            ),
+        )
+        await session.commit()
+
+    response = await client.delete(f"/api/v1/servers/{server_id}")
+    assert response.status_code == 204, response.text
+
+    # Сервер удалён, audit остался — но server_id обнулён.
+    async with session_maker() as session:
+        from sqlalchemy import select as sa_select
+
+        result = await session.execute(sa_select(AuditEntry))
+        entries = result.scalars().all()
+        assert len(entries) == 1
+        assert entries[0].server_id is None
+        assert entries[0].path == f"/api/v1/servers/{server_id}/rules"
+
+
 async def test_delete_server_cascades(client):
     response = await client.post(
         "/api/v1/servers",

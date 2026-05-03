@@ -209,7 +209,7 @@ input, textarea, select { font: inherit; color: inherit; }
 
 .sb-item {
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: auto 1fr auto auto;
   gap: 10px;
   align-items: center;
   padding: 9px 10px;
@@ -255,6 +255,25 @@ input, textarea, select { font: inherit; color: inherit; }
   font-weight: 600;
 }
 .sb-item.active .region { background: var(--accent-tint-2); color: var(--accent); }
+
+.sb-item .sb-del {
+  opacity: 0;
+  background: transparent;
+  border: 0;
+  padding: 4px;
+  margin-left: 2px;
+  border-radius: 6px;
+  color: var(--text-3);
+  cursor: pointer;
+  transition: opacity 0.12s, color 0.12s, background 0.12s;
+  display: flex;
+  align-items: center;
+}
+.sb-item:hover .sb-del { opacity: 1; }
+.sb-item .sb-del:hover {
+  color: var(--red);
+  background: var(--red-tint, rgba(248, 113, 113, 0.12));
+}
 
 .sb-foot {
   padding: 12px;

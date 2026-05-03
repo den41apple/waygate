@@ -1,5 +1,8 @@
+import { useState } from "react";
+
 import { useApplyDns, useDeleteDnsRule, useDnsRules, useUpdateDnsRule } from "../api/dns";
 import { Icon } from "../components/Icon";
+import { AddDnsModal } from "../modals/AddDnsModal";
 import { Badge, IconTile, Metric, MonoPill, SectionHead, Toggle } from "../components/primitives";
 
 interface Props {
@@ -12,6 +15,7 @@ export function DnsTab({ serverId, showSpark }: Props) {
   const updateRule = useUpdateDnsRule(serverId);
   const deleteRule = useDeleteDnsRule(serverId);
   const applyDns = useApplyDns(serverId);
+  const [showAdd, setShowAdd] = useState(false);
 
   const totalDomains = rules.reduce((acc, rule) => acc + rule.domains.length, 0);
 
@@ -84,9 +88,11 @@ export function DnsTab({ serverId, showSpark }: Props) {
         </div>
       ))}
 
-      <button className="add-card">
+      <button className="add-card" onClick={() => setShowAdd(true)}>
         <Icon name="plus" size={16} /> Добавить DNS-правило
       </button>
+
+      {showAdd && <AddDnsModal serverId={serverId} onClose={() => setShowAdd(false)} />}
     </>
   );
 }

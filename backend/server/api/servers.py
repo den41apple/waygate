@@ -4,13 +4,22 @@ from datetime import UTC, datetime
 from fastapi import APIRouter, Depends, HTTPException, status
 from loguru import logger
 from pydantic import BaseModel, Field
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import delete, select
 
 from server.agent_client import AgentClient, AgentClientError, AgentUnreachable
 from server.config import settings
 from server.db import get_session
-from server.models import DnsRule, MetricsPoint, RoutingRule, Server, ServerStatus, TlsConfigRow
+from server.models import (
+    AuditEntry,
+    DnsRule,
+    MetricsPoint,
+    RoutingRule,
+    Server,
+    ServerStatus,
+    TlsConfigRow,
+)
 from server.ws.events import EventType, WsEvent
 from server.ws.manager import get_manager
 from shared.schemas import UpdateRequest, UpdateResponse
@@ -118,6 +127,11 @@ async def delete_server(
     await session.execute(delete(RoutingRule).where(RoutingRule.server_id == server_id))
     await session.execute(delete(DnsRule).where(DnsRule.server_id == server_id))
     await session.execute(delete(TlsConfigRow).where(TlsConfigRow.server_id == server_id))
+    # AuditEntry — историческая запись, удалять её жалко. server_id у неё nullable,
+    # обнуляем — FK довольна, аудит сохраняется.
+    await session.execute(
+        update(AuditEntry).where(AuditEntry.server_id == server_id).values(server_id=None),
+    )
     await session.delete(server)
     await session.commit()
     logger.info("server удалён: id={}", server_id)

@@ -28,8 +28,13 @@ async def _download_zone_file(*, url: str) -> str:
 
 
 def _build_restore_input(*, set_name: str, cidrs: list[str]) -> bytes:
+    # `create ... -exist` — не падаем если сет с таким именем уже есть
+    # (например, _new остался от прошлой попытки, и destroy не сработал из-за
+    # ссылки из iptables). `flush` после — гарантия что внутри пусто перед add'ами,
+    # иначе старые элементы могли бы накопиться.
     lines = [
-        f"create {set_name} hash:net family inet hashsize 4096 maxelem 1000000",
+        f"create {set_name} hash:net family inet hashsize 4096 maxelem 1000000 -exist",
+        f"flush {set_name}",
     ]
     lines.extend(f"add {set_name} {cidr}" for cidr in cidrs)
     return ("\n".join(lines) + "\n").encode("utf-8")

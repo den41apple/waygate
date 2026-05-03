@@ -8,9 +8,10 @@ interface Props {
   activeId: number | null;
   onSelect: (id: number) => void;
   onAdd: () => void;
+  onDelete: (server: ServerSummary) => void;
 }
 
-export function Sidebar({ servers, activeId, onSelect, onAdd }: Props) {
+export function Sidebar({ servers, activeId, onSelect, onAdd, onDelete }: Props) {
   const [query, setQuery] = useState("");
 
   const list = useMemo(() => {
@@ -72,6 +73,18 @@ export function Sidebar({ servers, activeId, onSelect, onAdd }: Props) {
                   <div className="ip">{server.host}</div>
                 </div>
                 <span className="region">{server.region ?? "—"}</span>
+                <button
+                  className="sb-del"
+                  title="Удалить сервер"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    if (window.confirm(`Удалить сервер ${server.name} (${server.host})?`)) {
+                      onDelete(server);
+                    }
+                  }}
+                >
+                  <Icon name="x" size={14} />
+                </button>
               </div>
             ))}
           </div>

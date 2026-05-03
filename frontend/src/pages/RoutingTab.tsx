@@ -1,17 +1,22 @@
+import { useState } from "react";
+
 import { useApplyRules, useDeleteRule, useRules, useUpdateRule } from "../api/rules";
 import { Icon } from "../components/Icon";
+import { AddRuleModal } from "../modals/AddRuleModal";
 import { Badge, MonoPill, SectionHead, ViaPill, Toggle, Metric } from "../components/primitives";
 
 interface Props {
   serverId: number;
+  awgContainers: string[];
   showSpark: boolean;
 }
 
-export function RoutingTab({ serverId, showSpark }: Props) {
+export function RoutingTab({ serverId, awgContainers, showSpark }: Props) {
   const { data: rules = [], isLoading } = useRules(serverId);
   const updateRule = useUpdateRule(serverId);
   const deleteRule = useDeleteRule(serverId);
   const applyRules = useApplyRules(serverId);
+  const [showAdd, setShowAdd] = useState(false);
 
   const enabledCount = rules.filter((rule) => rule.enabled).length;
 
@@ -83,9 +88,17 @@ export function RoutingTab({ serverId, showSpark }: Props) {
         </div>
       ))}
 
-      <button className="add-card">
+      <button className="add-card" onClick={() => setShowAdd(true)}>
         <Icon name="plus" size={16} /> Добавить правило маршрутизации
       </button>
+
+      {showAdd && (
+        <AddRuleModal
+          serverId={serverId}
+          awgContainers={awgContainers}
+          onClose={() => setShowAdd(false)}
+        />
+      )}
     </>
   );
 }

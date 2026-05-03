@@ -2,6 +2,7 @@ from collections.abc import AsyncIterator
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 from sqlmodel import SQLModel
@@ -29,6 +30,15 @@ async def engine() -> AsyncIterator[AsyncEngine]:
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
+
+    # SQLite по умолчанию игнорирует FK. На проде Postgres — поэтому без этого
+    # PRAGMA тесты молча пропускали бы FK-баги (как было с audit_entries.server_id).
+    @event.listens_for(engine.sync_engine, "connect")
+    def _enable_sqlite_fk(dbapi_connection: object, _: object) -> None:
+        cursor = dbapi_connection.cursor()  # type: ignore[attr-defined]
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
+
     async with engine.begin() as connection:
         await connection.run_sync(SQLModel.metadata.create_all)
     yield engine

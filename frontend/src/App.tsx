@@ -5,13 +5,14 @@ import { ApiError } from "./api/client";
 import { useDnsRules } from "./api/dns";
 import { useGeoIpLists } from "./api/geoip";
 import { useRules } from "./api/rules";
-import { useServers } from "./api/servers";
+import { useDeleteServer, useServers } from "./api/servers";
 import { Sidebar } from "./components/Sidebar";
 import { StatusBar } from "./components/StatusBar";
 import { type TabItem, Tabs } from "./components/Tabs";
 import { Topbar } from "./components/Topbar";
 import { AddServerModal } from "./modals/AddServerModal";
 import { TlsModal } from "./modals/TlsModal";
+import { UpdateAgentModal } from "./modals/UpdateAgentModal";
 import { DnsTab } from "./pages/DnsTab";
 import { GeoIpTab } from "./pages/GeoIpTab";
 import { LoginPage } from "./pages/LoginPage";
@@ -57,6 +58,7 @@ function Dashboard() {
   useWebSocket();
 
   const { data: servers = [], isLoading } = useServers();
+  const deleteServer = useDeleteServer();
   const activeServerId = useUiStore((state) => state.activeServerId);
   const setActiveServerId = useUiStore((state) => state.setActiveServerId);
   const activeTab = useUiStore((state) => state.activeTab);
@@ -65,6 +67,8 @@ function Dashboard() {
   const setShowAddServer = useUiStore((state) => state.setShowAddServer);
   const showTls = useUiStore((state) => state.showTls);
   const setShowTls = useUiStore((state) => state.setShowTls);
+  const showUpdate = useUiStore((state) => state.showUpdate);
+  const setShowUpdate = useUiStore((state) => state.setShowUpdate);
   const showSparklines = useUiStore((state) => state.showSparklines);
 
   useEffect(() => {
@@ -96,12 +100,20 @@ function Dashboard() {
         activeId={activeServerId}
         onSelect={(id) => setActiveServerId(id)}
         onAdd={() => setShowAddServer(true)}
+        onDelete={(server) => {
+          if (server.id === activeServerId) setActiveServerId(null);
+          deleteServer.mutate(server.id);
+        }}
       />
       <div
         className="main"
         data-screen-label={activeServer ? `${activeTab} · ${activeServer.name}` : activeTab}
       >
-        <Topbar server={activeServer} onTLS={() => setShowTls(true)} />
+        <Topbar
+          server={activeServer}
+          onTLS={() => setShowTls(true)}
+          onUpdate={() => setShowUpdate(true)}
+        />
         <Tabs tab={activeTab} onTab={(tab: TabId) => setActiveTab(tab)} tabs={tabsWithCounts} />
         <div className="content" key={`${activeTab}-${activeServerId ?? "none"}`}>
           {!activeServer && !isLoading && (
@@ -110,7 +122,13 @@ function Dashboard() {
               чтобы запустить онбординг через SSH.
             </div>
           )}
-          {activeServer && activeTab === "routing" && <RoutingTab serverId={activeServer.id} showSpark={showSparklines} />}
+          {activeServer && activeTab === "routing" && (
+            <RoutingTab
+              serverId={activeServer.id}
+              awgContainers={activeServer.awg_containers}
+              showSpark={showSparklines}
+            />
+          )}
           {activeServer && activeTab === "tunnels" && <TunnelsTab serverId={activeServer.id} showSpark={showSparklines} />}
           {activeServer && activeTab === "dns" && <DnsTab serverId={activeServer.id} showSpark={showSparklines} />}
           {activeServer && activeTab === "geoip" && <GeoIpTab serverId={activeServer.id} showSpark={showSparklines} />}
@@ -121,6 +139,13 @@ function Dashboard() {
 
       {showAddServer && <AddServerModal onClose={() => setShowAddServer(false)} />}
       {showTls && activeServer && <TlsModal serverId={activeServer.id} onClose={() => setShowTls(false)} />}
+      {showUpdate && activeServer && (
+        <UpdateAgentModal
+          serverId={activeServer.id}
+          currentVersion={activeServer.version}
+          onClose={() => setShowUpdate(false)}
+        />
+      )}
     </div>
   );
 }

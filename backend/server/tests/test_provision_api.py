@@ -83,6 +83,79 @@ async def test_provision_stream_404_when_no_job(client):
     assert response.status_code == 404
 
 
+async def test_provision_reuses_existing_record_for_same_host(client, stub_provisioning):
+    """Повторный provision на тот же host обновляет существующий Server-record,
+    не плодит дубликаты — иначе старая запись висела бы в БД с устаревшим токеном
+    и metrics_poller бил бы по ней с 401."""
+    payload = {
+        "host": "10.99.0.1",
+        "ssh_user": "root",
+        "ssh_password": "fake-pass",
+        "name": "edge-rs",
+    }
+    first = await client.post("/api/v1/servers/provision", json=payload)
+    assert first.status_code == 202
+    first_id = first.json()["id"]
+
+    await asyncio.sleep(0.05)
+
+    # Имитируем «снёс агент на target и заново запустил онбординг с другим именем»
+    second = await client.post(
+        "/api/v1/servers/provision",
+        json={**payload, "name": "edge-rs-renamed"},
+    )
+    assert second.status_code == 202
+    second_id = second.json()["id"]
+
+    assert first_id == second_id, "ожидался upsert по host, а не новый Server-record"
+    assert second.json()["name"] == "edge-rs-renamed"
+    assert second.json()["status"] == "provisioning"
+
+    # И в БД должна быть ровно одна запись
+    listing = await client.get("/api/v1/servers")
+    same_host = [server for server in listing.json()["servers"] if server["host"] == "10.99.0.1"]
+    assert len(same_host) == 1
+
+
+async def test_provision_handles_existing_duplicates_by_host(
+    client,
+    session_maker,
+    stub_provisioning,
+):
+    """Регрессия на `MultipleResultsFound`: до фикса в БД могли накопиться
+    дубликаты Server'ов с одним и тем же host (старый баг — provision всегда
+    создавал новую запись). После фикса upsert делает `.first()` с order_by
+    desc(id) — берёт самую свежую и продолжает работать, не падает с 500."""
+    from server.models import Server, ServerStatus
+
+    # Имитируем накопленный мусор: две записи с одинаковым host.
+    async with session_maker() as session:
+        for index in range(2):
+            session.add(
+                Server(
+                    host="10.99.0.42",
+                    port=7743,
+                    name=f"old-record-{index}",
+                    token=f"stale-token-{index}",
+                    status=ServerStatus.ERROR.value,
+                ),
+            )
+        await session.commit()
+
+    # POST /provision на тот же host не падает, переиспользует запись.
+    response = await client.post(
+        "/api/v1/servers/provision",
+        json={
+            "host": "10.99.0.42",
+            "ssh_user": "root",
+            "ssh_password": "fake",
+            "name": "edge-fresh",
+        },
+    )
+    assert response.status_code == 202, response.text
+    assert response.json()["name"] == "edge-fresh"
+
+
 async def test_provision_requires_password_or_key(client):
     response = await client.post(
         "/api/v1/servers/provision",

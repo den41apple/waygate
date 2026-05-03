@@ -1,5 +1,8 @@
+import { useState } from "react";
+
 import { useDeleteGeoList, useGeoIpLists, useSyncGeoIp } from "../api/geoip";
 import { Icon } from "../components/Icon";
+import { AddGeoListModal } from "../modals/AddGeoListModal";
 import { Badge, IconTile, Metric, MonoPill, SectionHead } from "../components/primitives";
 
 interface Props {
@@ -11,6 +14,7 @@ export function GeoIpTab({ serverId, showSpark }: Props) {
   const { data: lists = [] } = useGeoIpLists();
   const deleteList = useDeleteGeoList();
   const syncList = useSyncGeoIp(serverId);
+  const [showAdd, setShowAdd] = useState(false);
 
   const totalV4 = lists.reduce((acc, item) => acc + item.ipv4_count, 0);
   const totalV6 = lists.reduce((acc, item) => acc + item.ipv6_count, 0);
@@ -42,7 +46,9 @@ export function GeoIpTab({ serverId, showSpark }: Props) {
       </div>
 
       <SectionHead title="Реестры ipset" count={lists.length}>
-        <button className="tb-btn"><Icon name="plus" size={14} /> Добавить страну</button>
+        <button className="tb-btn" onClick={() => setShowAdd(true)}>
+          <Icon name="plus" size={14} /> Добавить страну
+        </button>
       </SectionHead>
 
       <div className="card">
@@ -108,6 +114,8 @@ export function GeoIpTab({ serverId, showSpark }: Props) {
           </tbody>
         </table>
       </div>
+
+      {showAdd && <AddGeoListModal onClose={() => setShowAdd(false)} />}
     </>
   );
 }

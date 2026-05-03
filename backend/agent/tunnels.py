@@ -14,7 +14,12 @@ from shared.schemas import (
     TunnelStatus,
 )
 
-_AWG_IMAGE_HINTS = ("amneziawg", "amnezia-wg", "amnezia/amneziawg")
+# Substring-маркеры в image/Names docker-контейнера, по которым считаем что это
+# AmneziaWG-контейнер. Должны совпадать с grep-паттерном в `provisioner/steps.py`
+# (онбординг через SSH использует `grep -iE 'amnezia|awg'`), иначе runtime-детект
+# на агенте не увидит то, что нашёл онбординг — и `awg_containers` обнулится
+# после первого `/v1/status` от агента.
+_AWG_IMAGE_HINTS = ("amnezia", "awg")
 _HANDSHAKE_DEGRADED_THRESHOLD_SECONDS = 180
 
 
