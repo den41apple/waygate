@@ -45,7 +45,7 @@ export function GeoIpTab({ serverId, showSpark }: Props) {
             for (const item of lists) {
               await syncList.mutateAsync({
                 geo_list_id: item.id,
-                ipset_name: `geoip-${item.country.toLowerCase()}-v4`,
+                ipset_name: `geoip-${item.country.toLowerCase()}`,
               });
             }
           }}
@@ -88,7 +88,7 @@ export function GeoIpTab({ serverId, showSpark }: Props) {
                 <td><span className="cc-pill">{item.country}</span></td>
                 <td>{item.name}</td>
                 <td>
-                  <MonoPill accent>{`geoip-${item.country.toLowerCase()}-v4`}</MonoPill>
+                  <MonoPill accent>{`geoip-${item.country.toLowerCase()}`}</MonoPill>
                 </td>
                 <td className="mono" style={{ color: "var(--text-3)" }}>
                   {item.last_synced_at ? new Date(item.last_synced_at).toLocaleString() : "—"}
@@ -110,7 +110,7 @@ export function GeoIpTab({ serverId, showSpark }: Props) {
                     className="tb-btn"
                     onClick={() => syncList.mutate({
                       geo_list_id: item.id,
-                      ipset_name: `geoip-${item.country.toLowerCase()}-v4`,
+                      ipset_name: `geoip-${item.country.toLowerCase()}`,
                     })}
                     disabled={syncList.isPending}
                   >

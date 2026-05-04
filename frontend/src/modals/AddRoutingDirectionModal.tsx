@@ -175,7 +175,7 @@ export function AddRoutingDirectionModal({ serverId, editing, onClose }: Props) 
             items={geoLists.map((list) => ({
               id: list.id,
               label: `${flagFor(list.country)} ${list.country} · ${list.name}`,
-              ipset_name: `geoip-${list.country.toLowerCase()}-v4`,
+              ipset_name: `geoip-${list.country.toLowerCase()}`,
               meta: `${list.ipv4_count.toLocaleString()} IPv4`,
             }))}
             selected={geoIds}
