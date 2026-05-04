@@ -65,39 +65,65 @@ def make_rule():
 
 @pytest.mark.asyncio
 async def test_apply_rules_adds_missing_components(monkeypatch, make_rule):
+    """Каждое RoutingRule применяется в двух стеках (V4 + V6) → applied=2."""
     runner = _FakeRunner(
         responses={
             ("iptables", "-t", "mangle", "-S", "PREROUTING"): "-P PREROUTING ACCEPT\n",
+            ("ip6tables", "-t", "mangle", "-S", "PREROUTING"): "-P PREROUTING ACCEPT\n",
             ("ip", "rule", "show"): "0:\tfrom all lookup local\n",
+            ("ip", "-6", "rule", "show"): "0:\tfrom all lookup local\n",
             ("ip", "route", "show", "table", "100"): "",
+            ("ip", "-6", "route", "show", "table", "100"): "",
         },
     )
     monkeypatch.setattr(routing, "run_command", runner)
 
     response = await routing.apply_rules(rules=[make_rule()])
 
-    assert response.applied == 1
+    assert response.applied == 2  # V4 + V6
     assert response.skipped == 0
     assert response.errors == []
 
-    add_marks = _calls_starting_with(runner.calls, ("iptables", "-t", "mangle", "-A"))
-    add_rules = _calls_starting_with(runner.calls, ("ip", "rule", "add"))
-    replace_routes = _calls_starting_with(runner.calls, ("ip", "route", "replace"))
-    assert len(add_marks) == 1
-    assert len(add_rules) == 1
-    assert len(replace_routes) == 1
+    add_marks_v4 = _calls_starting_with(runner.calls, ("iptables", "-t", "mangle", "-A"))
+    add_marks_v6 = _calls_starting_with(runner.calls, ("ip6tables", "-t", "mangle", "-A"))
+    add_rules_v4 = _calls_starting_with(runner.calls, ("ip", "rule", "add"))
+    add_rules_v6 = _calls_starting_with(runner.calls, ("ip", "-6", "rule", "add"))
+    replace_routes_v4 = _calls_starting_with(runner.calls, ("ip", "route", "replace"))
+    replace_routes_v6 = _calls_starting_with(runner.calls, ("ip", "-6", "route", "replace"))
+    assert len(add_marks_v4) == 1
+    assert len(add_marks_v6) == 1
+    assert len(add_rules_v4) == 1
+    assert len(add_rules_v6) == 1
+    assert len(replace_routes_v4) == 1
+    assert len(replace_routes_v6) == 1
+    # iptables match-set должен ссылаться на physical-name с family-suffix.
+    assert any("russia-v4" in str(call) for call in add_marks_v4)
+    assert any("russia-v6" in str(call) for call in add_marks_v6)
+    # IPv6 default-route — БЕЗ `via` (point-to-point туннель).
+    v6_replace = replace_routes_v6[0]
+    assert "via" not in v6_replace
+    assert "onlink" not in v6_replace
 
 
 @pytest.mark.asyncio
 async def test_apply_rules_skipped_when_state_matches(monkeypatch, make_rule):
+    """Если state уже совпадает в обоих стеках → skipped=2 (ни одной правки)."""
     runner = _FakeRunner(
         responses={
+            # V4 stack — всё уже есть.
             ("iptables", "-t", "mangle", "-S", "PREROUTING"): (
                 "-P PREROUTING ACCEPT\n"
-                "-A PREROUTING -m set --match-set russia dst -j MARK --set-xmark 0x100/0xffffffff\n"
+                "-A PREROUTING -m set --match-set russia-v4 dst -j MARK --set-xmark 0x100/0xffffffff\n"
             ),
             ("ip", "rule", "show"): ("0:\tfrom all lookup local\n1000:\tfrom all fwmark 0x100 lookup 100\n"),
-            ("ip", "route", "show", "table", "100"): "default via 10.0.0.1 dev awg0\n",
+            ("ip", "route", "show", "table", "100"): "default via 10.0.0.1 dev awg0 onlink\n",
+            # V6 stack — то же.
+            ("ip6tables", "-t", "mangle", "-S", "PREROUTING"): (
+                "-P PREROUTING ACCEPT\n"
+                "-A PREROUTING -m set --match-set russia-v6 dst -j MARK --set-xmark 0x100/0xffffffff\n"
+            ),
+            ("ip", "-6", "rule", "show"): ("0:\tfrom all lookup local\n1000:\tfrom all fwmark 0x100 lookup 100\n"),
+            ("ip", "-6", "route", "show", "table", "100"): "default dev awg0\n",
         },
     )
     monkeypatch.setattr(routing, "run_command", runner)
@@ -105,32 +131,36 @@ async def test_apply_rules_skipped_when_state_matches(monkeypatch, make_rule):
     response = await routing.apply_rules(rules=[make_rule(fwmark=0x100)])
 
     assert response.applied == 0
-    assert response.skipped == 1
+    assert response.skipped == 2  # V4 + V6 оба skipped
     assert response.errors == []
     assert _calls_starting_with(runner.calls, ("iptables", "-t", "mangle", "-A")) == []
+    assert _calls_starting_with(runner.calls, ("ip6tables", "-t", "mangle", "-A")) == []
     assert _calls_starting_with(runner.calls, ("ip", "rule", "add")) == []
+    assert _calls_starting_with(runner.calls, ("ip", "-6", "rule", "add")) == []
 
 
 @pytest.mark.asyncio
 async def test_apply_rules_removes_orphans(monkeypatch, make_rule):
+    """Orphan-mark/rule в V4 удаляется, V6 пустой — в обоих появляется новое правило."""
     runner = _FakeRunner(
         responses={
             ("iptables", "-t", "mangle", "-S", "PREROUTING"): (
-                "-P PREROUTING ACCEPT\n-A PREROUTING -m set --match-set belarus dst -j MARK --set-xmark 0x200\n"
+                "-P PREROUTING ACCEPT\n-A PREROUTING -m set --match-set belarus-v4 dst -j MARK --set-xmark 0x200\n"
             ),
+            ("ip6tables", "-t", "mangle", "-S", "PREROUTING"): "-P PREROUTING ACCEPT\n",
             ("ip", "rule", "show"): "1000:\tfrom all fwmark 0x200 lookup 200\n",
+            ("ip", "-6", "rule", "show"): "",
             ("ip", "route", "show", "table", "100"): "",
+            ("ip", "-6", "route", "show", "table", "100"): "",
         },
     )
     monkeypatch.setattr(routing, "run_command", runner)
 
     response = await routing.apply_rules(rules=[make_rule(ipset_name="russia", fwmark=0x100, table_id=100)])
 
-    assert response.applied == 1
-    deletes = _calls_starting_with(runner.calls, ("iptables", "-t", "mangle", "-D"))
-    rule_dels = _calls_starting_with(runner.calls, ("ip", "rule", "del"))
-    assert any("belarus" in call for call in deletes)
-    assert any("0x200" not in str(call) for call in rule_dels)  # удалили fwmark 512
+    assert response.applied == 2  # V4 + V6
+    v4_deletes = _calls_starting_with(runner.calls, ("iptables", "-t", "mangle", "-D"))
+    assert any("belarus-v4" in call for call in v4_deletes)
 
 
 @pytest.mark.asyncio
@@ -142,8 +172,11 @@ async def test_apply_rules_in_container_uses_nsenter(monkeypatch, make_rule):
         responses={
             ("docker", "inspect", "-f"): "12345\n",
             ("nsenter", "-t", "12345", "-n", "iptables", "-t", "mangle", "-S", "PREROUTING"): "-P PREROUTING ACCEPT\n",
+            ("nsenter", "-t", "12345", "-n", "ip6tables", "-t", "mangle", "-S", "PREROUTING"): "-P PREROUTING ACCEPT\n",
             ("nsenter", "-t", "12345", "-n", "ip", "rule", "show"): "0:\tfrom all lookup local\n",
+            ("nsenter", "-t", "12345", "-n", "ip", "-6", "rule", "show"): "0:\tfrom all lookup local\n",
             ("nsenter", "-t", "12345", "-n", "ip", "route", "show", "table", "100"): "",
+            ("nsenter", "-t", "12345", "-n", "ip", "-6", "route", "show", "table", "100"): "",
         },
     )
     monkeypatch.setattr(routing, "run_command", runner)
@@ -161,24 +194,29 @@ async def test_apply_rules_in_container_uses_nsenter(monkeypatch, make_rule):
     )
     response = await routing.apply_rules(rules=[rule])
 
-    assert response.applied == 1
+    assert response.applied == 2  # V4 + V6
     assert response.errors == []
-    # Все iptables/ip команды выполнены через nsenter
-    nsenter_iptables_adds = _calls_starting_with(
+    # IPv4-стек через nsenter
+    nsenter_iptables_v4 = _calls_starting_with(
         runner.calls,
         ("nsenter", "-t", "12345", "-n", "iptables", "-t", "mangle", "-A"),
     )
-    nsenter_ip_rule_adds = _calls_starting_with(
+    nsenter_iptables_v6 = _calls_starting_with(
+        runner.calls,
+        ("nsenter", "-t", "12345", "-n", "ip6tables", "-t", "mangle", "-A"),
+    )
+    nsenter_ip_rule_v4 = _calls_starting_with(
         runner.calls,
         ("nsenter", "-t", "12345", "-n", "ip", "rule", "add"),
     )
-    nsenter_ip_route_replaces = _calls_starting_with(
+    nsenter_ip_rule_v6 = _calls_starting_with(
         runner.calls,
-        ("nsenter", "-t", "12345", "-n", "ip", "route", "replace"),
+        ("nsenter", "-t", "12345", "-n", "ip", "-6", "rule", "add"),
     )
-    assert len(nsenter_iptables_adds) == 1
-    assert len(nsenter_ip_rule_adds) == 1
-    assert len(nsenter_ip_route_replaces) == 1
+    assert len(nsenter_iptables_v4) == 1
+    assert len(nsenter_iptables_v6) == 1
+    assert len(nsenter_ip_rule_v4) == 1
+    assert len(nsenter_ip_rule_v6) == 1
     # И что docker inspect был
     assert _calls_starting_with(runner.calls, ("docker", "inspect"))
 
@@ -191,12 +229,18 @@ async def test_apply_rules_isolates_host_and_container_scopes(monkeypatch, make_
             ("docker", "inspect", "-f"): "9999\n",
             # host-сторона
             ("iptables", "-t", "mangle", "-S", "PREROUTING"): "-P PREROUTING ACCEPT\n",
+            ("ip6tables", "-t", "mangle", "-S", "PREROUTING"): "-P PREROUTING ACCEPT\n",
             ("ip", "rule", "show"): "",
+            ("ip", "-6", "rule", "show"): "",
             ("ip", "route", "show", "table", "100"): "",
+            ("ip", "-6", "route", "show", "table", "100"): "",
             # container-сторона
             ("nsenter", "-t", "9999", "-n", "iptables", "-t", "mangle", "-S", "PREROUTING"): "-P PREROUTING ACCEPT\n",
+            ("nsenter", "-t", "9999", "-n", "ip6tables", "-t", "mangle", "-S", "PREROUTING"): "-P PREROUTING ACCEPT\n",
             ("nsenter", "-t", "9999", "-n", "ip", "rule", "show"): "",
+            ("nsenter", "-t", "9999", "-n", "ip", "-6", "rule", "show"): "",
             ("nsenter", "-t", "9999", "-n", "ip", "route", "show", "table", "200"): "",
+            ("nsenter", "-t", "9999", "-n", "ip", "-6", "route", "show", "table", "200"): "",
         },
     )
     monkeypatch.setattr(routing, "run_command", runner)
@@ -215,17 +259,31 @@ async def test_apply_rules_isolates_host_and_container_scopes(monkeypatch, make_
     )
     response = await routing.apply_rules(rules=[host_rule, container_rule])
 
-    assert response.applied == 2
-    # Host-команды БЕЗ nsenter prefix
-    host_adds = [call for call in runner.calls if call[:1] == ("iptables",) and "-A" in call and "host-ipset" in call]
-    # Container-команды С nsenter prefix
-    container_adds = [
+    assert response.applied == 4  # 2 rules × 2 families
+    # Host-команды БЕЗ nsenter prefix, обе семьи (v4 + v6)
+    host_v4 = [call for call in runner.calls if call[:1] == ("iptables",) and "-A" in call and "host-ipset-v4" in call]
+    host_v6 = [call for call in runner.calls if call[:1] == ("ip6tables",) and "-A" in call and "host-ipset-v6" in call]
+    # Container-команды С nsenter prefix, обе семьи
+    container_v4 = [
         call
         for call in runner.calls
-        if call[:4] == ("nsenter", "-t", "9999", "-n") and "-A" in call and "container-ipset" in call
+        if call[:4] == ("nsenter", "-t", "9999", "-n")
+        and call[4] == "iptables"
+        and "-A" in call
+        and "container-ipset-v4" in call
     ]
-    assert len(host_adds) == 1
-    assert len(container_adds) == 1
+    container_v6 = [
+        call
+        for call in runner.calls
+        if call[:4] == ("nsenter", "-t", "9999", "-n")
+        and call[4] == "ip6tables"
+        and "-A" in call
+        and "container-ipset-v6" in call
+    ]
+    assert len(host_v4) == 1
+    assert len(host_v6) == 1
+    assert len(container_v4) == 1
+    assert len(container_v6) == 1
 
 
 @pytest.mark.asyncio

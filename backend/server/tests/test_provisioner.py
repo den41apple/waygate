@@ -85,6 +85,29 @@ async def test_detect_awg_containers_handles_empty():
     assert names == []
 
 
+async def test_configure_dns_resolver_writes_resolv_conf_and_dnsmasq() -> None:
+    """Шаг должен: отключить systemd-resolved, записать upstream.conf, зафиксировать resolv.conf."""
+    ssh = FakeSshSession()
+    await steps.configure_dns_resolver(ssh=ssh, emit=_no_emit)
+
+    # systemd-resolved выключен (с check=False, не должно зависеть от existence)
+    assert any("systemctl disable --now systemd-resolved" in call for call in ssh.calls)
+    # /etc/resolv.conf зафиксирован nameserver 127.0.0.1
+    paths_written = [path for path, _, _ in ssh.files_written]
+    assert "/etc/resolv.conf" in paths_written
+    resolv_content = next(content for path, content, _ in ssh.files_written if path == "/etc/resolv.conf")
+    assert "nameserver 127.0.0.1" in resolv_content
+    # dnsmasq upstream.conf — listen-address=127.0.0.1
+    assert "/etc/dnsmasq.d/upstream.conf" in paths_written
+    upstream_content = next(content for path, content, _ in ssh.files_written if path == "/etc/dnsmasq.d/upstream.conf")
+    assert "listen-address=127.0.0.1" in upstream_content
+    assert "no-resolv" in upstream_content
+    # chattr +i — закрепили
+    assert any("chattr +i /etc/resolv.conf" in call for call in ssh.calls)
+    # restart dnsmasq
+    assert any("systemctl restart dnsmasq" in call for call in ssh.calls)
+
+
 async def test_deploy_agent_writes_env_and_unit():
     ssh = FakeSshSession()
     await steps.deploy_agent(

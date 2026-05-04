@@ -59,6 +59,67 @@ async def install_deps(*, ssh: SshSession, emit: ProgressEmitter) -> None:
     await emit("Зависимости установлены")
 
 
+_DNSMASQ_UPSTREAM_CONF = """\
+# Сгенерировано Waygate-провижионером. Не менять вручную.
+listen-address=127.0.0.1
+bind-interfaces
+no-resolv
+server=1.1.1.1
+server=8.8.8.8
+"""
+
+
+async def configure_dns_resolver(*, ssh: SshSession, emit: ProgressEmitter) -> None:
+    """Настраивает системный DNS-резолвер на локальный dnsmasq.
+
+    Без этого DNS-запросы с хоста минуют наш dnsmasq, ipset не наполняется
+    через `ipset=/domain/setname`-директивы → iptables `--match-set` ничего
+    не находит → routing-rule безмолвно не работает.
+
+    Шаги:
+    1. Отключить systemd-resolved если активен (он держит :53).
+    2. Положить /etc/dnsmasq.d/upstream.conf — слушать только на 127.0.0.1,
+       upstream — Cloudflare/Google.
+    3. Зафиксировать /etc/resolv.conf на nameserver=127.0.0.1 + chattr +i
+       чтобы NetworkManager/networkd не перезаписали.
+    4. systemctl restart dnsmasq + sanity-check через dig.
+    """
+    await emit("Отключаю systemd-resolved (если активен)…")
+    await ssh.run(
+        command="systemctl disable --now systemd-resolved 2>/dev/null || true",
+        check=False,
+    )
+
+    await emit("Записываю /etc/dnsmasq.d/upstream.conf (listen-address=127.0.0.1)…")
+    await ssh.write_file(
+        path="/etc/dnsmasq.d/upstream.conf",
+        content=_DNSMASQ_UPSTREAM_CONF,
+        mode="0644",
+    )
+
+    await emit("Фиксирую /etc/resolv.conf на nameserver=127.0.0.1…")
+    # chattr -i может фейлиться (если иммутабельность не выставлена) — это норма.
+    await ssh.run(command="chattr -i /etc/resolv.conf 2>/dev/null || true", check=False)
+    await ssh.run(command="rm -f /etc/resolv.conf")
+    await ssh.write_file(path="/etc/resolv.conf", content="nameserver 127.0.0.1\n", mode="0644")
+    # +i — networkd/NetworkManager не смогут перезаписать. Если нужно поменять — chattr -i.
+    await ssh.run(command="chattr +i /etc/resolv.conf", check=False)
+
+    await emit("systemctl restart dnsmasq…")
+    await ssh.run(command="systemctl restart dnsmasq")
+
+    await emit("Проверяю что dnsmasq отвечает на 127.0.0.1…")
+    # dig может быть не установлен; fallback на nslookup или просто curl с DNS-проверкой.
+    # В install_deps мы ставим `dnsutils`? Нет, не ставим. Проверим через getent — он
+    # тоже использует resolv.conf, и если dnsmasq отвечает — getent сработает.
+    sanity = await ssh.run(command="getent hosts example.com 2>&1 | head -1", check=False)
+    if "example.com" not in sanity.stdout.lower():
+        # Не critical: dnsmasq может ещё не успел подняться, getent ловит timeout.
+        # Логируем warning, но не падаем — следующий шаг wait_for_agent поймает реальную проблему.
+        await emit(f"⚠ getent example.com не отдал A-record (stdout={sanity.stdout!r})")
+    await emit("DNS-резолвер настроен: запросы → 127.0.0.1:53 → dnsmasq")
+
+
 async def detect_awg_containers(*, ssh: SshSession, emit: ProgressEmitter) -> list[str]:
     await emit("Проверяю AmneziaWG-контейнеры…")
     result = await ssh.run(

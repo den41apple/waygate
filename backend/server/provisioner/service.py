@@ -10,6 +10,7 @@ from server.provisioner.registry import ProvisionEventType, ProvisionJob
 from server.provisioner.ssh import SshError, ssh_connect
 from server.provisioner.steps import (
     StepError,
+    configure_dns_resolver,
     deploy_agent,
     detect_awg_containers,
     install_deps,
@@ -77,6 +78,7 @@ async def run_provision(
             await emit("SSH-соединение установлено")
             await verify_os(ssh=ssh, emit=emit)
             await install_deps(ssh=ssh, emit=emit)
+            await configure_dns_resolver(ssh=ssh, emit=emit)
             awg_names = await detect_awg_containers(ssh=ssh, emit=emit)
             token = secrets.token_urlsafe(48)
             await deploy_agent(
