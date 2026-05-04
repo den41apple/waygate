@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { useAwgClients } from "../api/awgClients";
+import { useContainers } from "../api/containers";
 import { useCreateDirection, useUpdateDirection } from "../api/directions";
 import { useDnsRules } from "../api/dns";
 import { useGeoIpLists } from "../api/geoip";
@@ -92,7 +93,12 @@ export function AddRoutingDirectionModal({ serverId, editing, onClose }: Props) 
     if (derived) setViaGateway(derived);
   }, [awgClientId, awgClients, isEdit, editing?.awg_client_id]);
 
-  const valid = name.trim().length > 0 && viaInterface.trim().length > 0 && viaGateway.trim().length > 0;
+  const scopeTargetValid = scope === "host" || scopeTarget.trim().length > 0;
+  const valid =
+    name.trim().length > 0 &&
+    viaInterface.trim().length > 0 &&
+    viaGateway.trim().length > 0 &&
+    scopeTargetValid;
   const totalSelected = geoIds.size + dnsIds.size + ipsetIds.size;
 
   const submit = async () => {
@@ -289,15 +295,11 @@ export function AddRoutingDirectionModal({ serverId, editing, onClose }: Props) 
                 </div>
 
                 {scope === "container" && (
-                  <div className="field">
-                    <label>Имя контейнера</label>
-                    <input
-                      className="input"
-                      value={scopeTarget}
-                      onChange={(event) => setScopeTarget(event.target.value)}
-                      placeholder="amnezia-awg2"
-                    />
-                  </div>
+                  <ContainerScopeTargetPicker
+                    serverId={serverId}
+                    value={scopeTarget}
+                    onChange={setScopeTarget}
+                  />
                 )}
 
                 <div className="field-row">
@@ -432,6 +434,112 @@ function CheckGroup({ title, icon, color, empty, items, selected, onToggle }: Ch
               </label>
             );
           })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+interface ContainerScopeTargetPickerProps {
+  serverId: number;
+  value: string;
+  onChange: (value: string) => void;
+}
+
+/** Dropdown для `scope_target` со списком реальных docker-контейнеров на target.
+ *
+ * Раньше тут был text-input — оператор вводил имя руками и опечатки/несуществующие
+ * контейнеры выявлялись только при Apply (агент возвращал «контейнер X не запущен»).
+ * Теперь подгружаем список через `/api/v1/servers/{id}/containers` и подсвечиваем:
+ * waygate-managed серым, остановленные оранжевым, отсутствующие красным баннером.
+ */
+function ContainerScopeTargetPicker({ serverId, value, onChange }: ContainerScopeTargetPickerProps) {
+  const { data: containers, isLoading, error } = useContainers(serverId);
+  const list = containers ?? [];
+  const userContainers = list.filter((c) => !c.is_waygate_managed);
+  const managed = list.filter((c) => c.is_waygate_managed);
+  const selected = list.find((c) => c.name === value);
+  const showAmberEmpty = !isLoading && !error && userContainers.length === 0;
+  const showRedMissing = !isLoading && value.trim().length > 0 && !selected;
+  const showAmberStopped = selected !== undefined && selected.status !== "running";
+
+  return (
+    <div className="field">
+      <label>Имя контейнера (scope_target)</label>
+      {isLoading ? (
+        <div className="hint" style={{ fontSize: 11, color: "var(--text-3)" }}>
+          загружаю список контейнеров…
+        </div>
+      ) : error ? (
+        <div className="hint" style={{ fontSize: 11, color: "var(--red, #ef4444)" }}>
+          Не удалось получить список контейнеров: {String(error)}
+        </div>
+      ) : (
+        <select className="select" value={value} onChange={(event) => onChange(event.target.value)}>
+          <option value="">— выбери контейнер —</option>
+          {userContainers.map((c) => (
+            <option key={c.name} value={c.name}>
+              {c.name} · {c.status} · {c.image}
+            </option>
+          ))}
+          {managed.length > 0 && (
+            <optgroup label="Waygate-managed (обычно не нужно)">
+              {managed.map((c) => (
+                <option key={c.name} value={c.name}>
+                  {c.name} · {c.status}
+                </option>
+              ))}
+            </optgroup>
+          )}
+          {/* Для backward-совместимости: если value не в списке — добавим как fallback */}
+          {value && !selected && <option value={value}>{value} (не найден)</option>}
+        </select>
+      )}
+      {showAmberEmpty && (
+        <div
+          className="hint"
+          style={{
+            fontSize: 11,
+            color: "var(--amber, #f59e0b)",
+            background: "var(--amber-tint, #3a2a1a)",
+            padding: "6px 8px",
+            borderRadius: 6,
+            marginTop: 6,
+          }}
+        >
+          ⚠️ На сервере нет своих контейнеров — только Waygate-managed AWG-client'ы. Чтобы использовать
+          scope=container, запусти AmneziaWG-server-контейнер вручную (Waygate его не разворачивает).
+        </div>
+      )}
+      {showRedMissing && (
+        <div
+          className="hint"
+          style={{
+            fontSize: 11,
+            color: "var(--red, #ef4444)",
+            background: "var(--red-tint, #4a1f1f)",
+            padding: "6px 8px",
+            borderRadius: 6,
+            marginTop: 6,
+          }}
+        >
+          ✗ Контейнер «{value}» не найден на target. Запусти его или выбери из списка.
+        </div>
+      )}
+      {showAmberStopped && (
+        <div
+          className="hint"
+          style={{
+            fontSize: 11,
+            color: "var(--amber, #f59e0b)",
+            background: "var(--amber-tint, #3a2a1a)",
+            padding: "6px 8px",
+            borderRadius: 6,
+            marginTop: 6,
+          }}
+        >
+          ⚠️ Контейнер «{value}» в статусе «{selected?.status}». Apply упадёт с «контейнер не запущен» —
+          стартани его (`docker start {value}`) перед применением direction'а.
         </div>
       )}
     </div>

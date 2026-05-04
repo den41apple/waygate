@@ -12,6 +12,7 @@ from server.api import agent_releases as agent_releases_router
 from server.api import audit as audit_router
 from server.api import auth as auth_router
 from server.api import clients as clients_router
+from server.api import containers as containers_router
 from server.api import directions as directions_router
 from server.api import dns as dns_router
 from server.api import geoip as geoip_router
@@ -94,6 +95,7 @@ def create_app() -> FastAPI:
     app.include_router(metrics_router.router, prefix="/api/v1", dependencies=protected)
     app.include_router(tls_router.router, prefix="/api/v1", dependencies=protected)
     app.include_router(tunnels_router.router, prefix="/api/v1", dependencies=protected)
+    app.include_router(containers_router.router, prefix="/api/v1", dependencies=protected)
     app.include_router(audit_router.router, prefix="/api/v1", dependencies=protected)
     app.include_router(clients_router.router, prefix="/api/v1", dependencies=protected)
     app.include_router(ipset_groups_router.router, prefix="/api/v1", dependencies=protected)

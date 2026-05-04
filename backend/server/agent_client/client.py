@@ -13,6 +13,7 @@ from shared.schemas import (
     ApplyRulesRequest,
     ApplyRulesResponse,
     AwgClientActionResponse,
+    ContainerListResponse,
     CreateAwgClientRequest,
     CreateAwgClientResponse,
     GeoIpSyncRequest,
@@ -126,6 +127,9 @@ class AgentClient:
     )
     async def tunnels(self) -> TunnelsResponse:
         return TunnelsResponse.model_validate(await self._get(path="/tunnels"))
+
+    async def list_containers(self) -> ContainerListResponse:
+        return ContainerListResponse.model_validate(await self._get(path="/containers"))
 
     async def apply_rules(self, *, request: ApplyRulesRequest) -> ApplyRulesResponse:
         return ApplyRulesResponse.model_validate(await self._post(path="/rules/apply", payload=request))

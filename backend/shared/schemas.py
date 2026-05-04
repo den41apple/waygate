@@ -314,6 +314,29 @@ class AwgClientActionResponse(BaseModel):
 
 
 # ############################################
+# #  /v1/containers (любые docker-контейнеры на target)
+
+
+class ContainerInfo(BaseModel):
+    """Запущенный или существующий docker-контейнер на target.
+
+    Используется в UI для выпадающего списка `scope_target` при scope=container —
+    оператору нужно выбирать из реальных контейнеров, а не вводить имя руками.
+    """
+
+    name: str = Field(description="Имя контейнера (docker `--name`)")
+    status: AwgClientStatus = Field(description="running / stopped / pending / error")
+    image: str = Field(description="Docker image:tag")
+    is_waygate_managed: bool = Field(
+        description="True для контейнеров с префиксом `waygate-amnezia-` — это AWG-client'ы Waygate'а",
+    )
+
+
+class ContainerListResponse(BaseModel):
+    containers: list[ContainerInfo]
+
+
+# ############################################
 # #  /v1/ipset/apply (custom ipset из CIDR'ов)
 # ############################################
 

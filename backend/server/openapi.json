@@ -320,6 +320,64 @@
         "title": "AwgClientResponse",
         "type": "object"
       },
+      "AwgClientStatus": {
+        "enum": [
+          "pending",
+          "running",
+          "stopped",
+          "error"
+        ],
+        "title": "AwgClientStatus",
+        "type": "string"
+      },
+      "ContainerInfo": {
+        "description": "\u0417\u0430\u043f\u0443\u0449\u0435\u043d\u043d\u044b\u0439 \u0438\u043b\u0438 \u0441\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u044e\u0449\u0438\u0439 docker-\u043a\u043e\u043d\u0442\u0435\u0439\u043d\u0435\u0440 \u043d\u0430 target.\n\n\u0418\u0441\u043f\u043e\u043b\u044c\u0437\u0443\u0435\u0442\u0441\u044f \u0432 UI \u0434\u043b\u044f \u0432\u044b\u043f\u0430\u0434\u0430\u044e\u0449\u0435\u0433\u043e \u0441\u043f\u0438\u0441\u043a\u0430 `scope_target` \u043f\u0440\u0438 scope=container \u2014\n\u043e\u043f\u0435\u0440\u0430\u0442\u043e\u0440\u0443 \u043d\u0443\u0436\u043d\u043e \u0432\u044b\u0431\u0438\u0440\u0430\u0442\u044c \u0438\u0437 \u0440\u0435\u0430\u043b\u044c\u043d\u044b\u0445 \u043a\u043e\u043d\u0442\u0435\u0439\u043d\u0435\u0440\u043e\u0432, \u0430 \u043d\u0435 \u0432\u0432\u043e\u0434\u0438\u0442\u044c \u0438\u043c\u044f \u0440\u0443\u043a\u0430\u043c\u0438.",
+        "properties": {
+          "image": {
+            "description": "Docker image:tag",
+            "title": "Image",
+            "type": "string"
+          },
+          "is_waygate_managed": {
+            "description": "True \u0434\u043b\u044f \u043a\u043e\u043d\u0442\u0435\u0439\u043d\u0435\u0440\u043e\u0432 \u0441 \u043f\u0440\u0435\u0444\u0438\u043a\u0441\u043e\u043c `waygate-amnezia-` \u2014 \u044d\u0442\u043e AWG-client'\u044b Waygate'\u0430",
+            "title": "Is Waygate Managed",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "\u0418\u043c\u044f \u043a\u043e\u043d\u0442\u0435\u0439\u043d\u0435\u0440\u0430 (docker `--name`)",
+            "title": "Name",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/AwgClientStatus",
+            "description": "running / stopped / pending / error"
+          }
+        },
+        "required": [
+          "name",
+          "status",
+          "image",
+          "is_waygate_managed"
+        ],
+        "title": "ContainerInfo",
+        "type": "object"
+      },
+      "ContainerListResponse": {
+        "properties": {
+          "containers": {
+            "items": {
+              "$ref": "#/components/schemas/ContainerInfo"
+            },
+            "title": "Containers",
+            "type": "array"
+          }
+        },
+        "required": [
+          "containers"
+        ],
+        "title": "ContainerListResponse",
+        "type": "object"
+      },
       "CreateClientPayload": {
         "properties": {
           "config_text": {
@@ -3683,6 +3741,69 @@
         "summary": "Stop Client",
         "tags": [
           "awg-clients"
+        ]
+      }
+    },
+    "/api/v1/servers/{server_id}/containers": {
+      "get": {
+        "description": "\u0421\u043f\u0438\u0441\u043e\u043a \u0432\u0441\u0435\u0445 docker-\u043a\u043e\u043d\u0442\u0435\u0439\u043d\u0435\u0440\u043e\u0432 (running + stopped) \u043d\u0430 target-\u0441\u0435\u0440\u0432\u0435\u0440\u0435.",
+        "operationId": "list_containers_api_v1_servers__server_id__containers_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "server_id",
+            "required": true,
+            "schema": {
+              "title": "Server Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Access Token",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContainerListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Containers",
+        "tags": [
+          "containers"
         ]
       }
     },

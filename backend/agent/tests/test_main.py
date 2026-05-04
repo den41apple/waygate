@@ -100,6 +100,36 @@ async def test_tunnels_endpoint(client, auth_headers):
 
 
 @pytest.mark.asyncio
+async def test_containers_endpoint(client, auth_headers, monkeypatch):
+    """Endpoint /v1/containers возвращает все docker-контейнеры с пометкой
+    is_waygate_managed. Используется UI-модалкой Direction'а для dropdown
+    `scope_target` — оператор не вводит имя руками."""
+    sample = (
+        '{"Names":"waygate-amnezia-client-firstbyte","State":"running","Image":"waygate-awg-client:latest"}\n'
+        '{"Names":"my-awg-server","State":"running","Image":"amneziavpn/amnezia-server:latest"}\n'
+        '{"Names":"old-stopped","State":"exited","Image":"alpine"}\n'
+    )
+
+    async def fake_run(command, *, stdin=None, check=True):
+        assert command[:3] == ["docker", "ps", "--all"]
+        return sample
+
+    from agent import containers as containers_module
+
+    monkeypatch.setattr(containers_module, "run_command", fake_run)
+
+    response = await client.get("/v1/containers", headers=auth_headers)
+    assert response.status_code == 200
+    body = response.json()
+    by_name = {c["name"]: c for c in body["containers"]}
+    assert by_name["waygate-amnezia-client-firstbyte"]["is_waygate_managed"] is True
+    assert by_name["waygate-amnezia-client-firstbyte"]["status"] == "running"
+    assert by_name["my-awg-server"]["is_waygate_managed"] is False
+    assert by_name["my-awg-server"]["status"] == "running"
+    assert by_name["old-stopped"]["status"] == "stopped"
+
+
+@pytest.mark.asyncio
 async def test_metrics_endpoint(client, auth_headers):
     response = await client.get("/v1/metrics", headers=auth_headers)
     assert response.status_code == 200

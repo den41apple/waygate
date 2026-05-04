@@ -337,6 +337,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/servers/{server_id}/containers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Containers
+         * @description Список всех docker-контейнеров (running + stopped) на target-сервере.
+         */
+        get: operations["list_containers_api_v1_servers__server_id__containers_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/servers/{server_id}/directions": {
         parameters: {
             query?: never;
@@ -871,6 +891,42 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
+        };
+        /**
+         * AwgClientStatus
+         * @enum {string}
+         */
+        AwgClientStatus: "pending" | "running" | "stopped" | "error";
+        /**
+         * ContainerInfo
+         * @description Запущенный или существующий docker-контейнер на target.
+         *
+         *     Используется в UI для выпадающего списка `scope_target` при scope=container —
+         *     оператору нужно выбирать из реальных контейнеров, а не вводить имя руками.
+         */
+        ContainerInfo: {
+            /**
+             * Image
+             * @description Docker image:tag
+             */
+            image: string;
+            /**
+             * Is Waygate Managed
+             * @description True для контейнеров с префиксом `waygate-amnezia-` — это AWG-client'ы Waygate'а
+             */
+            is_waygate_managed: boolean;
+            /**
+             * Name
+             * @description Имя контейнера (docker `--name`)
+             */
+            name: string;
+            /** @description running / stopped / pending / error */
+            status: components["schemas"]["AwgClientStatus"];
+        };
+        /** ContainerListResponse */
+        ContainerListResponse: {
+            /** Containers */
+            containers: components["schemas"]["ContainerInfo"][];
         };
         /** CreateClientPayload */
         CreateClientPayload: {
@@ -2503,6 +2559,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AwgClientResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_containers_api_v1_servers__server_id__containers_get: {
+        parameters: {
+            query?: {
+                access_token?: string;
+            };
+            header?: {
+                authorization?: string;
+            };
+            path: {
+                server_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContainerListResponse"];
                 };
             };
             /** @description Validation Error */

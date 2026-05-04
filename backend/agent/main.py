@@ -8,7 +8,7 @@ from fastapi.responses import Response
 from loguru import logger
 from prometheus_fastapi_instrumentator import Instrumentator
 
-from agent import __version__, awg_clients
+from agent import __version__, awg_clients, containers
 from agent.auth import verify_bearer_token
 from agent.config import settings
 from agent.dns import apply_dns as dns_apply
@@ -33,6 +33,7 @@ from shared.schemas import (
     ApplyRulesRequest,
     ApplyRulesResponse,
     AwgClientActionResponse,
+    ContainerListResponse,
     CreateAwgClientRequest,
     CreateAwgClientResponse,
     GeoIpSyncRequest,
@@ -130,6 +131,20 @@ async def get_metrics() -> MetricsSnapshot:
 @app.get("/v1/tunnels", response_model=TunnelsResponse, dependencies=[Depends(verify_bearer_token)])
 async def get_tunnels() -> TunnelsResponse:
     return await list_tunnels()
+
+
+# ############################################
+# #  /v1/containers (список docker-контейнеров для UI scope_target dropdown)
+# ############################################
+
+
+@app.get(
+    "/v1/containers",
+    response_model=ContainerListResponse,
+    dependencies=[Depends(verify_bearer_token)],
+)
+async def get_containers() -> ContainerListResponse:
+    return ContainerListResponse(containers=await containers.list_all_containers())
 
 
 # ############################################

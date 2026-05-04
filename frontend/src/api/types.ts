@@ -181,6 +181,17 @@ export interface UpdateStartResponse {
 
 export type AwgClientStatus = "pending" | "running" | "stopped" | "error";
 
+export interface ContainerInfo {
+  name: string;
+  status: AwgClientStatus;
+  image: string;
+  is_waygate_managed: boolean;
+}
+
+export interface ContainerListResponse {
+  containers: ContainerInfo[];
+}
+
 export interface AwgClient {
   id: number;
   server_id: number;
