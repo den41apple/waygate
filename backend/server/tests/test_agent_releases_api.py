@@ -47,6 +47,46 @@ async def test_returns_filtered_and_sorted_releases(
     assert body["releases"][0]["version"] == "0.2.0"
 
 
+async def test_releases_sorted_by_semver_not_lexicographic(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`0.2.11` > `0.2.9`, `0.1.17` > `0.1.5` — semver, не лексикография.
+    GitHub отдаёт по `published_at` который иногда расходится с порядком тегов.
+    Endpoint должен вернуть отсортированный desc по семверу — фронт берёт
+    `releases[0]` как latest.
+    """
+
+    async def fake_fetch(*, repo: str) -> AgentReleasesResponse:
+        # Намеренно перемешан порядок — проверяем что endpoint сам сортирует.
+        return AgentReleasesResponse(
+            releases=[
+                _release(version="0.2.9"),
+                _release(version="0.1.5"),
+                _release(version="0.2.11"),
+                _release(version="0.1.17"),
+                _release(version="0.2.10"),
+            ],
+        )
+
+    monkeypatch.setattr(agent_releases_api, "_fetch_from_github", fake_fetch)
+
+    response = await client.get("/api/v1/agent-releases")
+    assert response.status_code == 200
+    versions = [r["version"] for r in response.json()["releases"]]
+    assert versions == ["0.2.11", "0.2.10", "0.2.9", "0.1.17", "0.1.5"]
+
+
+def _release(*, version: str) -> AgentRelease:
+    return AgentRelease(
+        tag=f"agent-v{version}",
+        version=version,
+        name=f"agent v{version}",
+        published_at="2026-01-01T00:00:00Z",
+        wheel_url=f"https://example.com/v{version}/waygate_agent-py3-none-any.whl",
+    )
+
+
 async def test_caches_for_5_minutes(
     client: AsyncClient,
     monkeypatch: pytest.MonkeyPatch,

@@ -21,6 +21,23 @@ from shared.schemas import AgentRelease, AgentReleasesResponse
 
 router = APIRouter(prefix="/agent-releases", tags=["agent-releases"])
 
+
+def _semver_key(version: str) -> tuple[int, ...]:
+    """Семвер-сортировка: `0.2.11` > `0.2.9` > `0.2.10`-нет такого.
+    GitHub API возвращает релизы по `published_at`, а это не всегда совпадает
+    с возрастанием версии (особенно если workflow для нового тега подвисал).
+    Парсим кортеж `int`'ов; нечисловые компоненты (rc/beta) трактуем как `-1`,
+    чтобы они уезжали в конец списка.
+    """
+    parts: list[int] = []
+    for token in version.split("."):
+        try:
+            parts.append(int(token))
+        except ValueError:
+            parts.append(-1)
+    return tuple(parts)
+
+
 _TAG_PREFIX = "agent-v"
 _WHEEL_ASSET_NAME = "waygate_agent-py3-none-any.whl"
 _CACHE_TTL_SECONDS = 300
@@ -112,5 +129,7 @@ async def list_agent_releases() -> AgentReleasesResponse:
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail=f"GitHub недоступен: {exc}",
             ) from exc
+        sorted_releases = sorted(response.releases, key=lambda r: _semver_key(r.version), reverse=True)
+        response = AgentReleasesResponse(releases=sorted_releases)
         _cache[repo] = (time.monotonic(), response)
         return response
