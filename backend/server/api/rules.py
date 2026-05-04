@@ -8,7 +8,7 @@ from sqlmodel import select
 
 from server.agent_client import AgentClient, AgentClientError, AgentUnreachable
 from server.db import get_session
-from server.models import DnsRule, RoutingRule, Server
+from server.models import DnsRule, IpsetGroup, RoutingRule, Server
 from server.ws.events import EventType, WsEvent
 from server.ws.manager import get_manager
 from shared.schemas import (
@@ -226,6 +226,30 @@ async def apply_rules(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail=f"pre-apply dns упал: {exc}",
             ) from exc
+
+    # 1b. Custom IPset prereq: пушим CIDR'ы каждой IpsetGroup'ы которая
+    # ссылается из direction'а (ipset_group_ids → RoutingRule.ipset_name).
+    # Без этого `iptables --match-set <name>` падает с `Set <name> doesn't exist`,
+    # и user должен был отдельно жать Apply на ipset-карточке. Делаем за него.
+    ipset_groups_result = await session.execute(
+        select(IpsetGroup).where(IpsetGroup.server_id == server_id),
+    )
+    ipset_groups = ipset_groups_result.scalars().all()
+    for group in ipset_groups:
+        try:
+            await client.apply_custom_ipset(
+                request=IpsetApplyRequest(name=group.name, cidrs=list(group.cidrs)),
+            )
+        except AgentClientError as exc:
+            if "already exists" in str(exc):
+                logger.debug("apply_rules: pre-create custom ipset {} уже есть, продолжаю", group.name)
+                continue
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"pre-apply custom ipset {group.name} упал: {exc}",
+            ) from exc
+        except AgentUnreachable as exc:
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"агент недоступен: {exc}") from exc
 
     # 2. Routing-правила.
     result = await session.execute(select(RoutingRule).where(RoutingRule.server_id == server_id))
