@@ -45,6 +45,21 @@ async def verify_os(*, ssh: SshSession, emit: ProgressEmitter) -> None:
         raise StepError("Поддерживаются только Ubuntu и Debian")
     await emit("ОС подходит")
 
+    # Все следующие шаги (apt-get, chattr, systemctl, /etc/...) требуют root.
+    # Если коннектиться не-root юзером без NOPASSWD-sudo — apt-get падает с
+    # `Permission denied` без понятного контекста. Лучше ошибиться громко тут.
+    await emit("Проверяю root-доступ…")
+    try:
+        uid_result = await ssh.run(command="id -u")
+    except SshError as exc:
+        raise StepError(f"Не удалось проверить uid SSH-юзера: {exc}") from exc
+    if uid_result.stdout.strip() != "0":
+        raise StepError(
+            "Провижнер требует root-доступ — подключайся как `root@<host>` либо "
+            "используй юзера с NOPASSWD-sudo и логинься через `root` на target-хосте.",
+        )
+    await emit("root-доступ есть")
+
 
 async def install_deps(*, ssh: SshSession, emit: ProgressEmitter) -> None:
     await emit("apt-get update…")

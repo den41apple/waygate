@@ -176,6 +176,7 @@ async def test_real_orchestrator_writes_token_and_status(client, session_maker, 
                     stdout='ID=ubuntu\nVERSION_ID="22.04"\n',
                     stderr="",
                 ),
+                "id -u": CommandResult(returncode=0, stdout="0\n", stderr=""),
                 "docker ps": CommandResult(returncode=0, stdout="", stderr=""),
             },
         )

@@ -42,10 +42,12 @@ async def test_verify_os_accepts_ubuntu():
                 stdout='NAME="Ubuntu"\nID=ubuntu\nVERSION_ID="22.04"\n',
                 stderr="",
             ),
+            "id -u": CommandResult(returncode=0, stdout="0\n", stderr=""),
         },
     )
     await steps.verify_os(ssh=ssh, emit=_no_emit)
     assert any("os-release" in call for call in ssh.calls)
+    assert any("id -u" in call for call in ssh.calls)
 
 
 async def test_verify_os_rejects_centos():
@@ -59,6 +61,23 @@ async def test_verify_os_rejects_centos():
         },
     )
     with pytest.raises(steps.StepError):
+        await steps.verify_os(ssh=ssh, emit=_no_emit)
+
+
+async def test_verify_os_rejects_non_root_user():
+    """Если SSH-юзер не root — apt-get/chattr/systemctl упадут с Permission denied.
+    Лучше остановиться на этой проверке с понятным сообщением."""
+    ssh = FakeSshSession(
+        responses={
+            "cat /etc/os-release": CommandResult(
+                returncode=0,
+                stdout='NAME="Ubuntu"\nID=ubuntu\n',
+                stderr="",
+            ),
+            "id -u": CommandResult(returncode=0, stdout="1000\n", stderr=""),
+        },
+    )
+    with pytest.raises(steps.StepError, match="root-доступ"):
         await steps.verify_os(ssh=ssh, emit=_no_emit)
 
 
