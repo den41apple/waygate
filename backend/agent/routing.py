@@ -171,13 +171,15 @@ async def _read_iptables_marks(
     *,
     ctx: _ScopeContext,
     family: _FamilyTools,
-) -> dict[str, _ActiveMark]:
-    """Читает существующие mark-правила из обеих chain (PREROUTING + OUTPUT).
+) -> dict[str, dict[str, _ActiveMark]]:
+    """Читает существующие mark-правила отдельно по каждой chain (PREROUTING + OUTPUT).
 
-    Один и тот же match-set обычно присутствует в обеих — берём первый-же.
-    Если правило только в одной — reconciler потом дополнит до обеих.
+    Возвращает `{chain → {ipset_name → mark}}`. Раньше merge'или в один dict
+    по `setdefault` — но если правило было только в OUTPUT, reconciler думал
+    «уже есть» и не добавлял в PREROUTING. Forwarded-трафик (клиенты mac
+    через AWG-server на хосте) не маркировался → шёл мимо туннеля.
     """
-    marks: dict[str, _ActiveMark] = {}
+    marks: dict[str, dict[str, _ActiveMark]] = {chain: {} for chain in _MARK_CHAINS}
     for chain in _MARK_CHAINS:
         output = await run_command(
             [*ctx.command_prefix, family.iptables_cmd, "-t", "mangle", "-S", chain],
@@ -187,10 +189,7 @@ async def _read_iptables_marks(
             if match is None:
                 continue
             ipset_name = match.group("ipset")
-            marks.setdefault(
-                ipset_name,
-                _ActiveMark(ipset_name=ipset_name, fwmark=_parse_mark(match.group("mark"))),
-            )
+            marks[chain][ipset_name] = _ActiveMark(ipset_name=ipset_name, fwmark=_parse_mark(match.group("mark")))
     return marks
 
 
@@ -238,34 +237,35 @@ async def _add_iptables_mark(
     family: _FamilyTools,
     ipset_name: str,
     fwmark: int,
+    chain: str,
 ) -> None:
-    """Добавляет MARK-правило в обе chain'ы (PREROUTING + OUTPUT).
+    """Добавляет MARK-правило в указанную mangle-цепь.
 
-    PREROUTING — для forwarded трафика (клиенты внутри AWG-server-контейнера,
-    проходящего через хост-роутер). OUTPUT — для трафика С самого хоста
-    (curl/любой локальный процесс на сервере). Без OUTPUT хостовой трафик
-    уходит мимо ipset/match-set через дефолтный маршрут.
+    Раньше функция писала сразу в обе цепи (PREROUTING + OUTPUT), и reconciler
+    решал «добавлять или нет» по объединённому состоянию обеих. Это приводило
+    к скрытому состоянию когда одна цепь имела правило, другая — нет, и
+    reconciler не дополнял. Теперь функция работает на одну цепь, а reconciler
+    проверяет каждую отдельно (см. _read_iptables_marks).
     """
-    for chain in _MARK_CHAINS:
-        await run_command(
-            [
-                *ctx.command_prefix,
-                family.iptables_cmd,
-                "-t",
-                "mangle",
-                "-A",
-                chain,
-                "-m",
-                "set",
-                "--match-set",
-                ipset_name,
-                "dst",
-                "-j",
-                "MARK",
-                "--set-mark",
-                str(fwmark),
-            ],
-        )
+    await run_command(
+        [
+            *ctx.command_prefix,
+            family.iptables_cmd,
+            "-t",
+            "mangle",
+            "-A",
+            chain,
+            "-m",
+            "set",
+            "--match-set",
+            ipset_name,
+            "dst",
+            "-j",
+            "MARK",
+            "--set-mark",
+            str(fwmark),
+        ],
+    )
 
 
 async def _remove_iptables_mark(
@@ -274,31 +274,30 @@ async def _remove_iptables_mark(
     family: _FamilyTools,
     ipset_name: str,
     fwmark: int,
+    chain: str,
 ) -> None:
-    """Удаляет MARK-правило из обеих chain'ы. `check=False` per-chain — если
-    в одной из chain правила нет (например только в OUTPUT, а PREROUTING
-    случайно очищен), не падаем."""
-    for chain in _MARK_CHAINS:
-        await run_command(
-            [
-                *ctx.command_prefix,
-                family.iptables_cmd,
-                "-t",
-                "mangle",
-                "-D",
-                chain,
-                "-m",
-                "set",
-                "--match-set",
-                ipset_name,
-                "dst",
-                "-j",
-                "MARK",
-                "--set-mark",
-                str(fwmark),
-            ],
-            check=False,
-        )
+    """Удаляет MARK-правило из указанной mangle-цепи. `check=False` — если
+    правила не было, не падаем (возможно только в одной цепи стояло)."""
+    await run_command(
+        [
+            *ctx.command_prefix,
+            family.iptables_cmd,
+            "-t",
+            "mangle",
+            "-D",
+            chain,
+            "-m",
+            "set",
+            "--match-set",
+            ipset_name,
+            "dst",
+            "-j",
+            "MARK",
+            "--set-mark",
+            str(fwmark),
+        ],
+        check=False,
+    )
 
 
 async def _add_ip_rule(
@@ -448,20 +447,33 @@ async def _ensure_mark(
     ctx: _ScopeContext,
     family: _FamilyTools,
     rule: RoutingRule,
-    current: _ActiveMark | None,
+    current_per_chain: dict[str, _ActiveMark],
 ) -> bool:
+    """Гарантирует MARK-правило для rule в КАЖДОЙ из mangle-цепей (PREROUTING + OUTPUT).
+
+    `current_per_chain` — словарь `{chain → mark}` где mark найден для нашего
+    physical_name. Если в какой-то цепи нет mark или fwmark расходится —
+    добавляем именно в эту цепь. Без раздельной проверки reconciler пропускал
+    добавление в PREROUTING если правило уже было в OUTPUT (из старого apply'я),
+    и forwarded трафик не маркировался.
+    """
     physical_name = _ipset_name_for(rule=rule, family=family)
-    if current is not None and current.fwmark == rule.fwmark:
-        return False
-    if current is not None:
-        await _remove_iptables_mark(
-            ctx=ctx,
-            family=family,
-            ipset_name=current.ipset_name,
-            fwmark=current.fwmark,
-        )
-    await _add_iptables_mark(ctx=ctx, family=family, ipset_name=physical_name, fwmark=rule.fwmark)
-    return True
+    changed = False
+    for chain in _MARK_CHAINS:
+        existing = current_per_chain.get(chain)
+        if existing is not None and existing.fwmark == rule.fwmark:
+            continue
+        if existing is not None:
+            await _remove_iptables_mark(
+                ctx=ctx,
+                family=family,
+                ipset_name=existing.ipset_name,
+                fwmark=existing.fwmark,
+                chain=chain,
+            )
+        await _add_iptables_mark(ctx=ctx, family=family, ipset_name=physical_name, fwmark=rule.fwmark, chain=chain)
+        changed = True
+    return changed
 
 
 async def _ensure_ip_rule(
@@ -509,7 +521,7 @@ async def _remove_orphans(
     *,
     ctx: _ScopeContext,
     family: _FamilyTools,
-    current_marks: dict[str, _ActiveMark],
+    current_marks: dict[str, dict[str, _ActiveMark]],
     current_ip_rules: dict[int, _ActiveIpRule],
     desired_physical_ipsets: set[str],
     desired_fwmarks: set[int],
@@ -517,19 +529,21 @@ async def _remove_orphans(
     errors: list[str],
 ) -> None:
     """In-place cleanup: удаляет из current_* всё, чего нет в желаемом."""
-    for ipset_name, mark in list(current_marks.items()):
-        if ipset_name in desired_physical_ipsets:
-            continue
-        try:
-            await _remove_iptables_mark(
-                ctx=ctx,
-                family=family,
-                ipset_name=ipset_name,
-                fwmark=mark.fwmark,
-            )
-            current_marks.pop(ipset_name, None)
-        except CommandError as exc:
-            errors.append(f"[{ctx.name}/{family.family}] remove orphan mark {ipset_name}: {exc}")
+    for chain, chain_marks in current_marks.items():
+        for ipset_name, mark in list(chain_marks.items()):
+            if ipset_name in desired_physical_ipsets:
+                continue
+            try:
+                await _remove_iptables_mark(
+                    ctx=ctx,
+                    family=family,
+                    ipset_name=ipset_name,
+                    fwmark=mark.fwmark,
+                    chain=chain,
+                )
+                chain_marks.pop(ipset_name, None)
+            except CommandError as exc:
+                errors.append(f"[{ctx.name}/{family.family}] remove orphan mark {ipset_name} в {chain}: {exc}")
 
     orphan_tables: set[int] = set()
     for fwmark, ip_rule in list(current_ip_rules.items()):
@@ -559,12 +573,12 @@ async def _read_state(
     ctx: _ScopeContext,
     family: _FamilyTools,
     errors: list[str],
-) -> tuple[dict[str, _ActiveMark], dict[int, _ActiveIpRule]]:
+) -> tuple[dict[str, dict[str, _ActiveMark]], dict[int, _ActiveIpRule]]:
     try:
         marks = await _read_iptables_marks(ctx=ctx, family=family)
     except CommandError as exc:
         errors.append(f"[{ctx.name}/{family.family}] read iptables marks: {exc}")
-        marks = {}
+        marks = {chain: {} for chain in _MARK_CHAINS}
     try:
         ip_rules = await _read_ip_rules(ctx=ctx, family=family)
     except CommandError as exc:
@@ -614,11 +628,16 @@ async def _apply_rules_in_scope_family(
     for rule in rules:
         physical_name = _ipset_name_for(rule=rule, family=family)
         try:
+            current_per_chain = {
+                chain: chain_marks[physical_name]
+                for chain, chain_marks in current_marks.items()
+                if physical_name in chain_marks
+            }
             mark_changed = await _ensure_mark(
                 ctx=ctx,
                 family=family,
                 rule=rule,
-                current=current_marks.get(physical_name),
+                current_per_chain=current_per_chain,
             )
             rule_changed = await _ensure_ip_rule(
                 ctx=ctx,
