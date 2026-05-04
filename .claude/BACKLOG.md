@@ -185,6 +185,18 @@
 
 **Что сделать:** агент возвращать `interface_name` в `/v1/clients` response → фронт берёт оттуда вместо локальной формулы. Уже есть `client.name`, нужен ещё `interface_name`.
 
+### 21a. dnsmasq `no-aaaa` для маршрутизируемых доменов (когда у AWG-туннеля нет IPv6)
+
+**Состояние:** agent v0.2.5 настраивает IPv6-стек (ip6tables, ip -6 rule, `<name>-v6` ipset) для каждого RoutingRule. Это работает только если на awg-клиентском интерфейсе есть IPv6-адрес (`ip -6 addr show awg-X` непустой). У большинства AmneziaWG-серверов IPv6 не настроен — туннель только IPv4. В этом случае:
+- dnsmasq получает AAAA-record от upstream → пишет в `dns-youtube-v6`.
+- iptables-правило на v6 матчит → fwmark.
+- ip -6 rule отправляет в table N → но `default dev awg-nl` без link-local IPv6 на awg-nl → kernel молча дропает пакет.
+- curl без `-4` (default IPv6-preferred) падает на TLS handshake.
+
+**Что сделать:** в `agent/dns.py` добавить директиву `no-aaaa` per-domain для маршрутизируемых правил. Тогда dnsmasq возвращает только A для этих доменов → curl всегда через IPv4 → роутинг работает. Пользовательский AAAA-резолв для немаршрутизируемых доменов остаётся.
+
+Альтернатива: если detect'нем что у клиента нет IPv6 (через `ip -6 addr show` на startup'е agent'а), отключать v6-стек глобально per-rule.
+
 ### 21. UI-диагностика managed-сервера (через тот же SSH-flow что update)
 
 **Состояние:** когда агент онлайн, но что-то странно ведёт себя (stuck self-update, не применяются rules, нет netdev'ов), сейчас единственный путь — SSH/console руками. Запоминающийся набор команд:
