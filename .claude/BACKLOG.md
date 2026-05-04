@@ -54,24 +54,6 @@
 
 **Workaround сейчас:** ручной `sudo nsenter -t <pid> -n iptables -t mangle -F + ip rule del + ip route flush table N + ipset destroy …`.
 
-### 0. Установка amneziawg kernel-модуля при онбординге
-
-**Состояние:** провижнер ставит только `wireguard-tools`, kernel-модуль `amneziawg` не устанавливается. На host'ах без модуля `awg-quick` внутри контейнера фолбекается на userspace `amneziawg-go`, который **не поддерживает obfuscation-параметры `I1`–`I5`**. Конфиги от провайдеров с этими полями (firstbyte и др.) падают с `Line unrecognized: I2=` → iface не поднимается → direction'ы дают `Cannot find device`.
-
-**Что добавить в `backend/server/provisioner/steps.py::install_deps`:**
-```bash
-add-apt-repository -y ppa:amnezia/ppa
-apt-get update
-apt-get install -y linux-headers-$(uname -r) amneziawg amneziawg-dkms
-modprobe amneziawg
-```
-
-**Edge cases:**
-- На некоторых cloud-VM нет `linux-headers-$(uname -r)` для актуального ядра — DKMS-build упадёт. Решение: emit warning в провижнере «kernel module не собрался — I*-параметры не работают», но НЕ ронять онбординг.
-- Старые ядра без поддержки DKMS-build — то же.
-
-**UI-warning (опционально):** в карточке AWG-клиента показывать badge «нет kernel-модуля» если `docker logs` упоминают «Falling back to slow userspace implementation».
-
 ### 0a-1. Self-lockout warning при создании direction'а
 
 **Состояние:** при создании direction со scope=host без исключений можно применить правило, которое отрубит твой собственный SSH (если твой клиентский IP попадает в matched-set / GeoIP). Сейчас 2026-05-04 пользователь в реальном времени получил self-lockout: yandex-VM с IP в RU-зоне + direction `geoip-ru` → OUTPUT-ответы SSH'у матчили `--match-set geoip-ru-v4 dst` → ответ уходил в туннель вместо eth0 → SSH-разрыв. Восстановление — через Yandex Cloud Serial Console.

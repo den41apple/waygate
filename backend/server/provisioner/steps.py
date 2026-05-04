@@ -82,6 +82,22 @@ async def install_deps(*, ssh: SshSession, emit: ProgressEmitter) -> None:
             "ipset iptables iproute2 dnsmasq curl openssl python3-venv wireguard-tools conntrack"
         ),
     )
+    # AmneziaWG kernel-модуль — без него awg-quick откатывается на userspace
+    # `amneziawg-go`, который НЕ поддерживает obfuscation-параметры I1-I5
+    # (`Line unrecognized: I2=`). Ставим из официального PPA. На некоторых cloud-VM
+    # без linux-headers DKMS-build падает — это не критично, awg-quick просто
+    # фолбекнется на userspace для конфигов без I*-параметров.
+    await emit("Установка amneziawg kernel-модуля (PPA)…")
+    await ssh.run(
+        command=(
+            "(add-apt-repository -y ppa:amnezia/ppa "
+            "&& DEBIAN_FRONTEND=noninteractive apt-get update -qq "
+            "&& DEBIAN_FRONTEND=noninteractive apt-get install -y "
+            "linux-headers-$(uname -r) amneziawg amneziawg-dkms "
+            "&& modprobe amneziawg) || true"
+        ),
+        check=False,
+    )
     await emit("Зависимости установлены")
 
 
