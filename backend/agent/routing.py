@@ -395,20 +395,48 @@ async def _ensure_mss_clamp(
     family: _FamilyTools,
     interfaces: set[str],
 ) -> None:
-    """TCPMSS-clamp на awg-интерфейсах в mangle FORWARD/OUTPUT.
+    """TCPMSS-clamp на awg-интерфейсах в mangle POSTROUTING.
 
-    WireGuard добавляет ~80 байт overhead к каждому пакету, поэтому MTU iface'а
-    1420 (vs eth0 1500). Для forwarded TCP (mac→yandex→awg-firstbyte→инет) и
-    локального TCP (curl с yandex'а через туннель) большие пакеты надо
-    фрагментировать. Если PMTU Discovery ICMP-сообщения теряются (часто на
-    российских сетях/файрволах), большие пакеты молча дропаются — connections
-    "вроде открываются, но капец" (TCP retransmits, TLS handshake timeout).
+    WireGuard добавляет ~80 байт overhead, MTU iface 1420 (vs eth0 1500).
+    Без clamp'а большие пакеты (TLS Server Hello ~4KB) фрагментируются на
+    IP-уровне. На сетях которые блокируют ICMP "fragmentation needed"
+    (РФ-провайдеры) PMTU Discovery не работает → пакеты молча дропаются →
+    connections виснут.
 
-    Решение: TCPMSS clamp на SYN-пакетах для всех awg-* интерфейсов.
+    Почему POSTROUTING а не OUTPUT/FORWARD:
+    На этапе OUTPUT mangle pkt ещё имеет out=eth0 (initial route lookup).
+    Reroute на awg-firstbyte по mark происходит ПОСЛЕ mangle OUTPUT. Поэтому
+    matcher `-o awg-firstbyte` в OUTPUT не срабатывает (counter=0 наблюдался).
+    POSTROUTING — последняя точка перед отправкой, out-iface уже финальный.
+
     `--clamp-mss-to-pmtu` ставит MSS = MTU-40 автоматически. Идемпотентно
     через `iptables -C` перед `-A`.
     """
     iptables = [*ctx.command_prefix, family.iptables_cmd, "-t", "mangle"]
+    for iface in interfaces:
+        args = [
+            "-o",
+            iface,
+            "-p",
+            "tcp",
+            "--tcp-flags",
+            "SYN,RST",
+            "SYN",
+            "-j",
+            "TCPMSS",
+            "--clamp-mss-to-pmtu",
+        ]
+        # `iptables -C` возвращает 0 если правило существует, иначе бросает
+        # CommandError. Проверяем для идемпотентности.
+        try:
+            await run_command([*iptables, "-C", "POSTROUTING", *args])
+            continue  # уже стоит
+        except CommandError:
+            pass
+        await run_command([*iptables, "-A", "POSTROUTING", *args])
+
+    # Удаляем legacy-правила в OUTPUT/FORWARD (от 0.2.18 — там counter=0
+    # потому что matcher не срабатывал, но правила оставались). Идемпотентно.
     for chain in ("FORWARD", "OUTPUT"):
         for iface in interfaces:
             args = [
@@ -423,14 +451,7 @@ async def _ensure_mss_clamp(
                 "TCPMSS",
                 "--clamp-mss-to-pmtu",
             ]
-            # `iptables -C` возвращает 0 если правило существует, иначе бросает
-            # CommandError (ненулевой код). Проверяем для идемпотентности.
-            try:
-                await run_command([*iptables, "-C", chain, *args])
-                continue  # уже стоит
-            except CommandError:
-                pass
-            await run_command([*iptables, "-A", chain, *args])
+            await run_command([*iptables, "-D", chain, *args], check=False)
 
 
 async def _replace_default_route(
