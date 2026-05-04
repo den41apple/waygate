@@ -131,6 +131,7 @@ class _ScopeContext:
 
     name: str  # "host" или "container:<имя>" — для логов и errors
     command_prefix: list[str]  # пустой для host, ["nsenter", "-t", str(pid), "-n"] для container
+    container_pid: int | None = None  # для container scope — нужен для cross-netns ipset sync
 
 
 async def _resolve_container_pid(*, container: str) -> int:
@@ -161,6 +162,7 @@ async def _build_scope_context(*, scope: RoutingScope, scope_target: str | None)
     return _ScopeContext(
         name=f"container:{scope_target}",
         command_prefix=["nsenter", "-t", str(pid), "-n"],
+        container_pid=pid,
     )
 
 
@@ -709,6 +711,29 @@ async def _read_state(
     return marks, ip_rules
 
 
+async def _sync_ipsets_to_container(*, ctx: _ScopeContext, ipset_names: set[str]) -> None:
+    """Копирует ipset'ы из host netns в netns container'а (для scope=container).
+
+    Ipsets начиная с kernel 4.19 — **per-netns**: тот что создан на хосте не
+    виден внутри контейнера через nsenter. iptables `--match-set` падает с
+    `Set X doesn't exist`. Решение — сделать `ipset save` на хосте и
+    перезалить через `ipset restore -!` внутри netns'а target'а. Идемпотентно
+    через `-!` (== `--exist`).
+    """
+    if ctx.container_pid is None:
+        return  # scope=host — ничего не делаем
+    for ipset_name in ipset_names:
+        save_output = await run_command(["ipset", "save", ipset_name], check=False)
+        if not save_output.strip():
+            # На хосте ipset нет — оператор ещё не сделал sync для GeoIP/DNS/Custom-IPset.
+            # Дальнейший _ensure_mark упадёт с понятной ошибкой "Set X doesn't exist".
+            continue
+        await run_command(
+            ["nsenter", "-t", str(ctx.container_pid), "-n", "ipset", "restore", "-!"],
+            stdin=save_output.encode(),
+        )
+
+
 async def _apply_rules_in_scope_family(
     *,
     ctx: _ScopeContext,
@@ -721,6 +746,15 @@ async def _apply_rules_in_scope_family(
     desired_fwmarks = {rule.fwmark for rule in rules}
     desired_tables = {rule.table_id for rule in rules}
     desired_interfaces = {rule.via_interface for rule in rules}
+
+    # Для scope=container — копируем нужные ipset'ы из host netns в netns target'а
+    # (они per-netns в новых ядрах). Без этого iptables `--match-set` упадёт с
+    # `Set X doesn't exist` внутри netns container'а.
+    if ctx.container_pid is not None and desired_physical_ipsets:
+        try:
+            await _sync_ipsets_to_container(ctx=ctx, ipset_names=desired_physical_ipsets)
+        except CommandError as exc:
+            errors.append(f"[{ctx.name}/{family.family}] sync ipsets to netns: {exc}")
 
     current_marks, current_ip_rules = await _read_state(ctx=ctx, family=family, errors=errors)
     try:

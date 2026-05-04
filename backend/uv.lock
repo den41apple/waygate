@@ -1585,7 +1585,7 @@ wheels = [
 
 [[package]]
 name = "waygate-agent"
-version = "0.2.21"
+version = "0.2.22"
 source = { editable = "agent" }
 dependencies = [
     { name = "acme" },
