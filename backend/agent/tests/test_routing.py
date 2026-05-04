@@ -129,7 +129,7 @@ async def test_apply_rules_skipped_when_state_matches(monkeypatch, make_rule):
                 "-P OUTPUT ACCEPT\n-A OUTPUT -m set --match-set russia-v4 dst -j MARK --set-xmark 0x100/0xffffffff\n"
             ),
             ("ip", "rule", "show"): ("0:\tfrom all lookup local\n1000:\tfrom all fwmark 0x100 lookup 100\n"),
-            ("ip", "route", "show", "table", "100"): "default via 10.0.0.1 dev awg0 onlink\n",
+            ("ip", "route", "show", "table", "100"): "default dev awg0\n",
             # V6 stack — то же.
             ("ip6tables", "-t", "mangle", "-S", "PREROUTING"): (
                 "-P PREROUTING ACCEPT\n"
@@ -322,7 +322,7 @@ async def test_apply_rules_empty_desired_cleans_host_orphans(monkeypatch):
             ("ip6tables", "-t", "mangle", "-S", "PREROUTING"): "-P PREROUTING ACCEPT\n",
             ("ip", "rule", "show"): "32765:\tfrom all fwmark 0x1 lookup 100\n",
             ("ip", "-6", "rule", "show"): "",
-            ("ip", "route", "show", "table", "100"): "default via 10.0.0.1 dev awg0 onlink\n",
+            ("ip", "route", "show", "table", "100"): "default dev awg0\n",
             ("ip", "-6", "route", "show", "table", "100"): "",
         },
     )

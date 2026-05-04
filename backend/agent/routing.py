@@ -400,20 +400,29 @@ async def _replace_default_route(
 ) -> None:
     """Atomic replace default-маршрута в таблице.
 
-    Для IPv4: `ip route replace default via <gw> dev <iface> onlink table <id>`.
-    `onlink` критично для AWG-клиентов с `Address = X.Y.Z.W/32` (single-IP без
-    подсети) — без флага kernel падает с "Error: Nexthop has invalid gateway".
+    Для AmneziaWG-туннелей (всегда POINTOPOINT) используем `ip route default
+    dev <iface>` БЕЗ `via <gw>` для обоих family. Это P2P: ядро знает что у
+    интерфейса один пир и сам инкапсулирует пакет в WireGuard, ARP не нужен.
+    `via <gw> onlink` ломалось на конфигах где client.address = .1
+    (`Nexthop has invalid gateway` — gateway не может равняться self-IP),
+    и user должен был руками подбирать корректный gateway. Лишний шаг,
+    устраняем.
 
-    Для IPv6: AmneziaWG-туннели обычно point-to-point без явного IPv6-gateway
-    (в `.conf` нет AddressV6). Используем `ip -6 route replace default dev <iface>`
-    без `via` — kernel сам определяет next-hop через интерфейс.
+    `gateway` остаётся в сигнатуре чтобы не ломать вызовы снизу (там
+    via_gateway из RoutingRule), но игнорируется.
     """
-    cmd = [*ctx.command_prefix, "ip", *family.ip_args, "route", "replace", "default"]
-    if family.has_gateway:
-        cmd.extend(["via", gateway, "dev", interface, "onlink"])
-    else:
-        cmd.extend(["dev", interface])
-    cmd.extend(["table", str(table_id)])
+    cmd = [
+        *ctx.command_prefix,
+        "ip",
+        *family.ip_args,
+        "route",
+        "replace",
+        "default",
+        "dev",
+        interface,
+        "table",
+        str(table_id),
+    ]
     await run_command(cmd)
 
 
@@ -482,8 +491,9 @@ async def _ensure_default_route(
     rule: RoutingRule,
 ) -> bool:
     current = await _read_default_route(ctx=ctx, family=family, table_id=rule.table_id)
-    expected_gateway = rule.via_gateway if family.has_gateway else None
-    if current is not None and current.gateway == expected_gateway and current.interface == rule.via_interface:
+    # Default-маршрут теперь всегда `dev iface` без gateway (P2P-туннель), для
+    # обеих family. Считаем route актуальным если на нужном interface и без via.
+    if current is not None and current.gateway is None and current.interface == rule.via_interface:
         return False
     await _replace_default_route(
         ctx=ctx,
