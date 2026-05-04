@@ -107,7 +107,7 @@ async def test_create_direction_materializes_child_rules(
     via_ifaces = {rule["via_interface"] for rule in rules}
     assert via_ifaces == {"awg-nl"}
     ipset_names = {rule["ipset_name"] for rule in rules}
-    assert ipset_names == {"geoip-ru-v4", dns_ipset, group_ipset}
+    assert ipset_names == {"geoip-ru", dns_ipset, group_ipset}
 
     assert any(event.type is EventType.DIRECTION_CREATED for event in fake_broadcaster)
 

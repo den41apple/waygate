@@ -42,6 +42,28 @@ def _build_restore_input(*, set_name: str, cidrs: list[str]) -> bytes:
     return ("\n".join(lines) + "\n").encode("utf-8")
 
 
+async def _atomic_swap_ipset(*, name: str, family: str, cidrs: list[str]) -> None:
+    """Atomic-swap для одного ipset'а. `family` = `inet` / `inet6`."""
+    tmp_name = f"{name}_new"
+    create_args = ["hash:net", "family", family, "hashsize", "4096", "maxelem", "1000000"]
+    await run_command(["ipset", "create", "-exist", tmp_name, *create_args])
+    await run_command(["ipset", "flush", tmp_name])
+    if cidrs:
+        restore_input = _build_restore_input(set_name=tmp_name, cidrs=cidrs)
+        try:
+            await run_command(["ipset", "restore"], stdin=restore_input)
+        except CommandError as exc:
+            await run_command(["ipset", "destroy", tmp_name], check=False)
+            raise RuntimeError(f"ipset restore ({name}) не удался: {exc.stderr.strip()}") from exc
+    await run_command(["ipset", "create", "-exist", name, *create_args])
+    try:
+        await run_command(["ipset", "swap", tmp_name, name])
+    except CommandError as exc:
+        await run_command(["ipset", "destroy", tmp_name], check=False)
+        raise RuntimeError(f"ipset swap ({name}) не удался: {exc.stderr.strip()}") from exc
+    await run_command(["ipset", "destroy", tmp_name], check=False)
+
+
 async def sync_list(
     *,
     country: str,
@@ -49,75 +71,36 @@ async def sync_list(
     source_url: str,
     custom_cidrs: list[str],
 ) -> GeoIpSyncResponse:
-    """Атомарно обновляет ipset из zone-файла.
+    """Атомарно обновляет ipset'ы (-v4/-v6) из zone-файла.
 
-    1. Скачиваем zone-файл по source_url.
-    2. Парсим CIDR'ы и добавляем custom_cidrs.
-    3. Загружаем в _new ipset через `ipset restore`.
-    4. Создаём целевой ipset (если ещё нет) — `ipset create -exist`.
-    5. `ipset swap` — мгновенный switchover, трафик не прерывается.
-    6. Удаляем _new (теперь содержит старые данные).
+    Имя `ipset_name` — логическое (например `geoip-ru`); физически создаются
+    `<name>-v4` (заполненный IPv4-CIDR'ами из zone) и `<name>-v6` (пустой,
+    но существует для consistency с `ip6tables --match-set <name>-v6`).
+    Без пустого v6-set'а ip6tables-правило падало бы с "Set ... doesn't exist".
     """
     started_at = time.monotonic()
 
     text = await _download_zone_file(url=source_url)
-    cidrs = _parse_zone_file(text) + list(custom_cidrs)
+    raw = _parse_zone_file(text) + list(custom_cidrs)
+    # ipdeny zone-файлы IPv4-only, но user может в custom_cidrs дать IPv6 —
+    # делаем split по `:` как в agent/ipset.py.
+    v4_cidrs = [c for c in raw if ":" not in c]
+    v6_cidrs = [c for c in raw if ":" in c]
 
-    tmp_name = f"{ipset_name}_new"
-
-    # 1. Создаём tmp_name. `-exist` для CLI-create не падает на дубликате
-    #    (если destroy от прошлой попытки не сработал — например, _new залочен
-    #    iptables-правилом).
-    await run_command(
-        [
-            "ipset",
-            "create",
-            "-exist",
-            tmp_name,
-            "hash:net",
-            "family",
-            "inet",
-            "hashsize",
-            "4096",
-            "maxelem",
-            "1000000",
-        ],
-    )
-    # 2. Очищаем — без этого старые элементы накопились бы при повторном sync.
-    await run_command(["ipset", "flush", tmp_name])
-
-    # 3. Массово заливаем элементы через restore.
-    restore_input = _build_restore_input(set_name=tmp_name, cidrs=cidrs)
-    if restore_input:
-        try:
-            await run_command(["ipset", "restore"], stdin=restore_input)
-        except CommandError as exc:
-            await run_command(["ipset", "destroy", tmp_name], check=False)
-            raise RuntimeError(f"ipset restore не удался: {exc.stderr.strip()}") from exc
-
-    # 4. Создаём целевой сет (если ещё нет) — потом swap.
-    await run_command(
-        ["ipset", "create", "-exist", ipset_name, "hash:net", "family", "inet"],
-    )
-
-    try:
-        await run_command(["ipset", "swap", tmp_name, ipset_name])
-    except CommandError as exc:
-        await run_command(["ipset", "destroy", tmp_name], check=False)
-        raise RuntimeError(f"ipset swap не удался: {exc.stderr.strip()}") from exc
-
-    await run_command(["ipset", "destroy", tmp_name], check=False)
+    await _atomic_swap_ipset(name=f"{ipset_name}-v4", family="inet", cidrs=v4_cidrs)
+    await _atomic_swap_ipset(name=f"{ipset_name}-v6", family="inet6", cidrs=v6_cidrs)
 
     duration_ms = int((time.monotonic() - started_at) * 1000)
     logger.info(
-        "geoip sync: {} → {} ({} CIDR за {} мс)",
+        "geoip sync: {} → {} (v4={}, v6={} CIDR за {} мс)",
         country,
         ipset_name,
-        len(cidrs),
+        len(v4_cidrs),
+        len(v6_cidrs),
         duration_ms,
     )
     return GeoIpSyncResponse(
-        cidrs_loaded=len(cidrs),
+        cidrs_loaded=len(raw),
         ipset_name=ipset_name,
         duration_ms=duration_ms,
     )

@@ -44,9 +44,10 @@ def test_build_restore_input_handles_empty_cidrs() -> None:
 
 @pytest.mark.asyncio
 async def test_sync_list_workflow_calls_ipset_in_correct_order(monkeypatch) -> None:
-    """Регрессионный тест: sync_list должен делать
-    `create -exist tmp` → `flush tmp` → `restore` → `create -exist target` → `swap` → `destroy tmp`.
-    Если порядок нарушен, atomic-swap ломается."""
+    """Регрессионный тест: sync_list создаёт ДВА ipset'а — `<name>-v4` (с CIDR'ами
+    из zone) и `<name>-v6` (пустой, для consistency с ip6tables --match-set).
+    Каждый делает atomic-swap: create tmp → flush → [restore если cidrs] → create target → swap → destroy.
+    """
     calls: list[tuple[str, ...]] = []
 
     async def fake_run_command(
@@ -66,23 +67,29 @@ async def test_sync_list_workflow_calls_ipset_in_correct_order(monkeypatch) -> N
 
     response = await geoip_module.sync_list(
         country="RU",
-        ipset_name="waygate-ru-v4",
+        ipset_name="geoip-ru",
         source_url="https://example.invalid/ru.zone",
         custom_cidrs=[],
     )
 
-    # Извлекаем первое слово каждой команды для краткости проверки порядка.
-    op_sequence = [(call[0], call[1]) for call in calls if call[0] == "ipset"]
-    assert op_sequence[0] == ("ipset", "create"), "первым должен быть create tmp"
-    assert "-exist" in calls[0] and "waygate-ru-v4_new" in calls[0]
-    assert op_sequence[1] == ("ipset", "flush")
-    assert calls[1] == ("ipset", "flush", "waygate-ru-v4_new")
-    assert op_sequence[2] == ("ipset", "restore")
-    assert op_sequence[3] == ("ipset", "create"), "затем create целевого"
-    assert "-exist" in calls[3] and "waygate-ru-v4" in calls[3]
-    assert op_sequence[4] == ("ipset", "swap")
-    assert calls[4] == ("ipset", "swap", "waygate-ru-v4_new", "waygate-ru-v4")
-    assert op_sequence[5] == ("ipset", "destroy")
+    # v4-блок: 6 команд (create tmp, flush, restore, create target, swap, destroy).
+    v4_block = calls[:6]
+    assert v4_block[0][:3] == ("ipset", "create", "-exist") and "geoip-ru-v4_new" in v4_block[0]
+    assert "inet" in v4_block[0]
+    assert v4_block[1] == ("ipset", "flush", "geoip-ru-v4_new")
+    assert v4_block[2] == ("ipset", "restore")
+    assert v4_block[3][:3] == ("ipset", "create", "-exist") and "geoip-ru-v4" in v4_block[3]
+    assert v4_block[4] == ("ipset", "swap", "geoip-ru-v4_new", "geoip-ru-v4")
+    assert v4_block[5][:2] == ("ipset", "destroy")
+
+    # v6-блок: cidrs пуст → restore пропускается (5 команд).
+    v6_block = calls[6:]
+    assert v6_block[0][:3] == ("ipset", "create", "-exist") and "geoip-ru-v6_new" in v6_block[0]
+    assert "inet6" in v6_block[0]
+    assert v6_block[1] == ("ipset", "flush", "geoip-ru-v6_new")
+    assert v6_block[2][:3] == ("ipset", "create", "-exist") and "geoip-ru-v6" in v6_block[2]
+    assert v6_block[3] == ("ipset", "swap", "geoip-ru-v6_new", "geoip-ru-v6")
+    assert v6_block[4][:2] == ("ipset", "destroy")
 
     assert response.cidrs_loaded == 2
-    assert response.ipset_name == "waygate-ru-v4"
+    assert response.ipset_name == "geoip-ru"

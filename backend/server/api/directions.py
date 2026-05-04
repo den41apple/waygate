@@ -53,12 +53,18 @@ async def _resolve_ipset_for_geo(
     geo_list_ids: list[int],
     session: AsyncSession,
 ) -> dict[int, tuple[str, str]]:
-    """{geo_list_id → (ipset_name, country)} — для country поле в RoutingRule."""
+    """{geo_list_id → (ipset_name, country)} — для country поле в RoutingRule.
+
+    Имя — **логическое** (`geoip-ru`, без family-суффикса). Agent при apply
+    добавит `-v4`/`-v6` в зависимости от стека (см. routing.py::_ipset_name_for).
+    Раньше тут было `geoip-ru-v4`, но это конфликтовало с dual-family схемой:
+    routing.py добавлял ещё `-v4` поверх → искал `geoip-ru-v4-v4`.
+    """
     if not geo_list_ids:
         return {}
     result = await session.execute(select(GeoList).where(GeoList.id.in_(geo_list_ids)))
     return {
-        item.id: (f"geoip-{item.country.lower()}-v4", item.country)
+        item.id: (f"geoip-{item.country.lower()}", item.country)
         for item in result.scalars().all()
         if item.id is not None
     }
@@ -274,10 +280,14 @@ async def _collect_refs(
     ipsets = {rule.ipset_name for rule in rules}
 
     geo_result = await session.execute(select(GeoList))
+    # Поддерживаем legacy-имя `geoip-ru-v4` (старые RoutingRule до Sprint 5)
+    # и новое логическое `geoip-ru` (после фикса dual-family). Reverse-lookup
+    # принимает оба формата.
     geo_ids = [
         geo.id
         for geo in geo_result.scalars().all()
-        if geo.id is not None and f"geoip-{geo.country.lower()}-v4" in ipsets
+        if geo.id is not None
+        and (f"geoip-{geo.country.lower()}" in ipsets or f"geoip-{geo.country.lower()}-v4" in ipsets)
     ]
 
     dns_result = await session.execute(select(DnsRule).where(DnsRule.server_id == server_id))
