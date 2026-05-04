@@ -196,7 +196,13 @@ async def _remove_ip_rule(*, ctx: _ScopeContext, fwmark: int, table_id: int) -> 
 
 
 async def _replace_default_route(*, ctx: _ScopeContext, gateway: str, interface: str, table_id: int) -> None:
-    # ip route replace атомарно создаёт или обновляет default-маршрут в таблице
+    # ip route replace атомарно создаёт или обновляет default-маршрут в таблице.
+    #
+    # `onlink` критично для AWG-клиентов с `Address = X.Y.Z.W/32` (single-IP без
+    # подсети) — без флага kernel падает с "Error: Nexthop has invalid gateway",
+    # потому что не может найти link-route к gateway. Для классических /24
+    # туннелей onlink тоже безопасен — он лишь подавляет проверку, а не меняет
+    # семантику: пакеты всё равно идут через указанный `dev`.
     await run_command(
         [
             *ctx.command_prefix,
@@ -208,6 +214,7 @@ async def _replace_default_route(*, ctx: _ScopeContext, gateway: str, interface:
             gateway,
             "dev",
             interface,
+            "onlink",
             "table",
             str(table_id),
         ],
