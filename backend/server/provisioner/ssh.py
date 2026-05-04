@@ -69,6 +69,25 @@ class SshSession:
         await self.run(command=full)
         await self.run(command=f"chmod {mode} '{escaped_path}'")
 
+    async def upload_bytes(self, *, path: str, content: bytes) -> None:
+        """Заливает бинарные данные на target через SFTP.
+
+        Используется для wheel'ов и других бинарников, когда `curl` на target
+        не может достучаться до источника (RU-сервера + GitHub: блокировки,
+        DNS-резолв через dnsmasq может лежать). Control-plane качает у себя,
+        этот метод заливает на target по уже установленной SSH-сессии.
+
+        Запись через SFTP идёт **под именем SSH-юзера**, не под root'ом, даже
+        если включен sudo-режим. Для путей в /tmp/ это норма; для system-paths
+        нужно сначала залить в /tmp, потом `mv` через `run()` (тогда mv пойдёт
+        под sudo).
+        """
+        async with (
+            self._connection.start_sftp_client() as sftp,
+            sftp.open(path, "wb") as remote_file,
+        ):
+            await remote_file.write(content)
+
 
 @asynccontextmanager
 async def ssh_connect(

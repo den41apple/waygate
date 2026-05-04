@@ -1,12 +1,13 @@
 import asyncio
 import time
-from collections.abc import Awaitable, Callable
 from importlib import resources
 
 from loguru import logger
 
 from server.agent_client import AgentClient, AgentClientError, AgentUnreachable
 from server.provisioner.ssh import SshError, SshSession
+from server.provisioner.steps_types import ProgressEmitter
+from server.provisioner.wheel_fetch import fetch_wheel_to_target
 from shared.schemas import AgentStatus
 
 
@@ -14,8 +15,8 @@ class StepError(RuntimeError):
     """Ошибка на одном из шагов онбординга."""
 
 
-# Тип эмиттера прогресса. Передаётся снаружи (из ProvisionJob), упрощает тесты.
-ProgressEmitter = Callable[[str], Awaitable[None]]
+# Re-export для обратной совместимости — раньше `from steps import ProgressEmitter`.
+__all__ = ["ProgressEmitter", "StepError", "fetch_wheel_to_target"]
 
 
 def _load_systemd_unit() -> str:
@@ -186,7 +187,9 @@ async def deploy_agent(
     # поэтому сохраняем под валидным шаблонным именем — реальная версия читается
     # из METADATA внутри архива при install.
     wheel_path = "/tmp/waygate_agent-0.0.0-py3-none-any.whl"
-    await ssh.run(command=f"curl -fsSL '{wheel_url}' -o {wheel_path}")
+    # Сначала пробуем curl на target. На RU-серверах GitHub может быть заблокирован /
+    # DNS не резолвиться → fallback на download via control-plane + SFTP upload.
+    await fetch_wheel_to_target(ssh=ssh, wheel_url=wheel_url, wheel_path=wheel_path, emit=emit)
 
     await emit("Создаю virtualenv в /opt/waygate-agent…")
     await ssh.run(command="rm -rf /opt/waygate-agent && python3 -m venv /opt/waygate-agent")

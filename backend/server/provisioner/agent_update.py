@@ -11,7 +11,8 @@ SSH-сессия = независимый root-shell, namespace-ограниче
 """
 
 from server.provisioner.ssh import SshSession
-from server.provisioner.steps import ProgressEmitter
+from server.provisioner.steps_types import ProgressEmitter
+from server.provisioner.wheel_fetch import fetch_wheel_to_target
 
 
 async def update_agent_via_ssh(
@@ -31,7 +32,7 @@ async def update_agent_via_ssh(
     wheel_path = f"/tmp/waygate_agent-{version}-py3-none-any.whl"
 
     await emit("Скачиваю wheel...")
-    await ssh.run(command=f"curl -fsSL '{wheel_url}' -o '{wheel_path}'")
+    await fetch_wheel_to_target(ssh=ssh, wheel_url=wheel_url, wheel_path=wheel_path, emit=emit)
 
     await emit("Создаю свежий venv в /opt/waygate-agent.new...")
     # rm -rf — без check, чтобы первый запуск (когда .new/.bak не существуют) не падал.
