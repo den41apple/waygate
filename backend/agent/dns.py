@@ -19,12 +19,15 @@ def _normalize_domain(domain: str) -> str:
 def _render_config(*, rules: list[DnsRule]) -> str:
     """Формирует содержимое /etc/dnsmasq.d/waygate.conf.
 
-    Для каждого правила ДВЕ отдельные `ipset=`-строки — одна для IPv4-set'а,
-    одна для IPv6. Объединённый формат `<setv4>,<setv6>` через запятую в
-    одной директиве в dnsmasq 2.90 наблюдался как пустые ipset'ы
-    (вероятно dnsmasq падает на add IPv4 → set family inet6 и обрывает
-    запись в обе семьи). Раздельные директивы — каждая своя ошибка/успех,
-    не аффектят друг друга.
+    На каждый домен — ДВЕ отдельные `ipset=`-строки (одна для v4-set'а,
+    одна для v6). Раздельный v4/v6 формат потому что dnsmasq 2.90 на
+    `<setv4>,<setv6>` наблюдался как пустые ipset'ы (вероятно падает на
+    add IPv4 → set family inet6 и обрывает запись в обе семьи).
+
+    Один домен = одна строка (а не объединение N доменов через слеши в
+    одну ipset-директиву). Длинные склеенные строки `ipset=/d1/d2/.../dN/set`
+    dnsmasq не любит: на ~80+ доменах валится `error at line N` без точного
+    указания причины. Build-line-per-domain — стабильно для любого размера.
 
     Имена ipset'ов — `<ipset_name>-v4` (hash:net family inet) и
     `<ipset_name>-v6` (hash:net family inet6); создаются через
@@ -35,9 +38,9 @@ def _render_config(*, rules: list[DnsRule]) -> str:
         unique_domains = sorted({_normalize_domain(domain=domain) for domain in rule.domains})
         if not unique_domains:
             continue
-        domains_part = "/".join(unique_domains)
-        lines.append(f"ipset=/{domains_part}/{rule.ipset_name}-v4\n")
-        lines.append(f"ipset=/{domains_part}/{rule.ipset_name}-v6\n")
+        for domain in unique_domains:
+            lines.append(f"ipset=/{domain}/{rule.ipset_name}-v4\n")
+            lines.append(f"ipset=/{domain}/{rule.ipset_name}-v6\n")
     return "".join(lines)
 
 

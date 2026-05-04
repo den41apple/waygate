@@ -23,11 +23,30 @@ async def test_render_config_emits_dual_family_ipsets():
         DnsRule(name="ai", domains=["claude.ai"], ipset_name="ai"),
     ]
     config = dns_module._render_config(rules=rules)
-    # Раздельные директивы для v4 и v6 — иначе dnsmasq 2.90 обрывает запись.
-    assert "ipset=/netflix.com/nflxvideo.net/streaming-v4" in config
-    assert "ipset=/netflix.com/nflxvideo.net/streaming-v6" in config
+    # На каждый домен — отдельная директива (длинные склейки `ipset=/d1/d2/.../setname`
+    # dnsmasq отказывается парсить на ~80+ доменах, валится `error at line N`).
+    assert "ipset=/netflix.com/streaming-v4" in config
+    assert "ipset=/netflix.com/streaming-v6" in config
+    assert "ipset=/nflxvideo.net/streaming-v4" in config
+    assert "ipset=/nflxvideo.net/streaming-v6" in config
     assert "ipset=/claude.ai/ai-v4" in config
     assert "ipset=/claude.ai/ai-v6" in config
+
+
+async def test_render_config_handles_large_domain_list():
+    """Регрессия: 80+ доменов в одной DnsRule — каждое имя в своей строке,
+    никаких длинных `ipset=/d1/d2/.../dN/setname` (dnsmasq на таких падает)."""
+    domains = [f"d{i}.example.com" for i in range(100)]
+    rules = [DnsRule(name="big", domains=domains, ipset_name="big")]
+    config = dns_module._render_config(rules=rules)
+    # 100 доменов × 2 family = 200 ipset-строк
+    ipset_lines = [line for line in config.splitlines() if line.startswith("ipset=")]
+    assert len(ipset_lines) == 200
+    # Каждая строка — ровно один домен между слешами.
+    for line in ipset_lines:
+        # Формат: ipset=/<domain>/<setname>
+        parts = line.split("/")
+        assert len(parts) == 3, f"ожидалось 3 части в '{line}'"
 
 
 async def test_apply_dns_creates_dual_ipsets_writes_and_reloads(tmp_path, fake_runner):

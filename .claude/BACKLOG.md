@@ -12,6 +12,68 @@
 
 ## Что осталось делать
 
+### 0-1. Self-hosted mirror для amneziawg `.deb` (RU-блокировка PPA)
+
+**Состояние:** установка amneziawg-dkms идёт через `add-apt-repository ppa:amnezia/ppa`. PPA размещается на `launchpadcontent.net` — РКН/провайдеры могут блокировать в любой момент. На российском хостинге онбординг ляжет.
+
+**Что сделать:**
+- Скачать актуальные `.deb` с PPA при build'е control-plane'а: `amneziawg-tools_*.deb`, `amneziawg-dkms_*.deb` (под Ubuntu 22.04/24.04, Debian 12).
+- Залить как ассеты в GitHub-release control-plane'а (уже доступно через `https://github.com/<owner>/waygate/releases/download/v...`).
+- Provisioner-step: сначала пытается PPA (быстрый путь, всегда свежее); если `apt-get update` фейлится по DNS/connect-timeout на launchpadcontent.net → fallback на скачивание `.deb`'ов с нашего GitHub release.
+- DKMS-build всё равно нужен `linux-headers` — обычно доступен из официальных Ubuntu mirror'ов и из mirror.yandex.ru, так что эта часть не страдает.
+
+**Где жить mirror'у:**
+- Скрипт `tools/mirror_amneziawg.sh` — раз в неделю CI скачивает .deb'ы с PPA, проверяет подпись, кладёт в release.
+- В `agent_releases.py` или новом `system_packages.py`-эндпойнте отдавать URL'ы с дефолтом из GitHub.
+
+**Тестирование:**
+- На dev-машине трудно воспроизвести «PPA заблокирован». Можно временно `iptables -A OUTPUT -d launchpadcontent.net -j REJECT` в провижнере при e2e и убедиться что fallback срабатывает.
+
+**Зачем сейчас не делаю:** есть hot-issues (dnsmasq waygate.conf, kernel-модуль), это работа на пол-дня и завязана на reliable CI mirror.
+
+### 0. Установка amneziawg kernel-модуля при онбординге
+
+**Состояние:** провижнер ставит только `wireguard-tools`, kernel-модуль `amneziawg` не устанавливается. На host'ах без модуля `awg-quick` внутри контейнера фолбекается на userspace `amneziawg-go`, который **не поддерживает obfuscation-параметры `I1`–`I5`**. Конфиги от провайдеров с этими полями (firstbyte и др.) падают с `Line unrecognized: I2=` → iface не поднимается → direction'ы дают `Cannot find device`.
+
+**Что добавить в `backend/server/provisioner/steps.py::install_deps`:**
+```bash
+add-apt-repository -y ppa:amnezia/ppa
+apt-get update
+apt-get install -y linux-headers-$(uname -r) amneziawg amneziawg-dkms
+modprobe amneziawg
+```
+
+**Edge cases:**
+- На некоторых cloud-VM нет `linux-headers-$(uname -r)` для актуального ядра — DKMS-build упадёт. Решение: emit warning в провижнере «kernel module не собрался — I*-параметры не работают», но НЕ ронять онбординг.
+- Старые ядра без поддержки DKMS-build — то же.
+
+**UI-warning (опционально):** в карточке AWG-клиента показывать badge «нет kernel-модуля» если `docker logs` упоминают «Falling back to slow userspace implementation».
+
+### 0a. Direction → awg-client integrity check в UI
+
+**Состояние:** если AWG-клиент удалён/переименован, direction всё ещё ссылается на старый `via_interface` (например `awg-firstbyte` когда фактически работает `awg-eurohoster`). При Apply агент возвращает `Cannot find device "awg-firstbyte"`. Оператор узнаёт это только в момент применения.
+
+**Что сделать:** в UI на карточке Routing direction'а сравнивать `direction.via_interface` с реальным списком AWG-клиентов (`useAwgClients`). Если netdev не найден среди running-клиентов — рендерить amber-badge «AWG-клиент не найден» с кнопкой «исправить» (открыть модалку с предзаполнением).
+
+**Альтернатива на бэкенде:** при materialize'е RoutingRule отказывать `409 Conflict` если `awg_client_id` ссылается на несуществующего/stopped клиента. Но это ломает кейс «временно выключил клиент, через минуту поднял» — лучше оставить как warning в UI.
+
+### 0b. Catch-all direction (split-tunnel по принципу «всё что не RU → server B»)
+
+**Состояние:** не реализовано. Сейчас Direction матчит только включением (`--match-set <ipset> dst -j MARK`); чтобы «всё кроме RU отправить на другую страну», нужен дефолтный egress.
+
+**Подход (выбран вариант 1):** добавить `Direction.is_default_egress: bool` (UNIQUE per-server). На агенте после всех match-set правил — финальный безусловный `MARK --set-mark <fwmark>` для пакетов с `mark 0`. UI: чекбокс «дефолтный egress (catch-all)» в модалке создания/редактирования direction'а с предупреждением «весь оставшийся трафик включая SSH-out и DNS пойдёт через эту direction».
+
+**Файлы при реализации:**
+- `backend/server/db.py` (Direction model + alembic-миграция).
+- `backend/server/api/directions.py` (валидация UNIQUE, materialize child-RoutingRule с особым sentinel-значением).
+- `backend/agent/routing.py` (после `_apply_rules_in_scope_family` навесить unconditional MARK с `-m mark --mark 0`).
+- `backend/agent/tests/test_routing.py` + integration с реальным контейнером.
+- `frontend/src/modals/AddRoutingDirectionModal.tsx` (чекбокс + warning-баннер).
+
+**Почему отложено:** пользователь хочет сначала отдебажить текущие проблемы, фича сама по себе средне-большая (2–3 часа с тестами).
+
+**Альтернатива (отвергнута):** negative match `! --match-set` per-direction. Гибче, но при нескольких ipset'ах семантика «не в (RU∪DE)» vs «не в RU AND не в DE» путает пользователя.
+
 ### 1. ACME-клиент в `backend/agent/tls.py::_apply_acme`
 
 **Состояние:** функция бросает `TlsApplyError("ACME HTTP-01/DNS-01 пока не реализован")`. Validate в `TlsConfig` пропускает `mode=acme`, дальше — стенка.
