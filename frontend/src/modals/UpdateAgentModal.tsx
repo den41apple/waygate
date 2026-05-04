@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { useAgentReleases } from "../api/agentReleases";
+import { useAgentReleases, useRefreshAgentReleases } from "../api/agentReleases";
 import { useRefreshServer, useServer, useUpdateServer } from "../api/servers";
 import type { UpdateServerPayload } from "../api/types";
 import { Icon } from "../components/Icon";
@@ -31,10 +31,13 @@ export function UpdateAgentModal({ serverId, currentVersion, onClose }: Props) {
   const refresh = useRefreshServer();
   const fresh = useServer(serverId);
   const releases = useAgentReleases();
+  const refreshReleases = useRefreshAgentReleases();
   // При открытии модалки — выдёргиваем актуальную версию (БД обновляется только
-  // через healthcheck/refresh, иначе тут долго висит prевентивная).
+  // через healthcheck/refresh, иначе тут долго висит prевентивная). Заодно
+  // invalidate'им список релизов чтобы свежий тег был сразу видим без ожидания TTL.
   useEffect(() => {
     refresh.mutate(serverId);
+    refreshReleases();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [serverId]);
   const displayedVersion = fresh.data?.version ?? currentVersion;
@@ -151,7 +154,27 @@ export function UpdateAgentModal({ serverId, currentVersion, onClose }: Props) {
               </div>
 
               <div className="field">
-                <label>Целевая версия</label>
+                <label
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 8,
+                  }}
+                >
+                  <span>Целевая версия</span>
+                  <button
+                    type="button"
+                    className="tb-btn"
+                    onClick={() => refreshReleases()}
+                    disabled={releases.isFetching}
+                    title="Принудительно дёрнуть GitHub Releases (обходит 60-сек кеш)"
+                    style={{ fontSize: 11 }}
+                  >
+                    <Icon name="refresh" size={12} />{" "}
+                    {releases.isFetching ? "Обновляю…" : "Обновить список"}
+                  </button>
+                </label>
                 <select
                   className="select"
                   value={tag}

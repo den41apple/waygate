@@ -40,7 +40,9 @@ def _semver_key(version: str) -> tuple[int, ...]:
 
 _TAG_PREFIX = "agent-v"
 _WHEEL_ASSET_NAME = "waygate_agent-py3-none-any.whl"
-_CACHE_TTL_SECONDS = 300
+# 60 секунд — баланс между свежестью списка после нового release'а и нагрузкой
+# на GitHub API. С 5-минутным кешем юзер видел свежий тег с задержкой до 5 мин.
+_CACHE_TTL_SECONDS = 60
 _REQUEST_TIMEOUT_SECONDS = 10
 # Кеш — простой in-memory, переживает между запросами но не между рестартами
 # control-plane'а (что нормально). Lock — чтобы не делать N параллельных
