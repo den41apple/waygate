@@ -91,6 +91,60 @@ async def test_update_unknown_server_404(client):
     assert response.status_code == 404
 
 
+async def test_save_ssh_credentials_via_patch(client, session_maker):
+    """Plaintext password принимается, шифруется и сохраняется. GET возвращает только has_ssh_password."""
+    from server.auth.secrets import decrypt
+    from server.models import Server
+
+    create = await client.post(
+        "/api/v1/servers",
+        json={"host": "10.0.0.6", "port": 7743, "name": "ssh-test", "token": "tok"},
+    )
+    server_id = create.json()["id"]
+    assert create.json()["has_ssh_password"] is False
+    assert create.json()["has_ssh_private_key"] is False
+
+    patch = await client.patch(
+        f"/api/v1/servers/{server_id}",
+        json={"ssh_password": "secret-pass-123", "ssh_user": "admin", "ssh_port": 2222},
+    )
+    assert patch.status_code == 200, patch.text
+    body = patch.json()
+    assert body["has_ssh_password"] is True
+    assert body["ssh_user"] == "admin"
+    assert body["ssh_port"] == 2222
+    # Plaintext в response никогда не возвращается.
+    assert "ssh_password" not in body
+    assert "ssh_private_key" not in body
+
+    # В БД лежит зашифрованный токен; decrypt возвращает оригинал.
+    async with session_maker() as session:
+        server = await session.get(Server, server_id)
+        assert server is not None
+        assert server.ssh_password_encrypted is not None
+        assert server.ssh_password_encrypted != "secret-pass-123"  # зашифрованный != plaintext
+        assert decrypt(token=server.ssh_password_encrypted) == "secret-pass-123"
+
+
+async def test_clear_ssh_credentials_via_empty_string(client):
+    """PATCH с `""` для ssh_password — удаляет cred (=> null в БД)."""
+    create = await client.post(
+        "/api/v1/servers",
+        json={"host": "10.0.0.7", "port": 7743, "name": "ssh-clear", "token": "tok"},
+    )
+    server_id = create.json()["id"]
+
+    # Сначала ставим
+    await client.patch(f"/api/v1/servers/{server_id}", json={"ssh_password": "p"})
+    body = (await client.get(f"/api/v1/servers/{server_id}")).json()
+    assert body["has_ssh_password"] is True
+
+    # Потом удаляем
+    await client.patch(f"/api/v1/servers/{server_id}", json={"ssh_password": ""})
+    body = (await client.get(f"/api/v1/servers/{server_id}")).json()
+    assert body["has_ssh_password"] is False
+
+
 async def test_delete_server_cascades(client):
     response = await client.post(
         "/api/v1/servers",

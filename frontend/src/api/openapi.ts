@@ -221,8 +221,11 @@ export interface paths {
         delete: operations["delete_server_api_v1_servers__server_id__delete"];
         options?: never;
         head?: never;
-        /** Update Server */
-        patch: operations["update_server_api_v1_servers__server_id__patch"];
+        /**
+         * Patch Server Settings
+         * @description Не путать с `update_server` ниже (self-update агента, POST /{id}/update).
+         */
+        patch: operations["patch_server_settings_api_v1_servers__server_id__patch"];
         trace?: never;
     };
     "/api/v1/servers/{server_id}/clients": {
@@ -1289,6 +1292,12 @@ export interface components {
             /** Region */
             region?: string | null;
             /**
+             * Save Ssh Credentials
+             * @description Сохранить SSH-креды в БД (Fernet) для server-side обновлений агента. Снять для повышенной безопасности — креды будут только в памяти онбординга и сразу в GC.
+             * @default true
+             */
+            save_ssh_credentials: boolean;
+            /**
              * Ssh Password
              * @description Пароль (либо ssh_private_key)
              */
@@ -1461,6 +1470,10 @@ export interface components {
             added_at: string;
             /** Awg Containers */
             awg_containers: string[];
+            /** Has Ssh Password */
+            has_ssh_password: boolean;
+            /** Has Ssh Private Key */
+            has_ssh_private_key: boolean;
             /** Host */
             host: string;
             /** Id */
@@ -1473,6 +1486,10 @@ export interface components {
             port: number;
             /** Region */
             region: string | null;
+            /** Ssh Port */
+            ssh_port: number;
+            /** Ssh User */
+            ssh_user: string;
             /** Status */
             status: string;
             /** Version */
@@ -1480,15 +1497,29 @@ export interface components {
         };
         /**
          * ServerUpdate
-         * @description PATCH-обновление настроек Server. host/port/token не меняем — для них
-         *     либо переонбординг (host/port — техническая смена endpoint'а), либо
-         *     POST /token/rotate (token).
+         * @description PATCH-обновление настроек Server.
+         *
+         *     Что нельзя менять через PATCH: `host`, `port`, `token` — для них либо
+         *     переонбординг (host/port — техническая смена endpoint'а), либо
+         *     `POST /token/rotate` (token).
+         *
+         *     SSH-fields (`ssh_password`, `ssh_private_key`) принимаются plaintext и
+         *     шифруются перед сохранением. Пустая строка `""` → `null` в БД (=удалить
+         *     cred). `None` (отсутствие поля в payload) → не трогать.
          */
         ServerUpdate: {
             /** Name */
             name?: string | null;
             /** Region */
             region?: string | null;
+            /** Ssh Password */
+            ssh_password?: string | null;
+            /** Ssh Port */
+            ssh_port?: number | null;
+            /** Ssh Private Key */
+            ssh_private_key?: string | null;
+            /** Ssh User */
+            ssh_user?: string | null;
         };
         /** TlsApplyResponse */
         TlsApplyResponse: {
@@ -2194,7 +2225,7 @@ export interface operations {
             };
         };
     };
-    update_server_api_v1_servers__server_id__patch: {
+    patch_server_settings_api_v1_servers__server_id__patch: {
         parameters: {
             query?: {
                 access_token?: string;

@@ -64,6 +64,11 @@ export function useUpdateServer() {
 export interface ServerSettingsPatch {
   name?: string;
   region?: string | null;
+  ssh_user?: string;
+  ssh_port?: number;
+  /** Пустая строка `""` — удалить cred. Не передавать (`undefined`) — не трогать. */
+  ssh_password?: string;
+  ssh_private_key?: string;
 }
 
 /** PATCH /servers/{id} — name/region. Не путать с `useUpdateServer` (self-update агента). */

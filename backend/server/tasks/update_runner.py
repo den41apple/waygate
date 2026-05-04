@@ -1,9 +1,15 @@
-"""Оркестрация self-update агента: POST /v1/update + ожидание reconnect.
+"""Оркестрация update'а агента — два flow:
 
-Работает как background-таска, эмитит шаги в `UpdateJob`. UI рендерит лог через
-SSE, аналогично онбордингу. Внутренние шаги агента (download, pip install,
-restart) не видны напрямую — control-plane эмиттит макроступы того, что он
-делает с агентом.
+1. **SSH-update** (приоритет): server открывает SSH к managed-серверу, скачивает
+   wheel, делает atomic-swap venv'а, рестартует unit. Это работает в обход
+   `ProtectSystem=strict` агентского юнита, который не даёт self-update'у
+   писать в `/opt/`. Требует сохранённых SSH-кредов.
+
+2. **Self-update fallback**: HTTP `POST /v1/update` агенту, агент сам пишет
+   swap-script и рестартуется. Используется если SSH-кредов нет (legacy-серверы
+   до миграции). На системах с `ProtectSystem=strict /opt` он упадёт.
+
+Оба эмиттят через `UpdateJob`, UI рендерит SSE-лог одинаково.
 """
 
 import asyncio
@@ -13,8 +19,11 @@ from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from server.agent_client import AgentClient, AgentClientError, AgentUnreachable
+from server.auth.secrets import SecretCipherError, decrypt
 from server.config import settings
 from server.models import Server, ServerStatus
+from server.provisioner.agent_update import update_agent_via_ssh
+from server.provisioner.ssh import SshError, ssh_connect
 from server.update_registry import UpdateEventType, UpdateJob
 from server.ws.events import EventType, WsEvent
 from server.ws.manager import get_manager
@@ -24,21 +33,22 @@ from shared.schemas import UpdateRequest
 _RECONNECT_POLL_INTERVAL_SECONDS = 2
 
 
-async def _load_agent_client(
+async def _load_server_snapshot(
     *,
     server_id: int,
     session_maker: async_sessionmaker[AsyncSession],
-) -> tuple[AgentClient, str, int] | None:
-    """Возвращает client + (host, port) для use в emit-сообщениях."""
+) -> Server | None:
+    """Грузим detached-копию Server-row. Используется и для AgentClient, и для SSH-кредов.
+
+    Возвращаем `Server`-объект «отвязанным» от сессии (expire_on_commit=False
+    в session_maker), чтобы безопасно читать поля после `__aexit__`.
+    """
     async with session_maker() as session:
-        server = await session.get(Server, server_id)
-        if server is None:
-            return None
-        return (
-            AgentClient(host=server.host, port=server.port, token=server.token),
-            server.host,
-            server.port,
-        )
+        return await session.get(Server, server_id)
+
+
+def _agent_client_for(*, server: Server) -> AgentClient:
+    return AgentClient(host=server.host, port=server.port, token=server.token)
 
 
 async def _wait_for_target_version(
@@ -102,26 +112,24 @@ async def _persist_version(
     )
 
 
-async def run_update(
+async def _run_self_update(
     *,
     job: UpdateJob,
-    server_id: int,
+    server: Server,
     target_version: str,
     wheel_url: str,
     wait_for_reconnect: bool,
     session_maker: async_sessionmaker[AsyncSession],
 ) -> None:
-    """Background-таска: запросить агента обновиться, опросить статус, обновить БД."""
-    loaded = await _load_agent_client(server_id=server_id, session_maker=session_maker)
-    if loaded is None:
-        await job.emit(type=UpdateEventType.ERROR, message=f"Server id={server_id} не найден")
-        await job.finish()
-        return
-    client, host, port = loaded
+    """Старый flow: HTTP POST /v1/update агенту, агент сам делает swap.
 
+    Падает на системах с `ProtectSystem=strict /opt` — agent не может писать
+    в свой venv. Оставлено как fallback для legacy-серверов без SSH-кредов.
+    """
+    client = _agent_client_for(server=server)
     await job.emit(
         type=UpdateEventType.PROGRESS,
-        message=f"Запрашиваю агент {host}:{port} обновиться до версии {target_version}",
+        message=f"[self-update] Запрашиваю агент {server.host}:{server.port} обновиться до {target_version}",
     )
     try:
         response = await client.update(
@@ -129,12 +137,10 @@ async def run_update(
         )
     except AgentUnreachable as exc:
         await job.emit(type=UpdateEventType.ERROR, message=f"Агент недоступен: {exc}")
-        await job.finish()
         return
     except AgentClientError as exc:
         logger.error("update: агент вернул ошибку: {}", exc)
         await job.emit(type=UpdateEventType.ERROR, message=str(exc))
-        await job.finish()
         return
 
     previous_version = response.previous_version
@@ -148,7 +154,6 @@ async def run_update(
             type=UpdateEventType.DONE,
             message=f"Запрос отправлен (без ожидания). Целевая версия: {target_version}",
         )
-        await job.finish()
         return
 
     confirmed_version = await _wait_for_target_version(
@@ -162,20 +167,143 @@ async def run_update(
             message=(
                 f"Таймаут: за {settings.provision_healthcheck_timeout_seconds} сек "
                 f"агент не вернулся с версией {target_version}. Возможно, ещё "
-                f"перезапускается — проверьте через 1-2 минуты."
+                f"перезапускается — проверьте через 1-2 минуты. Если повторяется — "
+                f"настройте SSH-креды в EditServerModal для server-side update'а."
             ),
         )
-        await job.finish()
         return
 
-    await _persist_version(
-        server_id=server_id,
-        confirmed_version=confirmed_version,
-        previous_version=previous_version,
-        session_maker=session_maker,
-    )
+    if server.id is not None:
+        await _persist_version(
+            server_id=server.id,
+            confirmed_version=confirmed_version,
+            previous_version=previous_version,
+            session_maker=session_maker,
+        )
     await job.emit(
         type=UpdateEventType.DONE,
         message=f"Версия {confirmed_version} подтверждена",
     )
-    await job.finish()
+
+
+async def _run_ssh_update(
+    *,
+    job: UpdateJob,
+    server: Server,
+    target_version: str,
+    wheel_url: str,
+    wait_for_reconnect: bool,
+    session_maker: async_sessionmaker[AsyncSession],
+) -> None:
+    """SSH-flow: server открывает SSH, swap'ает venv пошагово, restart, polling."""
+    # Дешифруем сохранённые креды.
+    try:
+        password = decrypt(token=server.ssh_password_encrypted) if server.ssh_password_encrypted else None
+        private_key = decrypt(token=server.ssh_private_key_encrypted) if server.ssh_private_key_encrypted else None
+    except SecretCipherError as exc:
+        await job.emit(
+            type=UpdateEventType.ERROR,
+            message=f"Не удалось расшифровать SSH-креды (SECRET_KEY изменился?): {exc}",
+        )
+        return
+
+    previous_version = server.version
+
+    async def _emit(message: str) -> None:
+        await job.emit(type=UpdateEventType.PROGRESS, message=message)
+
+    await _emit(f"[ssh] Подключаюсь к {server.ssh_user}@{server.host}:{server.ssh_port}…")
+    try:
+        async with ssh_connect(
+            host=server.host,
+            port=server.ssh_port,
+            username=server.ssh_user,
+            password=password,
+            private_key=private_key,
+        ) as ssh:
+            await update_agent_via_ssh(
+                ssh=ssh,
+                wheel_url=wheel_url,
+                version=target_version,
+                emit=_emit,
+            )
+    except SshError as exc:
+        logger.error("update via ssh: {}", exc)
+        await job.emit(type=UpdateEventType.ERROR, message=f"SSH-операция упала: {exc}")
+        return
+
+    if not wait_for_reconnect:
+        await job.emit(
+            type=UpdateEventType.DONE,
+            message=f"Готово (без ожидания). Целевая версия: {target_version}",
+        )
+        return
+
+    # После SSH-restart polling /v1/status — убеждаемся что новая версия запустилась.
+    client = _agent_client_for(server=server)
+    confirmed_version = await _wait_for_target_version(
+        job=job,
+        client=client,
+        target_version=target_version,
+    )
+    if confirmed_version is None:
+        await job.emit(
+            type=UpdateEventType.ERROR,
+            message=(
+                f"SSH-команды прошли, но агент не отвечает с версией {target_version} "
+                f"за {settings.provision_healthcheck_timeout_seconds} сек."
+            ),
+        )
+        return
+
+    if server.id is not None:
+        await _persist_version(
+            server_id=server.id,
+            confirmed_version=confirmed_version,
+            previous_version=previous_version,
+            session_maker=session_maker,
+        )
+    await job.emit(
+        type=UpdateEventType.DONE,
+        message=f"Версия {confirmed_version} подтверждена",
+    )
+
+
+async def run_update(
+    *,
+    job: UpdateJob,
+    server_id: int,
+    target_version: str,
+    wheel_url: str,
+    wait_for_reconnect: bool,
+    session_maker: async_sessionmaker[AsyncSession],
+) -> None:
+    """Background-таска. Авто-выбор flow: SSH если есть креды, иначе self-update."""
+    server = await _load_server_snapshot(server_id=server_id, session_maker=session_maker)
+    if server is None:
+        await job.emit(type=UpdateEventType.ERROR, message=f"Server id={server_id} не найден")
+        await job.finish()
+        return
+
+    has_ssh_creds = bool(server.ssh_password_encrypted or server.ssh_private_key_encrypted)
+    try:
+        if has_ssh_creds:
+            await _run_ssh_update(
+                job=job,
+                server=server,
+                target_version=target_version,
+                wheel_url=wheel_url,
+                wait_for_reconnect=wait_for_reconnect,
+                session_maker=session_maker,
+            )
+        else:
+            await _run_self_update(
+                job=job,
+                server=server,
+                target_version=target_version,
+                wheel_url=wheel_url,
+                wait_for_reconnect=wait_for_reconnect,
+                session_maker=session_maker,
+            )
+    finally:
+        await job.finish()

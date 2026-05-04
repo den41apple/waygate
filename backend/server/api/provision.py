@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from server.api.servers import ServerResponse
+from server.auth.secrets import encrypt
 from server.config import settings
 from server.db import get_session, get_session_maker
 from server.models import Server, ServerStatus
@@ -32,6 +33,13 @@ class ProvisionRequest(BaseModel):
     name: str = Field(description="Человекочитаемое имя")
     region: str | None = Field(default=None)
     agent_port: int | None = Field(default=None, description="Порт агента после установки (default 7743)")
+    save_ssh_credentials: bool = Field(
+        default=True,
+        description=(
+            "Сохранить SSH-креды в БД (Fernet) для server-side обновлений агента. "
+            "Снять для повышенной безопасности — креды будут только в памяти онбординга и сразу в GC."
+        ),
+    )
 
     @model_validator(mode="after")
     def validate_auth(self) -> "ProvisionRequest":
@@ -54,6 +62,10 @@ def _to_response(*, server: Server) -> ServerResponse:
         awg_containers=list(server.awg_containers),
         added_at=server.added_at,
         last_seen_at=server.last_seen_at,
+        ssh_user=server.ssh_user,
+        ssh_port=server.ssh_port,
+        has_ssh_password=server.ssh_password_encrypted is not None,
+        has_ssh_private_key=server.ssh_private_key_encrypted is not None,
     )
 
 
@@ -78,6 +90,16 @@ async def provision_server(
         select(Server).where(Server.host == request.host).order_by(desc(Server.id)),
     )
     existing = existing_result.scalars().first()
+    # SSH-креды для будущего server-side update'а агента — шифруем Fernet'ом если
+    # пользователь не снял галку (default=true). Сохранять отдельно от логики
+    # ssh_user/ssh_port, потому что те метаданные нам полезны и без plaintext-кредов.
+    encrypted_password = (
+        encrypt(plaintext=request.ssh_password) if request.save_ssh_credentials and request.ssh_password else None
+    )
+    encrypted_private_key = (
+        encrypt(plaintext=request.ssh_private_key) if request.save_ssh_credentials and request.ssh_private_key else None
+    )
+
     if existing is not None:
         existing.token = ""
         existing.name = request.name
@@ -86,6 +108,11 @@ async def provision_server(
         existing.status = ServerStatus.PROVISIONING.value
         existing.version = ""
         existing.awg_containers = []
+        existing.ssh_user = request.ssh_user
+        existing.ssh_port = request.ssh_port
+        if request.save_ssh_credentials:
+            existing.ssh_password_encrypted = encrypted_password
+            existing.ssh_private_key_encrypted = encrypted_private_key
         server = existing
         logger.info("provision: переиспользую server id={} host={}", server.id, server.host)
     else:
@@ -96,6 +123,10 @@ async def provision_server(
             token="",  # будет установлен по итогам провижионинга
             region=request.region,
             status=ServerStatus.PROVISIONING.value,
+            ssh_user=request.ssh_user,
+            ssh_port=request.ssh_port,
+            ssh_password_encrypted=encrypted_password,
+            ssh_private_key_encrypted=encrypted_private_key,
         )
         session.add(server)
     await session.commit()

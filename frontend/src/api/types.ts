@@ -14,6 +14,10 @@ export interface ServerSummary {
   awg_containers: string[];
   added_at: string;
   last_seen_at: string | null;
+  ssh_user: string;
+  ssh_port: number;
+  has_ssh_password: boolean;
+  has_ssh_private_key: boolean;
 }
 
 export interface ServerListResponse {
@@ -159,6 +163,8 @@ export interface ProvisionPayload {
   name: string;
   region?: string | null;
   agent_port?: number | null;
+  /** Сохранить ssh-креды для server-side update'ов (Fernet поверх SECRET_KEY). */
+  save_ssh_credentials?: boolean;
 }
 
 export interface UpdateServerPayload {

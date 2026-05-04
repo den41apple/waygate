@@ -185,6 +185,23 @@
 
 **Что сделать:** агент возвращать `interface_name` в `/v1/clients` response → фронт берёт оттуда вместо локальной формулы. Уже есть `client.name`, нужен ещё `interface_name`.
 
+### 21. UI-диагностика managed-сервера (через тот же SSH-flow что update)
+
+**Состояние:** когда агент онлайн, но что-то странно ведёт себя (stuck self-update, не применяются rules, нет netdev'ов), сейчас единственный путь — SSH/console руками. Запоминающийся набор команд:
+
+```bash
+cat /var/lib/waygate-agent/update.log
+ls -la /opt/waygate-agent /opt/waygate-agent.new /opt/waygate-agent.bak 2>&1
+systemctl status waygate-agent --no-pager
+journalctl -u waygate-agent -n 30 --no-pager
+ip rule list | grep fwmark
+ipset list -n
+ip link show | grep awg
+```
+
+**Что сделать:** после реализации SSH-update-flow (хранение SSH-кредов в `Server.ssh_password_encrypted`/`ssh_private_key_encrypted`) добавить кнопку **«Диагностика»** в `Topbar.tsx`. Открывает модалку, выполняет вышеперечисленные команды через тот же `SshSession`, рендерит вывод секциями (как `journalctl` блок, `ls /opt` блок и т.д.). Нет SSH-кредов — кнопка disabled с подсказкой «настрой ssh-credentials».
+
+Дополнительно: кнопка **«Перезапустить агента»** там же — `systemctl restart waygate-agent` через SSH. Полезно для случаев когда агент завис, но restart-button через REST API недоступен (потому что REST API ведёт через зависший process).
 
 ---
 

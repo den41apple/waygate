@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import delete, select
 
 from server.agent_client import AgentClient, AgentClientError, AgentUnreachable
+from server.auth.secrets import encrypt
 from server.db import get_session, get_session_maker
 from server.models import (
     AuditEntry,
@@ -49,6 +50,13 @@ class ServerResponse(BaseModel):
     awg_containers: list[str]
     added_at: datetime
     last_seen_at: datetime | None
+    # SSH-доступ для server-side update'а. Plaintext креды никогда не отдаём;
+    # фронт получает только booleans чтобы знать активен ли SSH-flow и какую
+    # форму показать в EditServerModal («сменить пароль» vs «удалить ключ»).
+    ssh_user: str
+    ssh_port: int
+    has_ssh_password: bool
+    has_ssh_private_key: bool
 
 
 class ServerListResponse(BaseModel):
@@ -69,6 +77,10 @@ def _to_response(*, server: Server) -> ServerResponse:
         awg_containers=list(server.awg_containers),
         added_at=server.added_at,
         last_seen_at=server.last_seen_at,
+        ssh_user=server.ssh_user,
+        ssh_port=server.ssh_port,
+        has_ssh_password=server.ssh_password_encrypted is not None,
+        has_ssh_private_key=server.ssh_private_key_encrypted is not None,
     )
 
 
@@ -119,12 +131,23 @@ async def get_server(
 
 
 class ServerUpdate(BaseModel):
-    """PATCH-обновление настроек Server. host/port/token не меняем — для них
-    либо переонбординг (host/port — техническая смена endpoint'а), либо
-    POST /token/rotate (token)."""
+    """PATCH-обновление настроек Server.
+
+    Что нельзя менять через PATCH: `host`, `port`, `token` — для них либо
+    переонбординг (host/port — техническая смена endpoint'а), либо
+    `POST /token/rotate` (token).
+
+    SSH-fields (`ssh_password`, `ssh_private_key`) принимаются plaintext и
+    шифруются перед сохранением. Пустая строка `""` → `null` в БД (=удалить
+    cred). `None` (отсутствие поля в payload) → не трогать.
+    """
 
     name: str | None = None
     region: str | None = None
+    ssh_user: str | None = None
+    ssh_port: int | None = None
+    ssh_password: str | None = None
+    ssh_private_key: str | None = None
 
 
 @router.patch("/{server_id}", response_model=ServerResponse)
@@ -138,6 +161,14 @@ async def patch_server_settings(
     if server is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"server id={server_id} не найден")
     payload = request.model_dump(exclude_unset=True)
+    # SSH-creds — особый case: plaintext входит, encrypted-token летит в БД.
+    # Пустая строка означает «удалить cred» → null в БД.
+    if "ssh_password" in payload:
+        plain = payload.pop("ssh_password")
+        server.ssh_password_encrypted = encrypt(plaintext=plain) if plain else None
+    if "ssh_private_key" in payload:
+        plain = payload.pop("ssh_private_key")
+        server.ssh_private_key_encrypted = encrypt(plaintext=plain) if plain else None
     for field, value in payload.items():
         setattr(server, field, value)
     await session.commit()

@@ -20,6 +20,7 @@ interface FormState {
   region: string;
   agent_port: string;
   authMode: "password" | "key";
+  save_ssh_credentials: boolean;
 }
 
 interface LogLine {
@@ -59,6 +60,7 @@ export function AddServerModal({ onClose }: Props) {
     region: "",
     agent_port: "7743",
     authMode: "password",
+    save_ssh_credentials: true,
   });
   const [serverId, setServerId] = useState<number | null>(null);
   const [lines, setLines] = useState<LogLine[]>([]);
@@ -94,6 +96,7 @@ export function AddServerModal({ onClose }: Props) {
         name: form.name || form.host,
         region: form.region || null,
         agent_port: Number(form.agent_port),
+        save_ssh_credentials: form.save_ssh_credentials,
       });
       setServerId(result.id);
       setStep(1);
@@ -349,8 +352,29 @@ function ConnectStep({ form, update, disabled }: ConnectStepProps) {
           </div>
         </>
       )}
+      <label
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          fontSize: 12,
+          color: "var(--text-2)",
+          marginTop: 8,
+          cursor: "pointer",
+        }}
+      >
+        <input
+          type="checkbox"
+          checked={form.save_ssh_credentials}
+          onChange={(event) => update({ save_ssh_credentials: event.target.checked })}
+        />
+        Сохранить SSH-креды для будущих обновлений агента
+      </label>
       <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11.5, color: "var(--text-3)", marginTop: 4 }}>
-        <Icon name="lock" size={12} /> Креды используются один раз и не пишутся в БД (минимум attack surface).
+        <Icon name="lock" size={12} />
+        {form.save_ssh_credentials
+          ? "Креды шифруются Fernet'ом поверх SECRET_KEY и хранятся в БД. Используются для server-side update'а агента (обходит self-update, который ломается на ProtectSystem=strict /opt)."
+          : "Креды используются один раз и не пишутся в БД (минимум attack surface). Re-update будет идти через self-update fallback."}
       </div>
       {disabled && <div className="hint">Готовлю фоновую таску…</div>}
     </div>
