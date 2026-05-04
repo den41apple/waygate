@@ -682,6 +682,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/servers/{server_id}/uninstall": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Uninstall Server
+         * @description Полностью удаляет waygate-agent с target-сервера + удаляет server из БД.
+         *
+         *     Требует сохранённых SSH-credentials (через `PATCH /servers/{id}` с
+         *     ssh_password или ssh_private_key). Если кредов нет — 400.
+         *
+         *     Что делает на target:
+         *     - systemctl stop/disable waygate-agent
+         *     - docker rm -f всех waygate-amnezia-client-*
+         *     - flush iptables mangle/nat (только waygate-related)
+         *     - flush ip rule fwmark + custom routing tables
+         *     - destroy waygate-managed ipset'ы (geoip-*, dns-*, *-v4/v6)
+         *     - rm -rf /opt/waygate-agent /etc/waygate /var/lib/waygate-agent /etc/amnezia
+         *     - rm /etc/dnsmasq.d/waygate.conf + restart dnsmasq
+         *     - rm /etc/systemd/system/waygate-agent.service + daemon-reload
+         *
+         *     После успешного uninstall'а server-запись удаляется из БД (как `DELETE /{id}`).
+         */
+        post: operations["uninstall_server_api_v1_servers__server_id__uninstall_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/servers/{server_id}/update": {
         parameters: {
             query?: never;
@@ -1697,6 +1732,19 @@ export interface components {
              * @description Все AWG-туннели на сервере
              */
             tunnels: components["schemas"]["TunnelInfo"][];
+        };
+        /**
+         * UninstallResponse
+         * @description Результат полного удаления waygate-agent с target-сервера.
+         */
+        UninstallResponse: {
+            /**
+             * Log
+             * @description Прогресс-лог cleanup'а на target-VM
+             */
+            log: string[];
+            /** Server Id */
+            server_id: number;
         };
         /** UpdateServerRequest */
         UpdateServerRequest: {
@@ -3548,6 +3596,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TunnelsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    uninstall_server_api_v1_servers__server_id__uninstall_post: {
+        parameters: {
+            query?: {
+                access_token?: string;
+            };
+            header?: {
+                authorization?: string;
+            };
+            path: {
+                server_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UninstallResponse"];
                 };
             };
             /** @description Validation Error */

@@ -35,6 +35,21 @@ export function useDeleteServer() {
   });
 }
 
+export interface UninstallResponse {
+  server_id: number;
+  log: string[];
+}
+
+/** Полный uninstall: SSH → cleanup всего на target → удалить server из БД.
+ * Требует сохранённых SSH-credentials (через PATCH ssh_password/key). */
+export function useUninstallServer() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (serverId: number) => api.post<UninstallResponse>(`/servers/${serverId}/uninstall`),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: SERVERS_KEY }),
+  });
+}
+
 export function useRefreshServer() {
   const queryClient = useQueryClient();
   return useMutation({

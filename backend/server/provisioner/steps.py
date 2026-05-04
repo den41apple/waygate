@@ -98,6 +98,25 @@ async def install_deps(*, ssh: SshSession, emit: ProgressEmitter) -> None:
         ),
         check=False,
     )
+
+    # Python 3.13 — текущий целевой версии waygate-agent (см. backend/agent/pyproject.toml
+    # `requires-python = ">=3.11"`, но мы хотим 3.13 для consistency с dev-средой
+    # и future-proof). На Ubuntu 22.04 default 3.10, на 24.04 — 3.12. Если уже
+    # 3.13 — пропускаем. Если нет — пробуем deadsnakes PPA. Опционально: в сборке
+    # упадёт — оставим default python3 как fallback.
+    await emit("Проверка/установка Python 3.13…")
+    await ssh.run(
+        command=(
+            "if ! command -v python3.13 >/dev/null 2>&1; then "
+            "  (add-apt-repository -y ppa:deadsnakes/ppa "
+            "  && DEBIAN_FRONTEND=noninteractive apt-get update -qq "
+            "  && DEBIAN_FRONTEND=noninteractive apt-get install -y python3.13 python3.13-venv) "
+            "  || true; "
+            "fi"
+        ),
+        check=False,
+    )
+
     await emit("Зависимости установлены")
 
 
@@ -208,7 +227,15 @@ async def deploy_agent(
     await fetch_wheel_to_target(ssh=ssh, wheel_url=wheel_url, wheel_path=wheel_path, emit=emit)
 
     await emit("Создаю virtualenv в /opt/waygate-agent…")
-    await ssh.run(command="rm -rf /opt/waygate-agent && python3 -m venv /opt/waygate-agent")
+    # Используем python3.13 если доступен (см. install_deps), иначе fallback на python3
+    # (default ОС). 3.13 — консистентность с dev-средой.
+    await ssh.run(
+        command=(
+            "rm -rf /opt/waygate-agent && "
+            "PY=$(command -v python3.13 || command -v python3) && "
+            "$PY -m venv /opt/waygate-agent"
+        ),
+    )
     await ssh.run(command="/opt/waygate-agent/bin/pip install --upgrade pip --quiet")
 
     await emit("Устанавливаю agent-wheel в venv…")

@@ -9,9 +9,10 @@ interface Props {
   onSelect: (id: number) => void;
   onAdd: () => void;
   onDelete: (server: ServerSummary) => void;
+  onUninstall: (server: ServerSummary) => void;
 }
 
-export function Sidebar({ servers, activeId, onSelect, onAdd, onDelete }: Props) {
+export function Sidebar({ servers, activeId, onSelect, onAdd, onDelete, onUninstall }: Props) {
   const [query, setQuery] = useState("");
 
   const list = useMemo(() => {
@@ -75,10 +76,37 @@ export function Sidebar({ servers, activeId, onSelect, onAdd, onDelete }: Props)
                 <span className="region">{server.region ?? "—"}</span>
                 <button
                   className="sb-del"
-                  title="Удалить сервер"
+                  title="Снести агента + удалить (cleanup на target по SSH)"
                   onClick={(event) => {
                     event.stopPropagation();
-                    if (window.confirm(`Удалить сервер ${server.name} (${server.host})?`)) {
+                    if (
+                      window.confirm(
+                        `СНЕСТИ всё с сервера ${server.name} (${server.host})?\n\n` +
+                          "На target по SSH будет:\n" +
+                          "• systemctl stop/disable waygate-agent\n" +
+                          "• docker rm waygate-amnezia-client-*\n" +
+                          "• flush iptables/ipset/route\n" +
+                          "• rm -rf /opt/waygate-agent /etc/waygate /var/lib/waygate-agent\n\n" +
+                          "Требует сохранённых SSH-кредов в карточке сервера.",
+                      )
+                    ) {
+                      onUninstall(server);
+                    }
+                  }}
+                >
+                  <Icon name="server" size={14} />
+                </button>
+                <button
+                  className="sb-del"
+                  title="Только удалить из БД (агент на target остаётся жить)"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    if (
+                      window.confirm(
+                        `Удалить только запись в БД? Агент на ${server.host} останется работать ` +
+                          "(если хочешь полный cleanup — используй кнопку 🗑).",
+                      )
+                    ) {
                       onDelete(server);
                     }
                   }}

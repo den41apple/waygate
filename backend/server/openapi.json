@@ -2187,6 +2187,29 @@
         "title": "TunnelsResponse",
         "type": "object"
       },
+      "UninstallResponse": {
+        "description": "\u0420\u0435\u0437\u0443\u043b\u044c\u0442\u0430\u0442 \u043f\u043e\u043b\u043d\u043e\u0433\u043e \u0443\u0434\u0430\u043b\u0435\u043d\u0438\u044f waygate-agent \u0441 target-\u0441\u0435\u0440\u0432\u0435\u0440\u0430.",
+        "properties": {
+          "log": {
+            "description": "\u041f\u0440\u043e\u0433\u0440\u0435\u0441\u0441-\u043b\u043e\u0433 cleanup'\u0430 \u043d\u0430 target-VM",
+            "items": {
+              "type": "string"
+            },
+            "title": "Log",
+            "type": "array"
+          },
+          "server_id": {
+            "title": "Server Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "server_id",
+          "log"
+        ],
+        "title": "UninstallResponse",
+        "type": "object"
+      },
       "UpdateServerRequest": {
         "properties": {
           "version": {
@@ -5577,6 +5600,69 @@
         "summary": "Get Tunnels",
         "tags": [
           "tunnels"
+        ]
+      }
+    },
+    "/api/v1/servers/{server_id}/uninstall": {
+      "post": {
+        "description": "\u041f\u043e\u043b\u043d\u043e\u0441\u0442\u044c\u044e \u0443\u0434\u0430\u043b\u044f\u0435\u0442 waygate-agent \u0441 target-\u0441\u0435\u0440\u0432\u0435\u0440\u0430 + \u0443\u0434\u0430\u043b\u044f\u0435\u0442 server \u0438\u0437 \u0411\u0414.\n\n\u0422\u0440\u0435\u0431\u0443\u0435\u0442 \u0441\u043e\u0445\u0440\u0430\u043d\u0451\u043d\u043d\u044b\u0445 SSH-credentials (\u0447\u0435\u0440\u0435\u0437 `PATCH /servers/{id}` \u0441\nssh_password \u0438\u043b\u0438 ssh_private_key). \u0415\u0441\u043b\u0438 \u043a\u0440\u0435\u0434\u043e\u0432 \u043d\u0435\u0442 \u2014 400.\n\n\u0427\u0442\u043e \u0434\u0435\u043b\u0430\u0435\u0442 \u043d\u0430 target:\n- systemctl stop/disable waygate-agent\n- docker rm -f \u0432\u0441\u0435\u0445 waygate-amnezia-client-*\n- flush iptables mangle/nat (\u0442\u043e\u043b\u044c\u043a\u043e waygate-related)\n- flush ip rule fwmark + custom routing tables\n- destroy waygate-managed ipset'\u044b (geoip-*, dns-*, *-v4/v6)\n- rm -rf /opt/waygate-agent /etc/waygate /var/lib/waygate-agent /etc/amnezia\n- rm /etc/dnsmasq.d/waygate.conf + restart dnsmasq\n- rm /etc/systemd/system/waygate-agent.service + daemon-reload\n\n\u041f\u043e\u0441\u043b\u0435 \u0443\u0441\u043f\u0435\u0448\u043d\u043e\u0433\u043e uninstall'\u0430 server-\u0437\u0430\u043f\u0438\u0441\u044c \u0443\u0434\u0430\u043b\u044f\u0435\u0442\u0441\u044f \u0438\u0437 \u0411\u0414 (\u043a\u0430\u043a `DELETE /{id}`).",
+        "operationId": "uninstall_server_api_v1_servers__server_id__uninstall_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "server_id",
+            "required": true,
+            "schema": {
+              "title": "Server Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "access_token",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Access Token",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UninstallResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Uninstall Server",
+        "tags": [
+          "servers"
         ]
       }
     },

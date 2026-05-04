@@ -241,7 +241,7 @@ async def test_update_uses_ssh_flow_when_ssh_creds_saved(
 
     # SSH-команды реально вызывались
     assert any("curl -fsSL" in c for c in ssh_commands)
-    assert any("python3 -m venv" in c for c in ssh_commands)
+    assert any("-m venv" in c for c in ssh_commands)
     assert any("systemctl restart waygate-agent" in c for c in ssh_commands)
     assert any("mv /opt/waygate-agent" in c for c in ssh_commands)
 

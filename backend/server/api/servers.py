@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import delete, select
 
 from server.agent_client import AgentClient, AgentClientError, AgentUnreachable
-from server.auth.secrets import encrypt
+from server.auth.secrets import SecretCipherError, decrypt, encrypt
 from server.db import get_session, get_session_maker
 from server.models import (
     AuditEntry,
@@ -23,6 +23,8 @@ from server.models import (
     ServerStatus,
     TlsConfigRow,
 )
+from server.provisioner.ssh import SshError, ssh_connect
+from server.provisioner.uninstall import uninstall_agent
 from server.tasks.update_runner import run_update
 from server.update_registry import get_update_registry
 from server.ws.events import EventType, WsEvent
@@ -393,3 +395,96 @@ async def refresh_server(
             ),
         )
     return _to_response(server=server)
+
+
+class UninstallResponse(BaseModel):
+    """Результат полного удаления waygate-agent с target-сервера."""
+
+    server_id: int
+    log: list[str] = Field(description="Прогресс-лог cleanup'а на target-VM")
+
+
+@router.post("/{server_id}/uninstall", response_model=UninstallResponse)
+async def uninstall_server(
+    server_id: int,
+    session: AsyncSession = Depends(get_session),
+) -> UninstallResponse:
+    """Полностью удаляет waygate-agent с target-сервера + удаляет server из БД.
+
+    Требует сохранённых SSH-credentials (через `PATCH /servers/{id}` с
+    ssh_password или ssh_private_key). Если кредов нет — 400.
+
+    Что делает на target:
+    - systemctl stop/disable waygate-agent
+    - docker rm -f всех waygate-amnezia-client-*
+    - flush iptables mangle/nat (только waygate-related)
+    - flush ip rule fwmark + custom routing tables
+    - destroy waygate-managed ipset'ы (geoip-*, dns-*, *-v4/v6)
+    - rm -rf /opt/waygate-agent /etc/waygate /var/lib/waygate-agent /etc/amnezia
+    - rm /etc/dnsmasq.d/waygate.conf + restart dnsmasq
+    - rm /etc/systemd/system/waygate-agent.service + daemon-reload
+
+    После успешного uninstall'а server-запись удаляется из БД (как `DELETE /{id}`).
+    """
+    server = await session.get(Server, server_id)
+    if server is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"server id={server_id} не найден")
+    if not server.ssh_password_encrypted and not server.ssh_private_key_encrypted:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Для uninstall'а нужны сохранённые SSH-credentials. "
+                "Установи пароль/ключ через PATCH /servers/{id} и попробуй снова."
+            ),
+        )
+
+    try:
+        password = decrypt(token=server.ssh_password_encrypted) if server.ssh_password_encrypted else None
+        private_key = decrypt(token=server.ssh_private_key_encrypted) if server.ssh_private_key_encrypted else None
+    except SecretCipherError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Не удалось расшифровать SSH-креды (SECRET_KEY изменился?): {exc}",
+        ) from exc
+
+    log: list[str] = []
+
+    async def _emit(message: str) -> None:
+        log.append(message)
+
+    try:
+        async with ssh_connect(
+            host=server.host,
+            port=server.ssh_port,
+            username=server.ssh_user,
+            password=password,
+            private_key=private_key,
+        ) as ssh:
+            await uninstall_agent(ssh=ssh, emit=_emit)
+    except SshError as exc:
+        logger.error("uninstall via ssh: {}", exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"SSH-операция упала: {exc}",
+        ) from exc
+
+    # После успешного cleanup'а на target — удаляем server из БД (та же логика что delete_server).
+    await session.execute(delete(MetricsPoint).where(MetricsPoint.server_id == server_id))
+    await session.execute(delete(RoutingRule).where(RoutingRule.server_id == server_id))
+    await session.execute(delete(DnsRule).where(DnsRule.server_id == server_id))
+    await session.execute(delete(TlsConfigRow).where(TlsConfigRow.server_id == server_id))
+    await session.execute(
+        update(AuditEntry).where(AuditEntry.server_id == server_id).values(server_id=None),
+    )
+    await session.delete(server)
+    await session.commit()
+    logger.info("server uninstalled: id={}, log lines={}", server_id, len(log))
+    await get_manager().broadcast(
+        event=WsEvent(
+            type=EventType.SERVER_DELETED,
+            server_id=server_id,
+            payload={"reason": "uninstalled"},
+            timestamp=datetime.now(tz=UTC),
+        ),
+    )
+    return UninstallResponse(server_id=server_id, log=log)

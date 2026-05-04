@@ -6,7 +6,7 @@ import { useDirections } from "./api/directions";
 import { useDnsRules } from "./api/dns";
 import { useGeoIpLists } from "./api/geoip";
 import { useIpsetGroups } from "./api/ipsetGroups";
-import { useDeleteServer, useServers } from "./api/servers";
+import { useDeleteServer, useServers, useUninstallServer } from "./api/servers";
 import { Sidebar } from "./components/Sidebar";
 import { StatusBar } from "./components/StatusBar";
 import { type TabItem, Tabs } from "./components/Tabs";
@@ -59,6 +59,7 @@ function Dashboard() {
 
   const { data: servers = [], isLoading } = useServers();
   const deleteServer = useDeleteServer();
+  const uninstallServer = useUninstallServer();
   const activeServerId = useUiStore((state) => state.activeServerId);
   const setActiveServerId = useUiStore((state) => state.setActiveServerId);
   const activeTab = useUiStore((state) => state.activeTab);
@@ -104,6 +105,17 @@ function Dashboard() {
         onDelete={(server) => {
           if (server.id === activeServerId) setActiveServerId(null);
           deleteServer.mutate(server.id);
+        }}
+        onUninstall={(server) => {
+          if (server.id === activeServerId) setActiveServerId(null);
+          uninstallServer.mutate(server.id, {
+            onSuccess: (data) => {
+              alert(
+                `Сервер ${server.name} удалён.\n\nЛог cleanup'а:\n${(data?.log ?? []).join("\n")}`,
+              );
+            },
+            onError: (error) => alert(`Ошибка uninstall: ${String(error)}`),
+          });
         }}
       />
       <div

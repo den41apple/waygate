@@ -41,7 +41,10 @@ async def update_agent_via_ssh(
     await emit("Создаю свежий venv в /opt/waygate-agent.new...")
     # rm -rf — без check, чтобы первый запуск (когда .new/.bak не существуют) не падал.
     await ssh.run(command="rm -rf /opt/waygate-agent.new /opt/waygate-agent.bak", check=False)
-    await ssh.run(command="python3 -m venv /opt/waygate-agent.new")
+    # Python 3.13 если есть, иначе fallback на default python3.
+    await ssh.run(
+        command=("PY=$(command -v python3.13 || command -v python3) && $PY -m venv /opt/waygate-agent.new"),
+    )
 
     await emit("Устанавливаю wheel...")
     await ssh.run(command="/opt/waygate-agent.new/bin/pip install --upgrade --quiet pip")
