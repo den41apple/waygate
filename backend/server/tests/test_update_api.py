@@ -178,10 +178,20 @@ async def test_update_uses_ssh_flow_when_ssh_creds_saved(
 
             class _R:
                 returncode = 0
-                stdout = ""
+                # `id -u` → "0" чтобы ensure_root_or_sudo не дёргал sudo-проверку.
+                stdout = "0\n" if command == "id -u" else ""
                 stderr = ""
 
             return _R()
+
+        async def ensure_root_or_sudo(self) -> None:
+            await self.run(command="id -u")
+
+        def enable_sudo(self) -> None:
+            pass
+
+        async def upload_bytes(self, *, path: str, content: bytes) -> None:
+            ssh_commands.append(f"sftp upload {path}")
 
     @contextlib.asynccontextmanager
     async def fake_ssh_connect(**kwargs):

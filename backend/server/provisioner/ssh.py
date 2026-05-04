@@ -69,6 +69,30 @@ class SshSession:
         await self.run(command=full)
         await self.run(command=f"chmod {mode} '{escaped_path}'")
 
+    async def ensure_root_or_sudo(self) -> None:
+        """Если SSH-юзер не root — проверяет NOPASSWD-sudo и включает sudo-режим.
+
+        Идемпотентно. Вызывается из всех мест, где нужен root: онбординг (через
+        `verify_os`) и agent-update (через `update_agent_via_ssh`). Без этого
+        `python3 -m venv /opt/...`, `apt-get`, `chattr` и т.п. валятся с
+        Permission denied на не-root юзерах.
+        """
+        if self._sudo_prefix:
+            return
+        uid_result = await self.run(command="id -u")
+        if uid_result.stdout.strip() == "0":
+            return
+        sudo_check = await self.run(command="sudo -n true", check=False)
+        if sudo_check.returncode != 0:
+            raise SshError(
+                "SSH-юзер не root, и NOPASSWD-sudo не настроен. Варианты: "
+                "1) подключайся как root@<host>; "
+                "2) настрой sudoers на target-хосте — "
+                "echo '$USER ALL=(ALL) NOPASSWD: ALL' | sudo tee /etc/sudoers.d/waygate-nopasswd "
+                "&& sudo chmod 440 /etc/sudoers.d/waygate-nopasswd",
+            )
+        self.enable_sudo()
+
     async def upload_bytes(self, *, path: str, content: bytes) -> None:
         """Заливает бинарные данные на target через SFTP.
 

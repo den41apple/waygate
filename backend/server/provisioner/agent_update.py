@@ -31,6 +31,10 @@ async def update_agent_via_ssh(
     # Иначе он падает с "Invalid wheel filename (wrong number of parts)".
     wheel_path = f"/tmp/waygate_agent-{version}-py3-none-any.whl"
 
+    # `python3 -m venv /opt/...`, `mv` в /opt, `systemctl restart` — всё требует root.
+    # Если SSH-юзер не root → включаем sudo-режим (требует NOPASSWD).
+    await ssh.ensure_root_or_sudo()
+
     await emit("Скачиваю wheel...")
     await fetch_wheel_to_target(ssh=ssh, wheel_url=wheel_url, wheel_path=wheel_path, emit=emit)
 
