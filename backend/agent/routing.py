@@ -15,10 +15,12 @@ A-записи в `<ipset>-v4`, AAAA — в `<ipset>-v6`; iptables/ip6tables mat
 мимо VPN.
 """
 
+import json
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import StrEnum
+from pathlib import Path
 
 from loguru import logger
 
@@ -1008,6 +1010,36 @@ def _group_by_scope(rules: Iterable[RoutingRule]) -> dict[tuple[RoutingScope, st
     return groups
 
 
+_TOUCHED_NETNS_FILE = "/var/lib/waygate-agent/touched-netns.json"
+
+
+def _read_touched_netns() -> set[str]:
+    """Читает persistent-set имён container'ов в которых ранее apply'или
+    scope=container правила. Используется для orphan-cleanup'а: если direction
+    со scope_target=X удалён из desired, мы должны зайти в netns X и снести
+    оставшиеся iptables/rule/route. Без persistent state agent не помнит между
+    рестартами какие netns'ы трогал."""
+    path = Path(_TOUCHED_NETNS_FILE)
+    if not path.exists():
+        return set()
+    try:
+        data = json.loads(path.read_text())
+        if isinstance(data, list):
+            return {str(item) for item in data}
+    except (OSError, ValueError) as exc:
+        logger.warning("touched-netns: не смог прочитать {}: {}", path, exc)
+    return set()
+
+
+def _write_touched_netns(targets: set[str]) -> None:
+    path = Path(_TOUCHED_NETNS_FILE)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(sorted(targets)))
+    except OSError as exc:
+        logger.warning("touched-netns: не смог записать {}: {}", path, exc)
+
+
 async def apply_rules(*, rules: list[RoutingRule]) -> ApplyRulesResponse:
     """Применяет правила маршрутизации идемпотентно.
 
@@ -1019,16 +1051,34 @@ async def apply_rules(*, rules: list[RoutingRule]) -> ApplyRulesResponse:
     равно делаем reconcile host-scope с пустым desired, чтобы удалить orphan'ы
     (висячие iptables/ip rule/ip route от прошлых apply). Без этого toggle
     direction → off → Apply не освобождал бы systemd-уровневые правила.
+
+    Для scope=container ведём persistent-список «трогали ли мы этот netns»
+    (`/var/lib/waygate-agent/touched-netns.json`). При apply без правил для
+    netns'а, который раньше применяли — делаем cleanup-reconcile внутри netns'а
+    (с пустым desired). Иначе orphan-state остаётся жить в чужой netns'е после
+    удаления direction'а в UI.
     """
     desired = [rule for rule in rules if rule.enabled]
     errors: list[str] = []
 
     # Гарантируем что host-scope reconcile запускается даже при пустом desired.
-    # Container-scope без активных правил — не reconcile'им: pid контейнера может
-    # не существовать (контейнер удалён); orphan'ы там сами уйдут вместе с netns.
     groups = _group_by_scope(desired)
     if (RoutingScope.HOST, None) not in groups:
         groups[(RoutingScope.HOST, None)] = []
+
+    # Container-scope orphan-cleanup: если в `touched-netns.json` есть target,
+    # которого нет в текущих desired-groups — добавляем его как пустой group.
+    # При apply'е reconciler удалит всё внутри netns'а.
+    desired_container_targets: set[str] = {
+        target for (scope, target), _ in groups.items() if scope is RoutingScope.CONTAINER and target is not None
+    }
+    touched_targets = _read_touched_netns()
+    for orphan_target in touched_targets - desired_container_targets:
+        groups[(RoutingScope.CONTAINER, orphan_target)] = []
+
+    # Записываем текущий снапшот desired-targets'ов чтобы следующий apply знал
+    # что нужно cleanup'нуть если direction удалят.
+    _write_touched_netns(desired_container_targets)
 
     total_applied = 0
     total_skipped = 0

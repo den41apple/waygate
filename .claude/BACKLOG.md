@@ -44,16 +44,6 @@
 **Что сделать:** через 1-2 релиза удалить port-specific и ESTABLISHED bypass'ы
 (они не нужны при `addrtype LOCAL` уже стоящем). Сократит ~40 строк.
 
-### 0z. scope=container — orphan-cleanup в чужих netns'ах при удалении direction'а
-
-**Состояние:** при `apply_rules` агент 0.2.21+ группирует RoutingRule по `(scope, scope_target)` и для отсутствующих в desired host-scope'ах делает orphan-cleanup. Но для **container-scope'ов** аналогичного механизма НЕТ: если direction со scope=container удалён, group исчезает из desired → reconcile внутри netns не запускается → match-set + ip rule + ip route + ipsets остаются висеть в netns целевого контейнера.
-
-**Воспроизведение:** создаёшь Direction со scope=container, scope_target=X. Apply. Делаешь edit → scope=host или удаляешь direction. Apply. На хосте reconcile отрабатывает, awg-client возвращается в host netns. Внутри netns X остаются orphan-правила на match-set уже-удалённого ipset'а.
-
-**Что сделать:** в `agent/routing.py::apply_rules` хранить state «какие container-netns'ы мы трогали» (можно через docker label на awg-client'е или через persistent-file `/var/lib/waygate-agent/touched-netns.json`). При apply без правил для конкретного netns — выполнять reconcile с пустым desired через `nsenter` (не падать если netns исчез вместе с контейнером).
-
-**Workaround сейчас:** ручной `sudo nsenter -t <pid> -n iptables -t mangle -F + ip rule del + ip route flush table N + ipset destroy …`.
-
 ### 0a-1. Self-lockout warning при создании direction'а
 
 **Состояние:** при создании direction со scope=host без исключений можно применить правило, которое отрубит твой собственный SSH (если твой клиентский IP попадает в matched-set / GeoIP). Сейчас 2026-05-04 пользователь в реальном времени получил self-lockout: yandex-VM с IP в RU-зоне + direction `geoip-ru` → OUTPUT-ответы SSH'у матчили `--match-set geoip-ru-v4 dst` → ответ уходил в туннель вместо eth0 → SSH-разрыв. Восстановление — через Yandex Cloud Serial Console.
