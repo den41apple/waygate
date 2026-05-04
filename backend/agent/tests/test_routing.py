@@ -368,18 +368,48 @@ async def test_apply_rules_installs_ssh_bypass(monkeypatch, make_rule):
 
     # iptables (v4) bypass — оба правила вставлены через `-I` в начало.
     v4_inserts = _calls_starting_with(runner.calls, ("iptables", "-t", "mangle", "-I"))
-    v4_chains = {call[4] for call in v4_inserts if "waygate-ssh-bypass" in call}
+    v4_chains = {call[4] for call in v4_inserts if "waygate-self-bypass" in call}
     assert v4_chains == {"PREROUTING", "OUTPUT"}
 
     # ip6tables — то же самое для v6.
     v6_inserts = _calls_starting_with(runner.calls, ("ip6tables", "-t", "mangle", "-I"))
-    v6_chains = {call[4] for call in v6_inserts if "waygate-ssh-bypass" in call}
+    v6_chains = {call[4] for call in v6_inserts if "waygate-self-bypass" in call}
     assert v6_chains == {"PREROUTING", "OUTPUT"}
 
 
 @pytest.mark.asyncio
 async def test_apply_rules_ssh_bypass_idempotent(monkeypatch, make_rule):
-    """При повторном apply (когда bypass уже стоит) — не дублируем правила."""
+    """При повторном apply (когда bypass уже стоит для всех 4 портов) — не дублируем."""
+    existing = (
+        "-P PREROUTING ACCEPT\n"
+        "-A PREROUTING -p tcp -m tcp --dport 22 -m comment --comment waygate-self-bypass -j RETURN\n"
+        "-A OUTPUT -p tcp -m tcp --sport 22 -m comment --comment waygate-self-bypass -j RETURN\n"
+        "-A PREROUTING -p tcp -m tcp --dport 7743 -m comment --comment waygate-self-bypass -j RETURN\n"
+        "-A OUTPUT -p tcp -m tcp --sport 7743 -m comment --comment waygate-self-bypass -j RETURN\n"
+    )
+    runner = _FakeRunner(
+        responses={
+            ("iptables", "-t", "mangle", "-S"): existing,
+            ("ip6tables", "-t", "mangle", "-S"): existing,
+        },
+    )
+    monkeypatch.setattr(routing, "run_command", runner)
+
+    await routing.apply_rules(rules=[make_rule()])
+
+    bypass_inserts = [
+        call
+        for call in runner.calls
+        if call[:4] == ("iptables", "-t", "mangle", "-I") and "waygate-self-bypass" in call
+    ]
+    assert bypass_inserts == []
+
+
+@pytest.mark.asyncio
+async def test_apply_rules_replaces_legacy_ssh_bypass(monkeypatch, make_rule):
+    """0.2.13 ставил `waygate-ssh-bypass` (только порт 22). 0.2.14 заменяет на
+    `waygate-self-bypass` с покрытием agent-port'а — старые правила должны
+    удаляться, новые — вставляться."""
     existing = (
         "-P PREROUTING ACCEPT\n"
         "-A PREROUTING -p tcp -m tcp --dport 22 -m comment --comment waygate-ssh-bypass -j RETURN\n"
@@ -395,8 +425,15 @@ async def test_apply_rules_ssh_bypass_idempotent(monkeypatch, make_rule):
 
     await routing.apply_rules(rules=[make_rule()])
 
-    # Bypass-правила НЕ вставляются повторно.
-    bypass_inserts = [
-        call for call in runner.calls if call[:4] == ("iptables", "-t", "mangle", "-I") and "waygate-ssh-bypass" in call
+    # Legacy-правила удалены через `-D`.
+    legacy_deletes = [
+        call for call in runner.calls if call[:4] == ("iptables", "-t", "mangle", "-D") and "waygate-ssh-bypass" in call
     ]
-    assert bypass_inserts == []
+    assert len(legacy_deletes) == 2  # PREROUTING + OUTPUT
+    # Новые правила вставлены.
+    new_inserts = [
+        call
+        for call in runner.calls
+        if call[:4] == ("iptables", "-t", "mangle", "-I") and "waygate-self-bypass" in call
+    ]
+    assert len(new_inserts) >= 4  # 2 порта × 2 цепи минимум

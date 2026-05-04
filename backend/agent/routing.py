@@ -22,6 +22,7 @@ from enum import StrEnum
 
 from loguru import logger
 
+from agent.config import settings
 from agent.subprocess_runner import CommandError, run_command
 from shared.schemas import ApplyRulesResponse, RoutingRule, RoutingScope
 
@@ -79,8 +80,13 @@ _IPTABLES_MARK_RE = re.compile(
 # процессов идут OUTPUT → POSTROUTING.
 _MARK_CHAINS = ("PREROUTING", "OUTPUT")
 
-# Comment-метка для SSH-bypass правил, чтобы их легко находить и не дублировать.
-_SSH_BYPASS_COMMENT = "waygate-ssh-bypass"
+# Comment-метка для self-bypass правил, чтобы их легко находить и не дублировать.
+# Раньше было `waygate-ssh-bypass` (только порт 22) — переименовали в `self-bypass`
+# когда добавили agent-port, чтобы имя отражало реальное покрытие.
+_SELF_BYPASS_COMMENT = "waygate-self-bypass"
+# Старый маркер — оставляем для миграции. apply'и со старым тегом будут заменены
+# при следующем apply (idempotent reconcile с новым именем).
+_LEGACY_SSH_BYPASS_COMMENT = "waygate-ssh-bypass"
 
 _IP_RULE_RE = re.compile(
     r"^\d+:\s+from\s+all\s+fwmark\s+(?P<mark>0x[0-9a-fA-F]+|\d+)\s+lookup\s+(?P<table>\d+)",
@@ -629,38 +635,59 @@ async def _apply_rules_in_scope_family(
     return applied, skipped
 
 
-async def _ensure_ssh_bypass(*, ctx: _ScopeContext, family: _FamilyTools) -> None:
-    """Гарантирует что SSH-трафик НЕ маркируется match-set'ами (self-lockout-guard).
+async def _ensure_self_bypass(*, ctx: _ScopeContext, family: _FamilyTools) -> None:
+    """Гарантирует что control-trafic'а агента НЕ маркируется match-set'ами.
 
-    На сервере, чей собственный IP попадает в применённый ipset (например yandex
-    VM с RU-IP + GeoIP-RU direction), match-set --dst в OUTPUT-цепи матчит
-    SSH-ответы → они помечаются → улетают в туннель → SSH рвётся. Восстанавливать
-    приходится через provider serial console.
+    Self-lockout-guard: если ipset попадает свой собственный IP сервера (yandex VM
+    в RU + GeoIP-RU direction), match-set --dst в OUTPUT помечает И SSH-ответы,
+    И ответы агента control-plane'у → всё уходит в туннель → control теряется.
+    Восстанавливать приходится через provider serial console.
 
-    Чтобы это не повторялось — в начале PREROUTING и OUTPUT mangle-цепей вешаем
-    `RETURN` для tcp/22 (sport+dport). RETURN прерывает обработку текущей цепи
-    раньше любых match-set правил, так что SSH-пакеты никогда не маркируются.
+    Защищаем два порта:
+    1. SSH (`22`) — чтобы оператор всегда мог зайти руками.
+    2. Agent-port (`settings.port`, обычно 7743) — чтобы control-plane мог дёргать
+       агент даже при кривой direction. Без этого Apply через UI ронял агента,
+       и второй UI-Apply ловил Server disconnected.
 
-    Идемпотентно: проверяем по `-m comment --comment waygate-ssh-bypass` что
-    правило уже стоит. Не применяем v4 OUTPUT для container-scope (там не SSH'ят).
+    В начале PREROUTING и OUTPUT mangle-цепей вешаем `RETURN` для каждого порта
+    в обоих направлениях (sport/dport). RETURN прерывает обработку цепи раньше
+    любого match-set, так что эти пакеты никогда не маркируются.
+
+    Идемпотентно — проверяем по `-m comment --comment waygate-self-bypass`.
+    Старые `waygate-ssh-bypass`-правила (от 0.2.13 hotfix'а) удаляем и заменяем
+    на новые с покрытием agent-port.
     """
     iptables = [*ctx.command_prefix, family.iptables_cmd, "-t", "mangle"]
-    # Проверяем какие SSH-bypass правила уже стоят.
     listing = await run_command([*iptables, "-S"])
-    have = {line for line in listing.splitlines() if _SSH_BYPASS_COMMENT in line}
-    # Что хотим:
-    # PREROUTING: входящий SSH (--dport 22) — не помечать.
-    # OUTPUT: исходящие SSH-ответы (--sport 22) — не помечать (главный self-lockout-guard).
+
+    # Удаляем legacy-правила (`waygate-ssh-bypass`) если они есть — заменяем
+    # их на новый формат с покрытием agent-port. Без удаления старые остаются
+    # в цепи но не мешают (сами пропускают tcp/22), просто захламляют.
+    for line in listing.splitlines():
+        if _LEGACY_SSH_BYPASS_COMMENT not in line:
+            continue
+        if not line.startswith("-A "):
+            continue
+        # `-A CHAIN <args>` → `-D CHAIN <args>` для удаления.
+        delete_args = line.replace("-A ", "-D ", 1).split()
+        await run_command([*iptables, *delete_args], check=False)
+
+    # Свежий список после возможной чистки.
+    listing = await run_command([*iptables, "-S"])
+    have = {line for line in listing.splitlines() if _SELF_BYPASS_COMMENT in line}
+
+    # Порт агента (обычно 7743). Защищаем дополнительно к SSH (22).
+    agent_port = str(settings.port)
     desired_specs = [
         ("PREROUTING", "--dport", "22"),
         ("OUTPUT", "--sport", "22"),
+        ("PREROUTING", "--dport", agent_port),
+        ("OUTPUT", "--sport", agent_port),
     ]
     for chain, port_flag, port in desired_specs:
-        # Ищем готовое правило в этой цепи с этим направлением порта.
         marker = f"-A {chain}"
-        if any(marker in line and port_flag in line for line in have):
+        if any(marker in line and f"{port_flag} {port}" in line for line in have):
             continue
-        # `-I CHAIN 1` — вставляем в начало, ДО match-set правил.
         await run_command(
             [
                 *iptables,
@@ -674,7 +701,7 @@ async def _ensure_ssh_bypass(*, ctx: _ScopeContext, family: _FamilyTools) -> Non
                 "-m",
                 "comment",
                 "--comment",
-                _SSH_BYPASS_COMMENT,
+                _SELF_BYPASS_COMMENT,
                 "-j",
                 "RETURN",
             ],
@@ -691,13 +718,13 @@ async def _apply_rules_in_scope(
     total_applied = 0
     total_skipped = 0
     for family in _FAMILIES:
-        # SSH-bypass СНАЧАЛА — даже если ниже падает, защита от self-lockout уже стоит.
-        # Ошибки SSH-bypass'а не блокируют apply: если упало (например, нет xt_comment
+        # Self-bypass СНАЧАЛА — даже если ниже падает, защита уже стоит.
+        # Ошибки bypass'а не блокируют apply: если упало (например, нет xt_comment
         # модуля) — лучше сделать остальное с warning'ом, чем ронять весь apply.
         try:
-            await _ensure_ssh_bypass(ctx=ctx, family=family)
+            await _ensure_self_bypass(ctx=ctx, family=family)
         except CommandError as exc:
-            errors.append(f"[{ctx.name}/{family.family}] ssh-bypass: {exc}")
+            errors.append(f"[{ctx.name}/{family.family}] self-bypass: {exc}")
 
         applied, skipped = await _apply_rules_in_scope_family(
             ctx=ctx,
