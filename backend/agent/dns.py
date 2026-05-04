@@ -97,9 +97,14 @@ async def apply_dns(*, rules: list[DnsRule], config_path: Path | None = None) ->
 
     target.write_text(new_content)
 
+    # `systemctl reload` для dnsmasq = SIGHUP, который перечитывает ТОЛЬКО
+    # /etc/hosts и DHCP-leases. Конфиг-файлы (`ipset=`, `server=`) подхватываются
+    # ИСКЛЮЧИТЕЛЬНО при полном restart'е. Без restart'а наши ipset-директивы
+    # остаются невидимы для dnsmasq → ipset не наполняется → iptables match-set
+    # ничего не находит → весь DNS-routing flow молча не работает.
     try:
-        await run_command(["systemctl", "reload", "dnsmasq"])
+        await run_command(["systemctl", "restart", "dnsmasq"])
     except CommandError as exc:
-        errors.append(f"reload dnsmasq: {exc}")
-        logger.warning("dns: dnsmasq reload не удался: {}", exc)
+        errors.append(f"restart dnsmasq: {exc}")
+        logger.warning("dns: dnsmasq restart не удался: {}", exc)
     return ApplyDnsResponse(applied=len(rules), errors=errors)

@@ -45,7 +45,8 @@ async def test_apply_dns_creates_dual_ipsets_writes_and_reloads(tmp_path, fake_r
     assert set_names == {"ai-v4", "ai-v6"}
     families = {tuple(call[5:7]) for call in create_calls}
     assert families == {("family", "inet"), ("family", "inet6")}
-    assert any("systemctl" in part and "reload" in call for call in fake_runner for part in call)
+    # systemctl restart (НЕ reload — иначе dnsmasq не перечитывает ipset-директивы).
+    assert any(call[:3] == ["systemctl", "restart", "dnsmasq"] for call in fake_runner)
 
 
 async def test_apply_dns_idempotent_skips_reload(tmp_path, fake_runner):
@@ -63,7 +64,7 @@ async def test_apply_dns_idempotent_skips_reload(tmp_path, fake_runner):
 
 
 async def test_apply_dns_reports_reload_error(tmp_path, monkeypatch):
-    """Если systemctl reload падает — это в errors, но applied всё равно >0
+    """Если systemctl restart падает — это в errors, но applied всё равно >0
     (конфиг записан). ipset create тоже логирует ошибки если bin не найден."""
     from agent.subprocess_runner import CommandError
 
@@ -77,4 +78,4 @@ async def test_apply_dns_reports_reload_error(tmp_path, monkeypatch):
         config_path=config_path,
     )
     assert response.applied == 1
-    assert any("reload dnsmasq" in err for err in response.errors)
+    assert any("restart dnsmasq" in err for err in response.errors)
