@@ -31,6 +31,16 @@
 
 **Зачем сейчас не делаю:** есть hot-issues (dnsmasq waygate.conf, kernel-модуль), это работа на пол-дня и завязана на reliable CI mirror.
 
+### 0z. scope=container — orphan-cleanup в чужих netns'ах при удалении direction'а
+
+**Состояние:** при `apply_rules` агент 0.2.21+ группирует RoutingRule по `(scope, scope_target)` и для отсутствующих в desired host-scope'ах делает orphan-cleanup. Но для **container-scope'ов** аналогичного механизма НЕТ: если direction со scope=container удалён, group исчезает из desired → reconcile внутри netns не запускается → match-set + ip rule + ip route + ipsets остаются висеть в netns целевого контейнера.
+
+**Воспроизведение:** создаёшь Direction со scope=container, scope_target=X. Apply. Делаешь edit → scope=host или удаляешь direction. Apply. На хосте reconcile отрабатывает, awg-client возвращается в host netns. Внутри netns X остаются orphan-правила на match-set уже-удалённого ipset'а.
+
+**Что сделать:** в `agent/routing.py::apply_rules` хранить state «какие container-netns'ы мы трогали» (можно через docker label на awg-client'е или через persistent-file `/var/lib/waygate-agent/touched-netns.json`). При apply без правил для конкретного netns — выполнять reconcile с пустым desired через `nsenter` (не падать если netns исчез вместе с контейнером).
+
+**Workaround сейчас:** ручной `sudo nsenter -t <pid> -n iptables -t mangle -F + ip rule del + ip route flush table N + ipset destroy …`.
+
 ### 0. Установка amneziawg kernel-модуля при онбординге
 
 **Состояние:** провижнер ставит только `wireguard-tools`, kernel-модуль `amneziawg` не устанавливается. На host'ах без модуля `awg-quick` внутри контейнера фолбекается на userspace `amneziawg-go`, который **не поддерживает obfuscation-параметры `I1`–`I5`**. Конфиги от провайдеров с этими полями (firstbyte и др.) падают с `Line unrecognized: I2=` → iface не поднимается → direction'ы дают `Cannot find device`.
