@@ -19,13 +19,26 @@ interface Props {
 
 type Scope = "host" | "container";
 
-/** Эвристика gateway из CIDR-адреса клиента: `10.66.66.2/24` → `10.66.66.1`. */
+/** Эвристика gateway из CIDR-адреса клиента: `10.66.66.2/24` → `10.66.66.1`.
+ *
+ * Для P2P-WireGuard/AmneziaWG с `Address = X.Y.Z.W/32` gateway передаётся в
+ * `ip route default via <gw> dev awg-X onlink` чисто как синтаксический IP —
+ * `onlink` отключает ARP-резолв. Главное правило: **gateway не должен совпадать
+ * с собственным адресом интерфейса**, иначе kernel падает с "invalid gateway".
+ *
+ * Поэтому: пробуем `.1` подсети; если она же = адрес клиента (как у firstbyte
+ * с `10.8.1.1/32`) — берём `.0` (network base) как безопасный синтаксический IP.
+ */
 function deriveGateway(interfaceAddress: string | null): string | null {
   if (!interfaceAddress) return null;
   const ipPart = interfaceAddress.split("/")[0];
   const octets = ipPart.split(".");
   if (octets.length !== 4) return null;
-  return `${octets[0]}.${octets[1]}.${octets[2]}.1`;
+  const candidate = `${octets[0]}.${octets[1]}.${octets[2]}.1`;
+  if (candidate === ipPart) {
+    return `${octets[0]}.${octets[1]}.${octets[2]}.0`;
+  }
+  return candidate;
 }
 
 export function AddRoutingDirectionModal({ serverId, editing, onClose }: Props) {
