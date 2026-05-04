@@ -379,7 +379,7 @@ async def test_apply_rules_installs_ssh_bypass(monkeypatch, make_rule):
 
 @pytest.mark.asyncio
 async def test_apply_rules_ssh_bypass_idempotent(monkeypatch, make_rule):
-    """При повторном apply (когда bypass уже стоит для всех 4 портов + ESTABLISHED) — не дублируем."""
+    """При повторном apply (когда bypass уже стоит для всех правил) — не дублируем."""
     existing = (
         "-P PREROUTING ACCEPT\n"
         "-A PREROUTING -p tcp -m tcp --dport 22 -m comment --comment waygate-self-bypass -j RETURN\n"
@@ -388,6 +388,7 @@ async def test_apply_rules_ssh_bypass_idempotent(monkeypatch, make_rule):
         "-A OUTPUT -p tcp -m tcp --sport 7743 -m comment --comment waygate-self-bypass -j RETURN\n"
         "-A PREROUTING -m conntrack --ctstate RELATED,ESTABLISHED -m comment --comment waygate-self-bypass -j RETURN\n"
         "-A OUTPUT -m conntrack --ctstate RELATED,ESTABLISHED -m comment --comment waygate-self-bypass -j RETURN\n"
+        "-A PREROUTING -m addrtype --dst-type LOCAL -m comment --comment waygate-self-bypass -j RETURN\n"
     )
     runner = _FakeRunner(
         responses={

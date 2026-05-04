@@ -928,6 +928,35 @@ async def _ensure_self_bypass(*, ctx: _ScopeContext, family: _FamilyTools) -> No
             ],
         )
 
+    # Local-destined bypass: incoming на собственный IP сервера (eth0/lo/docker
+    # bridges) — никогда не маркируем. Без этого широкие direction'ы (например
+    # catch-all `0.0.0.0/1 + 128.0.0.0/1` через NL) ломают сами себя:
+    # incoming WG handshake на yandex_VM:42014/UDP имеет dst=local-IP, который
+    # включён в `all-internet-v4` set → mark → table → awg-eurohoster →
+    # handshake-reply улетает в NL вместо local-delivery в docker NAT →
+    # клиент не подключается к AWG-server-контейнеру.
+    # `addrtype --dst-type LOCAL` автоматически покрывает все local-адреса
+    # (eth0, lo, docker0, любые bridges) без явного списка IP'шек.
+    if not any("addrtype" in line and _SELF_BYPASS_COMMENT in line for line in have):
+        await run_command(
+            [
+                *iptables,
+                "-I",
+                "PREROUTING",
+                "1",
+                "-m",
+                "addrtype",
+                "--dst-type",
+                "LOCAL",
+                "-m",
+                "comment",
+                "--comment",
+                _SELF_BYPASS_COMMENT,
+                "-j",
+                "RETURN",
+            ],
+        )
+
 
 async def _apply_rules_in_scope(
     *,
