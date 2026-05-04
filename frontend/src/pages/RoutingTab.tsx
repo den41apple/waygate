@@ -243,6 +243,7 @@ function DirectionCard({ direction, onToggle, onEdit, onDelete }: CardProps) {
   const { data: geoLists = [] } = useGeoIpLists();
   const { data: dnsRules = [] } = useDnsRules(direction.server_id);
   const { data: ipsetGroups = [] } = useIpsetGroups(direction.server_id);
+  const { data: awgClients = [] } = useAwgClients(direction.server_id);
 
   const geoBadges = direction.geo_list_ids
     .map((id) => geoLists.find((list) => list.id === id))
@@ -253,6 +254,15 @@ function DirectionCard({ direction, onToggle, onEdit, onDelete }: CardProps) {
   const ipsetBadges = direction.ipset_group_ids
     .map((id) => ipsetGroups.find((group) => group.id === id))
     .filter(Boolean);
+
+  // Integrity-check: awg_client_id ссылается на существующий running клиент?
+  // Иначе при apply'е агент вернёт `Cannot find device awg-X` (юзер уже ловил
+  // это после удаления firstbyte клиента, direction остался ссылаться).
+  const awgClient = direction.awg_client_id
+    ? awgClients.find((item) => item.id === direction.awg_client_id)
+    : null;
+  const clientMissing = direction.awg_client_id !== null && awgClient === undefined;
+  const clientNotRunning = awgClient !== undefined && awgClient !== null && awgClient.status !== "running";
 
   return (
     <div className="card" style={{ marginBottom: 8 }}>
@@ -267,6 +277,35 @@ function DirectionCard({ direction, onToggle, onEdit, onDelete }: CardProps) {
               <> · 🐳 <span className="mono">{direction.scope_target}</span></>
             )}
           </div>
+          {clientMissing && (
+            <div
+              style={{
+                fontSize: 11,
+                color: "var(--red, #ef4444)",
+                background: "var(--red-tint, #4a1f1f)",
+                padding: "4px 6px",
+                borderRadius: 4,
+                marginTop: 4,
+              }}
+            >
+              ✗ AWG-клиент удалён или не существует. Apply вернёт "Cannot find device".
+              Отредактируй direction → выбери существующего клиента.
+            </div>
+          )}
+          {clientNotRunning && (
+            <div
+              style={{
+                fontSize: 11,
+                color: "var(--amber, #f59e0b)",
+                background: "var(--amber-tint, #3a2a1a)",
+                padding: "4px 6px",
+                borderRadius: 4,
+                marginTop: 4,
+              }}
+            >
+              ⚠️ AWG-клиент в статусе "{awgClient?.status}". Запусти его перед apply.
+            </div>
+          )}
         </div>
         <Badge kind={direction.enabled ? "online" : "offline"}>
           {direction.enabled ? "active" : "paused"}

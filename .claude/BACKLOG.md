@@ -65,14 +65,6 @@
 
 **Зачем сейчас не делаю:** требует дизайн-решения какие именно сокеты защищать (только агентский? все 22? configurable?), плюс watchdog/rollback — отдельная инфраструктура.
 
-### 0a. Direction → awg-client integrity check в UI
-
-**Состояние:** если AWG-клиент удалён/переименован, direction всё ещё ссылается на старый `via_interface` (например `awg-firstbyte` когда фактически работает `awg-eurohoster`). При Apply агент возвращает `Cannot find device "awg-firstbyte"`. Оператор узнаёт это только в момент применения.
-
-**Что сделать:** в UI на карточке Routing direction'а сравнивать `direction.via_interface` с реальным списком AWG-клиентов (`useAwgClients`). Если netdev не найден среди running-клиентов — рендерить amber-badge «AWG-клиент не найден» с кнопкой «исправить» (открыть модалку с предзаполнением).
-
-**Альтернатива на бэкенде:** при materialize'е RoutingRule отказывать `409 Conflict` если `awg_client_id` ссылается на несуществующего/stopped клиента. Но это ломает кейс «временно выключил клиент, через минуту поднял» — лучше оставить как warning в UI.
-
 ### 0b. Catch-all direction (split-tunnel по принципу «всё что не RU → server B»)
 
 **Состояние:** не реализовано. Сейчас Direction матчит только включением (`--match-set <ipset> dst -j MARK`); чтобы «всё кроме RU отправить на другую страну», нужен дефолтный egress.
