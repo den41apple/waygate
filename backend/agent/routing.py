@@ -73,19 +73,21 @@ _IPTABLES_MARK_RE = re.compile(
 )
 
 # Цепочки, в которые добавляем `--match-set ... -j MARK`:
-# - PREROUTING — для forwarded трафика. Mark ставится ДО routing decision'а,
-#   поэтому `ip rule fwmark X table Y` корректно пересматривает out_iface.
-#   В 0.2.26 пробовал FORWARD — но там mark ставится УЖЕ ПОСЛЕ route lookup'а,
-#   и `ip rule` не вызывает reroute → counter растёт но пакеты всё равно уходят
-#   через initial out_iface (eth0), не через awg-eurohoster.
-# - OUTPUT — для local-originated (curl с самого VM). Linux также сделает
-#   reroute через `ip rule` после OUTPUT mangle. Хрупок для NEW TCP из-за
-#   socket-bind mismatch'а, но для основных use case'ов работает.
-# Чтобы PREROUTING не ломал self-traffic (incoming SSH/agent/handshake на
-# local-IP), используем `addrtype --dst-type LOCAL -j RETURN` в начале
-# цепи (см. _ensure_self_bypass).
-_MARK_CHAINS = ("PREROUTING", "OUTPUT")
-# Cleanup'аем правила в обоих legacy-наборах (PREROUTING/OUTPUT/FORWARD).
+# - PREROUTING — для forwarded трафика (telephone → AWG-server → VPN-client).
+#   Mark ставится ДО routing decision'а, `ip rule fwmark X table Y` корректно
+#   пересматривает out_iface. `addrtype LOCAL bypass` защищает self-traffic
+#   (incoming SSH/agent/handshake) от случайного marking'а.
+# OUTPUT chain МЫ НЕ ИСПОЛЬЗУЕМ — там local-originated (curl с самого VM,
+# dockerd, apt-get). Mark в OUTPUT работает в простых случаях, но фундаментально
+# хрупок: socket bind'ится к eth0_IP до OUTPUT mangle, reroute через mark
+# меняет out_iface на awg-X, MASQUERADE переписывает src, но reply ищет
+# original socket по eth0_IP и не находит → TLS handshake'и таймаутят,
+# `docker pull` висит, `apt-get` тормозит. Это known Linux limitation.
+# Кому нужен local-curl через VPN — `curl --interface awg-X` явно.
+# Раньше (до 0.2.28) использовали `("PREROUTING", "OUTPUT")` — отсюда жалобы
+# на тормоза dockerd/apt'а после Apply'я catch-all direction'а.
+_MARK_CHAINS = ("PREROUTING",)
+# Cleanup'аем правила во всех legacy-цепях (orphan-clean при первом 0.2.28-Apply).
 _READ_MARK_CHAINS = ("PREROUTING", "FORWARD", "OUTPUT")
 
 # Comment-метка для self-bypass правил, чтобы их легко находить и не дублировать.

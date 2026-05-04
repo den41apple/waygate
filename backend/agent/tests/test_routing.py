@@ -96,10 +96,11 @@ async def test_apply_rules_adds_missing_components(monkeypatch, make_rule):
     add_rules_v6 = _calls_starting_with(runner.calls, ("ip", "-6", "rule", "add"))
     replace_routes_v4 = _calls_starting_with(runner.calls, ("ip", "route", "replace"))
     replace_routes_v6 = _calls_starting_with(runner.calls, ("ip", "-6", "route", "replace"))
-    assert len(add_marks_v4) == 2
+    # 0.2.28: только PREROUTING (OUTPUT убрали — local-curl с mark-routing хрупок).
+    assert len(add_marks_v4) == 1
     chains_v4 = {call[4] for call in add_marks_v4}
-    assert chains_v4 == {"PREROUTING", "OUTPUT"}
-    assert len(add_marks_v6) == 2
+    assert chains_v4 == {"PREROUTING"}
+    assert len(add_marks_v6) == 1
     assert len(add_rules_v4) == 1
     assert len(add_rules_v6) == 1
     assert len(replace_routes_v4) == 1
@@ -220,9 +221,9 @@ async def test_apply_rules_in_container_uses_nsenter(monkeypatch, make_rule):
         runner.calls,
         ("nsenter", "-t", "12345", "-n", "ip", "-6", "rule", "add"),
     )
-    # Каждое family — 2 add (PREROUTING + OUTPUT chains).
-    assert len(nsenter_iptables_v4) == 2
-    assert len(nsenter_iptables_v6) == 2
+    # 0.2.28: только PREROUTING (OUTPUT убрали).
+    assert len(nsenter_iptables_v4) == 1
+    assert len(nsenter_iptables_v6) == 1
     assert len(nsenter_ip_rule_v4) == 1
     assert len(nsenter_ip_rule_v6) == 1
     # И что docker inspect был
@@ -288,11 +289,11 @@ async def test_apply_rules_isolates_host_and_container_scopes(monkeypatch, make_
         and "-A" in call
         and "container-ipset-v6" in call
     ]
-    # Каждое правило × 2 chain (PREROUTING + OUTPUT) = 2 add per family.
-    assert len(host_v4) == 2
-    assert len(host_v6) == 2
-    assert len(container_v4) == 2
-    assert len(container_v6) == 2
+    # 0.2.28: только PREROUTING (OUTPUT убрали) → 1 add per family.
+    assert len(host_v4) == 1
+    assert len(host_v6) == 1
+    assert len(container_v4) == 1
+    assert len(container_v6) == 1
 
 
 @pytest.mark.asyncio
