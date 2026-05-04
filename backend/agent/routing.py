@@ -316,6 +316,71 @@ async def _remove_ip_rule(
     )
 
 
+async def _read_masquerades(
+    *,
+    ctx: _ScopeContext,
+    family: _FamilyTools,
+) -> set[str]:
+    """Возвращает множество интерфейсов, для которых уже есть MASQUERADE в POSTROUTING.
+
+    Без MASQUERADE на awg-iface исходящие пакеты уходят с public src eth0
+    (потому что src выбирается ДО ip rule lookup). AWG-сервер дропает такие
+    пакеты как spoofed.
+    """
+    output = await run_command(
+        [*ctx.command_prefix, family.iptables_cmd, "-t", "nat", "-S", "POSTROUTING"],
+        check=False,
+    )
+    # Формат `-A POSTROUTING -o <iface> -j MASQUERADE`.
+    pattern = re.compile(r"-A\s+POSTROUTING\s+-o\s+(?P<iface>\S+)\s+-j\s+MASQUERADE\b")
+    return {m.group("iface") for line in output.splitlines() if (m := pattern.search(line))}
+
+
+async def _add_masquerade(
+    *,
+    ctx: _ScopeContext,
+    family: _FamilyTools,
+    interface: str,
+) -> None:
+    await run_command(
+        [
+            *ctx.command_prefix,
+            family.iptables_cmd,
+            "-t",
+            "nat",
+            "-A",
+            "POSTROUTING",
+            "-o",
+            interface,
+            "-j",
+            "MASQUERADE",
+        ],
+    )
+
+
+async def _remove_masquerade(
+    *,
+    ctx: _ScopeContext,
+    family: _FamilyTools,
+    interface: str,
+) -> None:
+    await run_command(
+        [
+            *ctx.command_prefix,
+            family.iptables_cmd,
+            "-t",
+            "nat",
+            "-D",
+            "POSTROUTING",
+            "-o",
+            interface,
+            "-j",
+            "MASQUERADE",
+        ],
+        check=False,
+    )
+
+
 async def _replace_default_route(
     *,
     ctx: _ScopeContext,
@@ -500,8 +565,14 @@ async def _apply_rules_in_scope_family(
     desired_physical_ipsets = {_ipset_name_for(rule=rule, family=family) for rule in rules}
     desired_fwmarks = {rule.fwmark for rule in rules}
     desired_tables = {rule.table_id for rule in rules}
+    desired_interfaces = {rule.via_interface for rule in rules}
 
     current_marks, current_ip_rules = await _read_state(ctx=ctx, family=family, errors=errors)
+    try:
+        current_masqs = await _read_masquerades(ctx=ctx, family=family)
+    except CommandError as exc:
+        errors.append(f"[{ctx.name}/{family.family}] read masquerades: {exc}")
+        current_masqs = set()
     await _remove_orphans(
         ctx=ctx,
         family=family,
@@ -512,6 +583,12 @@ async def _apply_rules_in_scope_family(
         desired_tables=desired_tables,
         errors=errors,
     )
+    # Orphan-MASQUERADE: интерфейс больше не используется ни одним rule.
+    for orphan_iface in current_masqs - desired_interfaces:
+        try:
+            await _remove_masquerade(ctx=ctx, family=family, interface=orphan_iface)
+        except CommandError as exc:
+            errors.append(f"[{ctx.name}/{family.family}] remove orphan masquerade {orphan_iface}: {exc}")
 
     applied = 0
     skipped = 0
@@ -531,10 +608,18 @@ async def _apply_rules_in_scope_family(
                 current=current_ip_rules.get(rule.fwmark),
             )
             route_changed = await _ensure_default_route(ctx=ctx, family=family, rule=rule)
+            # MASQUERADE on out-iface: переписывает src на iface-IP при выходе в
+            # туннель. Без этого пакеты, помеченные через `ip rule fwmark`,
+            # уходят с public-src от eth0 → AWG-server'у выглядят spoofed → drop.
+            masq_changed = False
+            if rule.via_interface not in current_masqs:
+                await _add_masquerade(ctx=ctx, family=family, interface=rule.via_interface)
+                current_masqs.add(rule.via_interface)
+                masq_changed = True
         except CommandError as exc:
             errors.append(f"[{ctx.name}/{family.family}] apply {physical_name}: {exc}")
             continue
-        if mark_changed or rule_changed or route_changed:
+        if mark_changed or rule_changed or route_changed or masq_changed:
             applied += 1
         else:
             skipped += 1

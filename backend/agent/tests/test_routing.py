@@ -140,6 +140,9 @@ async def test_apply_rules_skipped_when_state_matches(monkeypatch, make_rule):
             ),
             ("ip", "-6", "rule", "show"): ("0:\tfrom all lookup local\n1000:\tfrom all fwmark 0x100 lookup 100\n"),
             ("ip", "-6", "route", "show", "table", "100"): "default dev awg0\n",
+            # MASQUERADE для awg0 уже стоит — иначе reconciler добавит и applied++.
+            ("iptables", "-t", "nat", "-S", "POSTROUTING"): "-A POSTROUTING -o awg0 -j MASQUERADE\n",
+            ("ip6tables", "-t", "nat", "-S", "POSTROUTING"): "-A POSTROUTING -o awg0 -j MASQUERADE\n",
         },
     )
     _ = empty  # unused in this branch but explicit
