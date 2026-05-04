@@ -45,6 +45,8 @@ export function AddRoutingDirectionModal({ serverId, editing, onClose }: Props) 
   const [viaGateway, setViaGateway] = useState(editing?.via_gateway ?? "10.66.66.1");
   const [scope, setScope] = useState<Scope>((editing?.scope ?? "host") as Scope);
   const [scopeTarget, setScopeTarget] = useState(editing?.scope_target ?? "");
+  // При редактировании — расширенные параметры сразу раскрыты (юзер мог зайти ровно ради них).
+  const [showAdvanced, setShowAdvanced] = useState(isEdit);
   const [enabled, setEnabled] = useState(editing?.enabled ?? true);
 
   // Чекбоксы — Set'ами для O(1) toggle
@@ -236,63 +238,78 @@ export function AddRoutingDirectionModal({ serverId, editing, onClose }: Props) 
             VPN-туннель.
           </div>
 
-          <details style={{ marginTop: 8 }}>
-            <summary style={{ cursor: "pointer", fontSize: 12, color: "var(--text-3)" }}>
-              Расширенные параметры (scope, via_interface, via_gateway)
-            </summary>
-            <div className="field" style={{ marginTop: 10 }}>
-              <label>Где применять</label>
-              <div className="tab-switcher">
-                <button
-                  className={scope === "host" ? "active" : ""}
-                  onClick={() => setScope("host")}
-                  type="button"
-                >
-                  Хост
-                </button>
-                <button
-                  className={scope === "container" ? "active" : ""}
-                  onClick={() => setScope("container")}
-                  type="button"
-                >
-                  Контейнер
-                </button>
-              </div>
-            </div>
+          <div style={{ marginTop: 8 }}>
+            <button
+              type="button"
+              onClick={() => setShowAdvanced(!showAdvanced)}
+              style={{
+                cursor: "pointer",
+                fontSize: 12,
+                color: "var(--text-3)",
+                background: "none",
+                border: "none",
+                padding: "4px 0",
+              }}
+            >
+              {showAdvanced ? "▼" : "▶"} Расширенные параметры (scope, via_interface, via_gateway)
+            </button>
+            {showAdvanced && (
+              <>
+                <div className="field" style={{ marginTop: 10 }}>
+                  <label>Где применять</label>
+                  <div className="tab-switcher">
+                    <button
+                      className={scope === "host" ? "active" : ""}
+                      onClick={() => setScope("host")}
+                      type="button"
+                    >
+                      Хост
+                    </button>
+                    <button
+                      className={scope === "container" ? "active" : ""}
+                      onClick={() => setScope("container")}
+                      type="button"
+                    >
+                      Контейнер
+                    </button>
+                  </div>
+                </div>
 
-            {scope === "container" && (
-              <div className="field">
-                <label>Имя контейнера</label>
-                <input
-                  className="input"
-                  value={scopeTarget}
-                  onChange={(event) => setScopeTarget(event.target.value)}
-                  placeholder="amnezia-awg2"
-                />
-              </div>
+                {scope === "container" && (
+                  <div className="field">
+                    <label>Имя контейнера</label>
+                    <input
+                      className="input"
+                      value={scopeTarget}
+                      onChange={(event) => setScopeTarget(event.target.value)}
+                      placeholder="amnezia-awg2"
+                    />
+                  </div>
+                )}
+
+                <div className="field-row">
+                  <div className="field">
+                    <label>via_interface</label>
+                    <input
+                      className="input"
+                      value={viaInterface}
+                      onChange={(event) => setViaInterface(event.target.value)}
+                      placeholder="awg0"
+                    />
+                  </div>
+                  <div className="field">
+                    <label>via_gateway</label>
+                    <input
+                      className="input"
+                      value={viaGateway}
+                      onChange={(event) => setViaGateway(event.target.value)}
+                      placeholder="10.66.66.1"
+                    />
+                  </div>
+                </div>
+              </>
             )}
-
-            <div className="field-row">
-              <div className="field">
-                <label>via_interface</label>
-                <input
-                  className="input"
-                  value={viaInterface}
-                  onChange={(event) => setViaInterface(event.target.value)}
-                  placeholder="awg0"
-                />
-              </div>
-              <div className="field">
-                <label>via_gateway</label>
-                <input
-                  className="input"
-                  value={viaGateway}
-                  onChange={(event) => setViaGateway(event.target.value)}
-                  placeholder="10.66.66.1"
-                />
-              </div>
-            </div>
-          </details>
+          </div>
 
           <div className="field" style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
             <Toggle on={enabled} onClick={() => setEnabled(!enabled)} />
