@@ -185,6 +185,16 @@
 
 **Что сделать:** агент возвращать `interface_name` в `/v1/clients` response → фронт берёт оттуда вместо локальной формулы. Уже есть `client.name`, нужен ещё `interface_name`.
 
+### 21b. UI-предупреждение/диагностика когда AWG-сервер не делает MASQUERADE
+
+**Состояние:** в нашем sprint'е у пользователя проявилась ситуация — все routing-фиксы (dnsmasq config, OUTPUT-mark, MTU-clamp, IPv6-стек) на стороне waygate-агента работают корректно, но TCP-трафик в интернет через VPN-туннель не возвращается. Причина — AmneziaWG-сервер на стороне VPN-провайдера не настроен на `iptables -t nat -A POSTROUTING -j MASQUERADE` + `sysctl net.ipv4.ip_forward=1`. Подтверждено через `awg show`: `transfer: 319 KiB received, 4.87 MiB sent` — отправляем 15× больше чем получаем.
+
+**Что сделать:** при apply_rules после применения в UI прогнать sanity-check на agent:
+- ICMP ping через awg-X — должен работать.
+- TCP connect к 1.1.1.1:443 через awg-X с timeout=3s — если timeout, эмитить warning «AWG-server не возвращает TCP-ответы — попроси admin VPN-сервера добавить MASQUERADE».
+
+Это сэкономит часы дебага user'у.
+
 ### 21a. dnsmasq `no-aaaa` для маршрутизируемых доменов (когда у AWG-туннеля нет IPv6)
 
 **Состояние:** agent v0.2.5 настраивает IPv6-стек (ip6tables, ip -6 rule, `<name>-v6` ipset) для каждого RoutingRule. Это работает только если на awg-клиентском интерфейсе есть IPv6-адрес (`ip -6 addr show awg-X` непустой). У большинства AmneziaWG-серверов IPv6 не настроен — туннель только IPv4. В этом случае:
