@@ -75,11 +75,11 @@ async def verify_os(*, ssh: SshSession, emit: ProgressEmitter) -> None:
 async def install_deps(*, ssh: SshSession, emit: ProgressEmitter) -> None:
     await emit("apt-get update…")
     await ssh.run(command="DEBIAN_FRONTEND=noninteractive apt-get update -qq")
-    await emit("apt-get install ipset iptables iproute2 dnsmasq curl openssl python3-venv…")
+    await emit("apt-get install ipset iptables iproute2 dnsmasq curl openssl python3-venv conntrack…")
     await ssh.run(
         command=(
             "DEBIAN_FRONTEND=noninteractive apt-get install -y "
-            "ipset iptables iproute2 dnsmasq curl openssl python3-venv wireguard-tools"
+            "ipset iptables iproute2 dnsmasq curl openssl python3-venv wireguard-tools conntrack"
         ),
     )
     await emit("Зависимости установлены")
