@@ -688,14 +688,16 @@ async def _ensure_self_bypass(*, ctx: _ScopeContext, family: _FamilyTools) -> No
 
     # Порт агента (обычно 7743). Защищаем дополнительно к SSH (22).
     agent_port = str(settings.port)
-    desired_specs = [
+    # Port-specific bypass для INCOMING connections (NEW state на этих портах).
+    desired_port_specs = [
         ("PREROUTING", "--dport", "22"),
         ("OUTPUT", "--sport", "22"),
         ("PREROUTING", "--dport", agent_port),
         ("OUTPUT", "--sport", agent_port),
     ]
-    for chain, port_flag, port in desired_specs:
+    for chain, port_flag, port in desired_port_specs:
         marker = f"-A {chain}"
+        # Проверяем что bypass-правило с этим port_flag/port уже стоит.
         if any(marker in line and f"{port_flag} {port}" in line for line in have):
             continue
         await run_command(
@@ -708,6 +710,37 @@ async def _ensure_self_bypass(*, ctx: _ScopeContext, family: _FamilyTools) -> No
                 "tcp",
                 port_flag,
                 port,
+                "-m",
+                "comment",
+                "--comment",
+                _SELF_BYPASS_COMMENT,
+                "-j",
+                "RETURN",
+            ],
+        )
+
+    # ESTABLISHED/RELATED bypass — для возвратных пакетов любых уже-установленных
+    # соединений. Без этого: mac коннектится к yandex VM по AWG-туннелю
+    # (UDP/51820), conntrack treking входящего connection как NEW. Когда yandex
+    # шлёт ответ obratно, dst=mac_IP попадает в RU-set (mac в РФ) → mark=1 →
+    # ответ улетает в awg-firstbyte вместо eth0 → клиент теряет связь.
+    # С ESTABLISHED-bypass'ом возвратные пакеты по существующим сессиям не
+    # маркируются. NEW-исходящие (curl с yandex'а к RU-сайтам) — маркируются
+    # как и положено, эффект direction'а сохраняется.
+    for chain in ("PREROUTING", "OUTPUT"):
+        marker = f"-A {chain}"
+        if any(marker in line and "ESTABLISHED" in line and _SELF_BYPASS_COMMENT in line for line in have):
+            continue
+        await run_command(
+            [
+                *iptables,
+                "-I",
+                chain,
+                "1",
+                "-m",
+                "conntrack",
+                "--ctstate",
+                "RELATED,ESTABLISHED",
                 "-m",
                 "comment",
                 "--comment",
