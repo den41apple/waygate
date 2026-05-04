@@ -26,10 +26,12 @@ async def update_agent_via_ssh(
     Вся последовательность идемпотентна — повторный запуск с теми же параметрами
     не сломает что-то (рекомендуется `rm -rf` следов прошлых попыток в начале).
     """
+    # PEP 427: pip требует чтобы имя файла было `{name}-{version}-{python}-{abi}-{platform}.whl`.
+    # Иначе он падает с "Invalid wheel filename (wrong number of parts)".
+    wheel_path = f"/tmp/waygate_agent-{version}-py3-none-any.whl"
+
     await emit("Скачиваю wheel...")
-    await ssh.run(
-        command=f"curl -fsSL '{wheel_url}' -o /tmp/waygate_agent.whl",
-    )
+    await ssh.run(command=f"curl -fsSL '{wheel_url}' -o '{wheel_path}'")
 
     await emit("Создаю свежий venv в /opt/waygate-agent.new...")
     # rm -rf — без check, чтобы первый запуск (когда .new/.bak не существуют) не падал.
@@ -38,7 +40,7 @@ async def update_agent_via_ssh(
 
     await emit("Устанавливаю wheel...")
     await ssh.run(command="/opt/waygate-agent.new/bin/pip install --upgrade --quiet pip")
-    await ssh.run(command="/opt/waygate-agent.new/bin/pip install --quiet /tmp/waygate_agent.whl")
+    await ssh.run(command=f"/opt/waygate-agent.new/bin/pip install --quiet '{wheel_path}'")
 
     await emit("Atomic swap...")
     await ssh.run(command="mv /opt/waygate-agent /opt/waygate-agent.bak")
@@ -49,7 +51,7 @@ async def update_agent_via_ssh(
 
     await emit("Cleanup...")
     await ssh.run(
-        command="rm -rf /opt/waygate-agent.bak /tmp/waygate_agent.whl",
+        command=f"rm -rf /opt/waygate-agent.bak '{wheel_path}'",
         check=False,
     )
 

@@ -8,9 +8,11 @@
 """
 
 import asyncio
+import ssl
 import time
 
 import aiohttp
+import certifi
 from fastapi import APIRouter, HTTPException, status
 from loguru import logger
 
@@ -35,7 +37,15 @@ async def _fetch_from_github(*, repo: str) -> AgentReleasesResponse:
     url = f"https://api.github.com/repos/{repo}/releases?per_page=20"
     timeout = aiohttp.ClientTimeout(total=_REQUEST_TIMEOUT_SECONDS)
     headers = {"Accept": "application/vnd.github+json", "User-Agent": "waygate-control-plane"}
-    async with aiohttp.ClientSession(timeout=timeout) as session, session.get(url, headers=headers) as response:
+    # python:slim не всегда корректно настраивает system trust store
+    # (`update-ca-certificates` под `--no-install-recommends` иногда не запускается),
+    # поэтому явно используем bundle от `certifi` — это работает в любом окружении.
+    ssl_context = ssl.create_default_context(cafile=certifi.where())
+    connector = aiohttp.TCPConnector(ssl=ssl_context)
+    async with (
+        aiohttp.ClientSession(timeout=timeout, connector=connector) as session,
+        session.get(url, headers=headers) as response,
+    ):
         if response.status != 200:
             body = await response.text()
             logger.warning("agent-releases: GitHub HTTP {} → {}", response.status, body[:200])
