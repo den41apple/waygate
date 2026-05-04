@@ -4,6 +4,29 @@ from server.provisioner import steps
 from server.provisioner.ssh import CommandResult, SshSession
 
 
+def test_ssh_wrap_no_sudo_returns_command_unchanged():
+    session = SshSession.__new__(SshSession)
+    session._sudo_prefix = ""
+    assert session._wrap("apt-get update") == "apt-get update"
+
+
+def test_ssh_wrap_with_sudo_wraps_in_sh_c():
+    """sudo-режим оборачивает в `sudo -n sh -c '<cmd>'` — чтобы redirect/heredoc/pipe
+    обработались уже под root'ом, а не локальным юзером."""
+    session = SshSession.__new__(SshSession)
+    session._sudo_prefix = "sudo -n "
+    assert session._wrap("apt-get update") == "sudo -n sh -c 'apt-get update'"
+
+
+def test_ssh_wrap_escapes_single_quotes():
+    """Если в команде есть `'` (например heredoc `<<'EOF'`) — экранируем
+    POSIX-trick'ом `'\\''` чтобы внешние одинарные кавычки sh -c не сломались."""
+    session = SshSession.__new__(SshSession)
+    session._sudo_prefix = "sudo -n "
+    wrapped = session._wrap("echo 'hi'")
+    assert wrapped == "sudo -n sh -c 'echo '\\''hi'\\'''"
+
+
 class FakeSshSession(SshSession):
     """Записывает команды, отдаёт заготовки или дефолтный пустой ответ.
 
@@ -16,6 +39,10 @@ class FakeSshSession(SshSession):
         self.responses = responses or {}
         self.calls: list[str] = []
         self.files_written: list[tuple[str, str, str]] = []  # (path, content, mode)
+        self.sudo_enabled = False
+
+    def enable_sudo(self) -> None:
+        self.sudo_enabled = True
 
     async def run(self, *, command: str, check: bool = True) -> CommandResult:
         self.calls.append(command)
@@ -64,9 +91,9 @@ async def test_verify_os_rejects_centos():
         await steps.verify_os(ssh=ssh, emit=_no_emit)
 
 
-async def test_verify_os_rejects_non_root_user():
-    """Если SSH-юзер не root — apt-get/chattr/systemctl упадут с Permission denied.
-    Лучше остановиться на этой проверке с понятным сообщением."""
+async def test_verify_os_enables_sudo_when_nopasswd_available():
+    """Не-root юзер + рабочий `sudo -n` → провижнер включает auto-sudo-режим
+    у SshSession и продолжает онбординг (последующие команды обернутся в sudo)."""
     ssh = FakeSshSession(
         responses={
             "cat /etc/os-release": CommandResult(
@@ -75,9 +102,32 @@ async def test_verify_os_rejects_non_root_user():
                 stderr="",
             ),
             "id -u": CommandResult(returncode=0, stdout="1000\n", stderr=""),
+            "sudo -n true": CommandResult(returncode=0, stdout="", stderr=""),
         },
     )
-    with pytest.raises(steps.StepError, match="root-доступ"):
+    await steps.verify_os(ssh=ssh, emit=_no_emit)
+    assert ssh.sudo_enabled is True
+
+
+async def test_verify_os_rejects_non_root_without_nopasswd_sudo():
+    """Не-root + sudo требует пароль (returncode != 0 у `sudo -n`) → ошибка
+    с инструкцией настроить NOPASSWD."""
+    ssh = FakeSshSession(
+        responses={
+            "cat /etc/os-release": CommandResult(
+                returncode=0,
+                stdout='NAME="Ubuntu"\nID=ubuntu\n',
+                stderr="",
+            ),
+            "id -u": CommandResult(returncode=0, stdout="1000\n", stderr=""),
+            "sudo -n true": CommandResult(
+                returncode=1,
+                stdout="",
+                stderr="sudo: a password is required\n",
+            ),
+        },
+    )
+    with pytest.raises(steps.StepError, match="NOPASSWD-sudo"):
         await steps.verify_os(ssh=ssh, emit=_no_emit)
 
 

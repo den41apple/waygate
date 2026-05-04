@@ -46,19 +46,29 @@ async def verify_os(*, ssh: SshSession, emit: ProgressEmitter) -> None:
     await emit("ОС подходит")
 
     # Все следующие шаги (apt-get, chattr, systemctl, /etc/...) требуют root.
-    # Если коннектиться не-root юзером без NOPASSWD-sudo — apt-get падает с
-    # `Permission denied` без понятного контекста. Лучше ошибиться громко тут.
+    # Если SSH-юзер не root, проверяем что доступен NOPASSWD-sudo и включаем
+    # auto-sudo-режим у SshSession — последующие команды оборачиваются в `sudo`.
     await emit("Проверяю root-доступ…")
     try:
         uid_result = await ssh.run(command="id -u")
     except SshError as exc:
         raise StepError(f"Не удалось проверить uid SSH-юзера: {exc}") from exc
-    if uid_result.stdout.strip() != "0":
+    if uid_result.stdout.strip() == "0":
+        await emit("root-доступ есть")
+        return
+    # Не root — пробуем NOPASSWD-sudo. `-n` = non-interactive (если требует
+    # пароль — мгновенный fail вместо тимаута на чтении пароля).
+    sudo_check = await ssh.run(command="sudo -n true", check=False)
+    if sudo_check.returncode != 0:
         raise StepError(
-            "Провижнер требует root-доступ — подключайся как `root@<host>` либо "
-            "используй юзера с NOPASSWD-sudo и логинься через `root` на target-хосте.",
+            "SSH-юзер не root, и NOPASSWD-sudo не настроен. Варианты: "
+            "1) подключайся как root@<host>; "
+            "2) настрой sudoers на target-хосте — "
+            "echo '$USER ALL=(ALL) NOPASSWD: ALL' | sudo tee /etc/sudoers.d/waygate-nopasswd "
+            "&& sudo chmod 440 /etc/sudoers.d/waygate-nopasswd",
         )
-    await emit("root-доступ есть")
+    ssh.enable_sudo()
+    await emit("NOPASSWD-sudo есть — оборачиваю команды в sudo")
 
 
 async def install_deps(*, ssh: SshSession, emit: ProgressEmitter) -> None:

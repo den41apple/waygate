@@ -25,13 +25,33 @@ def _decode(value: str | bytes | None) -> str:
 
 
 class SshSession:
-    """Тонкая обёртка над asyncssh.SSHClientConnection — упрощает мокинг в тестах."""
+    """Тонкая обёртка над asyncssh.SSHClientConnection — упрощает мокинг в тестах.
+
+    Поддерживает sudo-режим: если SSH-юзер не root, провижнер вызывает
+    `enable_sudo()` после проверки `sudo -n true`, и все последующие команды
+    оборачиваются в `sudo -n sh -c '<cmd>'`. Обёртка через `sh -c` нужна потому
+    что shell-redirect/heredoc/pipe нужно интерпретировать УЖЕ под sudo —
+    иначе `sudo cat > /etc/...` сделает редирект из под текущего юзера.
+    """
 
     def __init__(self, *, connection: asyncssh.SSHClientConnection) -> None:
         self._connection = connection
+        self._sudo_prefix = ""
+
+    def enable_sudo(self) -> None:
+        self._sudo_prefix = "sudo -n "
+
+    def _wrap(self, command: str) -> str:
+        if not self._sudo_prefix:
+            return command
+        # POSIX-trick для безопасного литерального закавычивания: каждый `'`
+        # внутри строки превращается в `'\''` (close-quote, escaped-quote, open-quote).
+        escaped = command.replace("'", "'\\''")
+        return f"{self._sudo_prefix}sh -c '{escaped}'"
 
     async def run(self, *, command: str, check: bool = True) -> CommandResult:
-        result = await self._connection.run(command, check=False)
+        wrapped = self._wrap(command)
+        result = await self._connection.run(wrapped, check=False)
         stdout = _decode(result.stdout)
         stderr = _decode(result.stderr)
         returncode = result.returncode if result.returncode is not None else -1
