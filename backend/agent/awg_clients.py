@@ -333,17 +333,50 @@ async def stop_client(*, name: str) -> AwgClientStatus:
     return AwgClientStatus.STOPPED
 
 
-async def delete_client(*, name: str) -> None:
-    """Сносит контейнер (force), netdev в host-netns и папку с конфигом.
+async def _delete_iface_in_current_netns(*, name: str) -> None:
+    """Сносит netdev `awg-<name>` ВЕЗДЕ где он мог зависнуть.
 
-    `docker rm -f` посылает SIGKILL — графовый shutdown awg-quick'а внутри
-    контейнера не успевает выполниться, и netdev `awg-<name>` остаётся висеть в
-    host-netns (мы запускаемся с `--network host`). Чистим вручную через
-    `ip link delete`.
+    `docker rm -f` посылает SIGKILL — graceful shutdown awg-quick'а внутри
+    контейнера не успевает; netdev остаётся orphan'ом. Куда именно он попал
+    зависит от NetworkMode'а:
+    - `--network host` → iface в host netns. Удаляем `ip link delete`.
+    - `--network container:X` → iface в netns контейнера X. Если X ещё жив,
+      удаляем через `nsenter -t <pidX> -n ip link delete`. Если X тоже мёртв,
+      iface ушёл вместе с его netns'ом — ничего делать не надо.
+
+    Зовётся ДО `docker rm` чтобы успеть прочитать NetworkMode'а.
     """
+    iface = _iface_name(name=name)
+    network_mode = await get_network_mode(name=name)
+    if network_mode and network_mode.startswith("container:"):
+        target = network_mode.removeprefix("container:")
+        try:
+            pid_output = await run_command(
+                ["docker", "inspect", "-f", "{{.State.Pid}}", target],
+                check=False,
+            )
+            pid = int(pid_output.strip() or "0")
+        except (CommandError, ValueError):
+            pid = 0
+        if pid > 0:
+            await run_command(
+                ["nsenter", "-t", str(pid), "-n", "ip", "link", "delete", iface],
+                check=False,
+            )
+            return
+        # netns target'а уже исчез вместе с iface'ом — ничего не делаем
+        logger.info("awg-clients: target netns {} уже удалён, iface {} ушёл с ним", target, iface)
+        return
+    # NetworkMode == "host" или None (контейнер уже удалён) — пробуем host netns
+    await run_command(["ip", "link", "delete", iface], check=False)
+
+
+async def delete_client(*, name: str) -> None:
+    """Сносит контейнер (force), netdev в любой использовавшейся netns'е и папку с конфигом."""
     container = _container_name(name=name)
+    # ВАЖНО: ip link delete ДО docker rm — иначе NetworkMode уже не прочитать.
+    await _delete_iface_in_current_netns(name=name)
     await run_command(["docker", "rm", "-f", container], check=False)
-    await run_command(["ip", "link", "delete", _iface_name(name=name)], check=False)
     client_dir = _client_dir(name=name)
     if client_dir.exists():
         shutil.rmtree(client_dir, ignore_errors=True)
