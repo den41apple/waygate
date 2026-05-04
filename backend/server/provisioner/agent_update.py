@@ -42,6 +42,25 @@ async def update_agent_via_ssh(
     await ssh.run(command="/opt/waygate-agent.new/bin/pip install --upgrade --quiet pip")
     await ssh.run(command=f"/opt/waygate-agent.new/bin/pip install --quiet '{wheel_path}'")
 
+    await emit("Релокация shebang'ов под финальный путь...")
+    # pip генерирует bin-wrapper'ы (granian, pip, fastapi и т.п.) с абсолютным
+    # shebang'ом `#!/opt/waygate-agent.new/bin/python3`. После `mv .new → live`
+    # этот путь становится несуществующим, и systemd не может exec'нуть granian
+    # ("Failed to execute /opt/waygate-agent/bin/granian: No such file"). Перед
+    # swap'ом замещаем `.new` на финальный путь во всех текстовых файлах venv'а.
+    # `grep -rl ... | xargs --no-run-if-empty` пропускает binary и не падает на
+    # пустом списке. pyvenv.cfg тоже ссылается на старый путь — правим отдельно.
+    await ssh.run(
+        command=(
+            "grep -rIl 'opt/waygate-agent.new' /opt/waygate-agent.new/bin/ | "
+            "xargs --no-run-if-empty sed -i "
+            "'s|/opt/waygate-agent.new|/opt/waygate-agent|g'"
+        ),
+    )
+    await ssh.run(
+        command=("sed -i 's|/opt/waygate-agent.new|/opt/waygate-agent|g' /opt/waygate-agent.new/pyvenv.cfg"),
+    )
+
     await emit("Atomic swap...")
     await ssh.run(command="mv /opt/waygate-agent /opt/waygate-agent.bak")
     await ssh.run(command="mv /opt/waygate-agent.new /opt/waygate-agent")
