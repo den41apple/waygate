@@ -19,10 +19,16 @@ def _normalize_domain(domain: str) -> str:
 def _render_config(*, rules: list[DnsRule]) -> str:
     """Формирует содержимое /etc/dnsmasq.d/waygate.conf.
 
-    Для каждого правила одна строка `ipset=/<domain>/.../<setv4>,<setv6>` —
-    dnsmasq пишет A-записи в `<setv4>` (hash:net family inet), AAAA — в
-    `<setv6>` (hash:net family inet6). Соответствие именам — `<ipset_name>-v4`
-    и `<ipset_name>-v6`.
+    Для каждого правила ДВЕ отдельные `ipset=`-строки — одна для IPv4-set'а,
+    одна для IPv6. Объединённый формат `<setv4>,<setv6>` через запятую в
+    одной директиве в dnsmasq 2.90 наблюдался как пустые ipset'ы
+    (вероятно dnsmasq падает на add IPv4 → set family inet6 и обрывает
+    запись в обе семьи). Раздельные директивы — каждая своя ошибка/успех,
+    не аффектят друг друга.
+
+    Имена ipset'ов — `<ipset_name>-v4` (hash:net family inet) и
+    `<ipset_name>-v6` (hash:net family inet6); создаются через
+    `_ensure_dual_family_ipsets`.
     """
     lines = [_CONFIG_HEADER]
     for rule in rules:
@@ -30,7 +36,8 @@ def _render_config(*, rules: list[DnsRule]) -> str:
         if not unique_domains:
             continue
         domains_part = "/".join(unique_domains)
-        lines.append(f"ipset=/{domains_part}/{rule.ipset_name}-v4,{rule.ipset_name}-v6\n")
+        lines.append(f"ipset=/{domains_part}/{rule.ipset_name}-v4\n")
+        lines.append(f"ipset=/{domains_part}/{rule.ipset_name}-v6\n")
     return "".join(lines)
 
 

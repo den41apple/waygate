@@ -23,9 +23,11 @@ async def test_render_config_emits_dual_family_ipsets():
         DnsRule(name="ai", domains=["claude.ai"], ipset_name="ai"),
     ]
     config = dns_module._render_config(rules=rules)
-    # dnsmasq формат: ipset=/domain/v4set,v6set — A-записи в v4, AAAA в v6.
-    assert "ipset=/netflix.com/nflxvideo.net/streaming-v4,streaming-v6" in config
-    assert "ipset=/claude.ai/ai-v4,ai-v6" in config
+    # Раздельные директивы для v4 и v6 — иначе dnsmasq 2.90 обрывает запись.
+    assert "ipset=/netflix.com/nflxvideo.net/streaming-v4" in config
+    assert "ipset=/netflix.com/nflxvideo.net/streaming-v6" in config
+    assert "ipset=/claude.ai/ai-v4" in config
+    assert "ipset=/claude.ai/ai-v6" in config
 
 
 async def test_apply_dns_creates_dual_ipsets_writes_and_reloads(tmp_path, fake_runner):
@@ -34,7 +36,9 @@ async def test_apply_dns_creates_dual_ipsets_writes_and_reloads(tmp_path, fake_r
     response = await apply_dns(rules=rules, config_path=config_path)
     assert response.applied == 1
     assert response.errors == []
-    assert "ipset=/claude.ai/ai-v4,ai-v6" in config_path.read_text()
+    config_text = config_path.read_text()
+    assert "ipset=/claude.ai/ai-v4" in config_text
+    assert "ipset=/claude.ai/ai-v6" in config_text
     # Перед reload созданы оба ipset'а.
     create_calls = [call for call in fake_runner if call[:3] == ["ipset", "create", "-exist"]]
     set_names = {call[3] for call in create_calls}
