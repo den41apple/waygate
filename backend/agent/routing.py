@@ -79,6 +79,9 @@ _IPTABLES_MARK_RE = re.compile(
 # процессов идут OUTPUT → POSTROUTING.
 _MARK_CHAINS = ("PREROUTING", "OUTPUT")
 
+# Comment-метка для SSH-bypass правил, чтобы их легко находить и не дублировать.
+_SSH_BYPASS_COMMENT = "waygate-ssh-bypass"
+
 _IP_RULE_RE = re.compile(
     r"^\d+:\s+from\s+all\s+fwmark\s+(?P<mark>0x[0-9a-fA-F]+|\d+)\s+lookup\s+(?P<table>\d+)",
 )
@@ -626,6 +629,58 @@ async def _apply_rules_in_scope_family(
     return applied, skipped
 
 
+async def _ensure_ssh_bypass(*, ctx: _ScopeContext, family: _FamilyTools) -> None:
+    """Гарантирует что SSH-трафик НЕ маркируется match-set'ами (self-lockout-guard).
+
+    На сервере, чей собственный IP попадает в применённый ipset (например yandex
+    VM с RU-IP + GeoIP-RU direction), match-set --dst в OUTPUT-цепи матчит
+    SSH-ответы → они помечаются → улетают в туннель → SSH рвётся. Восстанавливать
+    приходится через provider serial console.
+
+    Чтобы это не повторялось — в начале PREROUTING и OUTPUT mangle-цепей вешаем
+    `RETURN` для tcp/22 (sport+dport). RETURN прерывает обработку текущей цепи
+    раньше любых match-set правил, так что SSH-пакеты никогда не маркируются.
+
+    Идемпотентно: проверяем по `-m comment --comment waygate-ssh-bypass` что
+    правило уже стоит. Не применяем v4 OUTPUT для container-scope (там не SSH'ят).
+    """
+    iptables = [*ctx.command_prefix, family.iptables_cmd, "-t", "mangle"]
+    # Проверяем какие SSH-bypass правила уже стоят.
+    listing = await run_command([*iptables, "-S"])
+    have = {line for line in listing.splitlines() if _SSH_BYPASS_COMMENT in line}
+    # Что хотим:
+    # PREROUTING: входящий SSH (--dport 22) — не помечать.
+    # OUTPUT: исходящие SSH-ответы (--sport 22) — не помечать (главный self-lockout-guard).
+    desired_specs = [
+        ("PREROUTING", "--dport", "22"),
+        ("OUTPUT", "--sport", "22"),
+    ]
+    for chain, port_flag, port in desired_specs:
+        # Ищем готовое правило в этой цепи с этим направлением порта.
+        marker = f"-A {chain}"
+        if any(marker in line and port_flag in line for line in have):
+            continue
+        # `-I CHAIN 1` — вставляем в начало, ДО match-set правил.
+        await run_command(
+            [
+                *iptables,
+                "-I",
+                chain,
+                "1",
+                "-p",
+                "tcp",
+                port_flag,
+                port,
+                "-m",
+                "comment",
+                "--comment",
+                _SSH_BYPASS_COMMENT,
+                "-j",
+                "RETURN",
+            ],
+        )
+
+
 async def _apply_rules_in_scope(
     *,
     ctx: _ScopeContext,
@@ -636,6 +691,14 @@ async def _apply_rules_in_scope(
     total_applied = 0
     total_skipped = 0
     for family in _FAMILIES:
+        # SSH-bypass СНАЧАЛА — даже если ниже падает, защита от self-lockout уже стоит.
+        # Ошибки SSH-bypass'а не блокируют apply: если упало (например, нет xt_comment
+        # модуля) — лучше сделать остальное с warning'ом, чем ронять весь apply.
+        try:
+            await _ensure_ssh_bypass(ctx=ctx, family=family)
+        except CommandError as exc:
+            errors.append(f"[{ctx.name}/{family.family}] ssh-bypass: {exc}")
+
         applied, skipped = await _apply_rules_in_scope_family(
             ctx=ctx,
             family=family,

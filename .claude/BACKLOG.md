@@ -49,6 +49,17 @@ modprobe amneziawg
 
 **UI-warning (опционально):** в карточке AWG-клиента показывать badge «нет kernel-модуля» если `docker logs` упоминают «Falling back to slow userspace implementation».
 
+### 0a-1. Self-lockout warning при создании direction'а
+
+**Состояние:** при создании direction со scope=host без исключений можно применить правило, которое отрубит твой собственный SSH (если твой клиентский IP попадает в matched-set / GeoIP). Сейчас 2026-05-04 пользователь в реальном времени получил self-lockout: yandex-VM с IP в RU-зоне + direction `geoip-ru` → OUTPUT-ответы SSH'у матчили `--match-set geoip-ru-v4 dst` → ответ уходил в туннель вместо eth0 → SSH-разрыв. Восстановление — через Yandex Cloud Serial Console.
+
+**Что сделать:**
+- В UI на модалке создания/редактирования direction'а проверять, попадает ли control-plane'овский client-IP (X-Forwarded-For или query-param) в выбранные ipset'ы. Если попадает — рендерить amber-warning «осторожно: твой клиент может потерять связь».
+- На бэкенде: при `apply_rules` агент должен **автоматически добавлять** iptables-исключение для активного SSH-соединения. Например `iptables -t mangle -I OUTPUT 1 -p tcp --sport 22 -m state --state ESTABLISHED -j RETURN`. Или короче — для всего исходящего на порт 22.
+- Watchdog в агенте: после applay через N секунд проверить что SSH-сокет живой (`ss -t state established sport 22`). Если упал — авто-rollback. (Похоже на `ufw` — он применяет правила через таймаут отмены).
+
+**Зачем сейчас не делаю:** требует дизайн-решения какие именно сокеты защищать (только агентский? все 22? configurable?), плюс watchdog/rollback — отдельная инфраструктура.
+
 ### 0a. Direction → awg-client integrity check в UI
 
 **Состояние:** если AWG-клиент удалён/переименован, direction всё ещё ссылается на старый `via_interface` (например `awg-firstbyte` когда фактически работает `awg-eurohoster`). При Apply агент возвращает `Cannot find device "awg-firstbyte"`. Оператор узнаёт это только в момент применения.

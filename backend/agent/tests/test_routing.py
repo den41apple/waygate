@@ -354,3 +354,49 @@ async def test_apply_rules_skips_disabled(monkeypatch, make_rule):
     assert response.applied == 0
     assert response.skipped == 0
     assert _calls_starting_with(runner.calls, ("iptables", "-t", "mangle", "-A")) == []
+
+
+@pytest.mark.asyncio
+async def test_apply_rules_installs_ssh_bypass(monkeypatch, make_rule):
+    """SSH-bypass: PREROUTING `--dport 22 RETURN` и OUTPUT `--sport 22 RETURN`
+    должны быть вставлены ДО любых match-set правил, чтобы при self-match'е
+    серверного IP в ipset (geoip-ru на yandex VM в RU) SSH не отрубался."""
+    runner = _FakeRunner(responses={})
+    monkeypatch.setattr(routing, "run_command", runner)
+
+    await routing.apply_rules(rules=[make_rule()])
+
+    # iptables (v4) bypass — оба правила вставлены через `-I` в начало.
+    v4_inserts = _calls_starting_with(runner.calls, ("iptables", "-t", "mangle", "-I"))
+    v4_chains = {call[4] for call in v4_inserts if "waygate-ssh-bypass" in call}
+    assert v4_chains == {"PREROUTING", "OUTPUT"}
+
+    # ip6tables — то же самое для v6.
+    v6_inserts = _calls_starting_with(runner.calls, ("ip6tables", "-t", "mangle", "-I"))
+    v6_chains = {call[4] for call in v6_inserts if "waygate-ssh-bypass" in call}
+    assert v6_chains == {"PREROUTING", "OUTPUT"}
+
+
+@pytest.mark.asyncio
+async def test_apply_rules_ssh_bypass_idempotent(monkeypatch, make_rule):
+    """При повторном apply (когда bypass уже стоит) — не дублируем правила."""
+    existing = (
+        "-P PREROUTING ACCEPT\n"
+        "-A PREROUTING -p tcp -m tcp --dport 22 -m comment --comment waygate-ssh-bypass -j RETURN\n"
+        "-A OUTPUT -p tcp -m tcp --sport 22 -m comment --comment waygate-ssh-bypass -j RETURN\n"
+    )
+    runner = _FakeRunner(
+        responses={
+            ("iptables", "-t", "mangle", "-S"): existing,
+            ("ip6tables", "-t", "mangle", "-S"): existing,
+        },
+    )
+    monkeypatch.setattr(routing, "run_command", runner)
+
+    await routing.apply_rules(rules=[make_rule()])
+
+    # Bypass-правила НЕ вставляются повторно.
+    bypass_inserts = [
+        call for call in runner.calls if call[:4] == ("iptables", "-t", "mangle", "-I") and "waygate-ssh-bypass" in call
+    ]
+    assert bypass_inserts == []
