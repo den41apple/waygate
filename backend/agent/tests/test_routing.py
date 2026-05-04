@@ -65,11 +65,15 @@ def make_rule():
 
 @pytest.mark.asyncio
 async def test_apply_rules_adds_missing_components(monkeypatch, make_rule):
-    """Каждое RoutingRule применяется в двух стеках (V4 + V6) → applied=2."""
+    """Каждое RoutingRule применяется в двух стеках (V4 + V6) → applied=2.
+    На каждый стек создаётся 2 mark-правила (PREROUTING + OUTPUT)."""
+    empty_chain = "-P CHAIN ACCEPT\n"
     runner = _FakeRunner(
         responses={
-            ("iptables", "-t", "mangle", "-S", "PREROUTING"): "-P PREROUTING ACCEPT\n",
-            ("ip6tables", "-t", "mangle", "-S", "PREROUTING"): "-P PREROUTING ACCEPT\n",
+            ("iptables", "-t", "mangle", "-S", "PREROUTING"): empty_chain,
+            ("iptables", "-t", "mangle", "-S", "OUTPUT"): empty_chain,
+            ("ip6tables", "-t", "mangle", "-S", "PREROUTING"): empty_chain,
+            ("ip6tables", "-t", "mangle", "-S", "OUTPUT"): empty_chain,
             ("ip", "rule", "show"): "0:\tfrom all lookup local\n",
             ("ip", "-6", "rule", "show"): "0:\tfrom all lookup local\n",
             ("ip", "route", "show", "table", "100"): "",
@@ -90,8 +94,11 @@ async def test_apply_rules_adds_missing_components(monkeypatch, make_rule):
     add_rules_v6 = _calls_starting_with(runner.calls, ("ip", "-6", "rule", "add"))
     replace_routes_v4 = _calls_starting_with(runner.calls, ("ip", "route", "replace"))
     replace_routes_v6 = _calls_starting_with(runner.calls, ("ip", "-6", "route", "replace"))
-    assert len(add_marks_v4) == 1
-    assert len(add_marks_v6) == 1
+    # На каждый family — 2 mark-правила (PREROUTING + OUTPUT).
+    assert len(add_marks_v4) == 2
+    chains_v4 = {call[4] for call in add_marks_v4}
+    assert chains_v4 == {"PREROUTING", "OUTPUT"}
+    assert len(add_marks_v6) == 2
     assert len(add_rules_v4) == 1
     assert len(add_rules_v6) == 1
     assert len(replace_routes_v4) == 1
@@ -108,12 +115,18 @@ async def test_apply_rules_adds_missing_components(monkeypatch, make_rule):
 @pytest.mark.asyncio
 async def test_apply_rules_skipped_when_state_matches(monkeypatch, make_rule):
     """Если state уже совпадает в обоих стеках → skipped=2 (ни одной правки)."""
+    empty = "-P CHAIN ACCEPT\n"
     runner = _FakeRunner(
         responses={
-            # V4 stack — всё уже есть.
+            # V4 stack — правило в PREROUTING, OUTPUT может быть пустым (мы
+            # читаем обе chain'ы, marks merge'ятся; reconciler видит fwmark
+            # совпадает → skip add). Реалистично — оба заполнены.
             ("iptables", "-t", "mangle", "-S", "PREROUTING"): (
                 "-P PREROUTING ACCEPT\n"
                 "-A PREROUTING -m set --match-set russia-v4 dst -j MARK --set-xmark 0x100/0xffffffff\n"
+            ),
+            ("iptables", "-t", "mangle", "-S", "OUTPUT"): (
+                "-P OUTPUT ACCEPT\n-A OUTPUT -m set --match-set russia-v4 dst -j MARK --set-xmark 0x100/0xffffffff\n"
             ),
             ("ip", "rule", "show"): ("0:\tfrom all lookup local\n1000:\tfrom all fwmark 0x100 lookup 100\n"),
             ("ip", "route", "show", "table", "100"): "default via 10.0.0.1 dev awg0 onlink\n",
@@ -122,10 +135,14 @@ async def test_apply_rules_skipped_when_state_matches(monkeypatch, make_rule):
                 "-P PREROUTING ACCEPT\n"
                 "-A PREROUTING -m set --match-set russia-v6 dst -j MARK --set-xmark 0x100/0xffffffff\n"
             ),
+            ("ip6tables", "-t", "mangle", "-S", "OUTPUT"): (
+                "-P OUTPUT ACCEPT\n-A OUTPUT -m set --match-set russia-v6 dst -j MARK --set-xmark 0x100/0xffffffff\n"
+            ),
             ("ip", "-6", "rule", "show"): ("0:\tfrom all lookup local\n1000:\tfrom all fwmark 0x100 lookup 100\n"),
             ("ip", "-6", "route", "show", "table", "100"): "default dev awg0\n",
         },
     )
+    _ = empty  # unused in this branch but explicit
     monkeypatch.setattr(routing, "run_command", runner)
 
     response = await routing.apply_rules(rules=[make_rule(fwmark=0x100)])
@@ -213,8 +230,9 @@ async def test_apply_rules_in_container_uses_nsenter(monkeypatch, make_rule):
         runner.calls,
         ("nsenter", "-t", "12345", "-n", "ip", "-6", "rule", "add"),
     )
-    assert len(nsenter_iptables_v4) == 1
-    assert len(nsenter_iptables_v6) == 1
+    # Каждое family — 2 add (PREROUTING + OUTPUT chains).
+    assert len(nsenter_iptables_v4) == 2
+    assert len(nsenter_iptables_v6) == 2
     assert len(nsenter_ip_rule_v4) == 1
     assert len(nsenter_ip_rule_v6) == 1
     # И что docker inspect был
@@ -280,10 +298,11 @@ async def test_apply_rules_isolates_host_and_container_scopes(monkeypatch, make_
         and "-A" in call
         and "container-ipset-v6" in call
     ]
-    assert len(host_v4) == 1
-    assert len(host_v6) == 1
-    assert len(container_v4) == 1
-    assert len(container_v6) == 1
+    # Каждое правило × 2 chain (PREROUTING + OUTPUT) = 2 add per family.
+    assert len(host_v4) == 2
+    assert len(host_v6) == 2
+    assert len(container_v4) == 2
+    assert len(container_v6) == 2
 
 
 @pytest.mark.asyncio

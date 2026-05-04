@@ -66,9 +66,18 @@ _FAMILIES = (_FAMILY_V4, _FAMILY_V6)
 
 
 _IPTABLES_MARK_RE = re.compile(
-    r"-A\s+PREROUTING\s+-m\s+set\s+--match-set\s+(?P<ipset>\S+)\s+dst\s+-j\s+MARK"
+    r"-A\s+(?:PREROUTING|OUTPUT)\s+-m\s+set\s+--match-set\s+(?P<ipset>\S+)\s+dst\s+-j\s+MARK"
     r"\s+--set-x?mark\s+(?P<mark>0x[0-9a-fA-F]+|\d+)(?:/\S+)?",
 )
+
+# Цепочки, в которые добавляем `--match-set ... -j MARK`:
+# - PREROUTING ловит forwarded трафик (трафик клиентов AWG-server-контейнера,
+#   проходящий ЧЕРЕЗ хост — там host действует как роутер).
+# - OUTPUT ловит локальный трафик С самого хоста (curl с этого сервера).
+# Без OUTPUT хостовой curl уходит через default-gw мимо VPN, потому что
+# PREROUTING только для входящих пакетов, а исходящие из локальных
+# процессов идут OUTPUT → POSTROUTING.
+_MARK_CHAINS = ("PREROUTING", "OUTPUT")
 
 _IP_RULE_RE = re.compile(
     r"^\d+:\s+from\s+all\s+fwmark\s+(?P<mark>0x[0-9a-fA-F]+|\d+)\s+lookup\s+(?P<table>\d+)",
@@ -154,19 +163,25 @@ async def _read_iptables_marks(
     ctx: _ScopeContext,
     family: _FamilyTools,
 ) -> dict[str, _ActiveMark]:
-    output = await run_command(
-        [*ctx.command_prefix, family.iptables_cmd, "-t", "mangle", "-S", "PREROUTING"],
-    )
+    """Читает существующие mark-правила из обеих chain (PREROUTING + OUTPUT).
+
+    Один и тот же match-set обычно присутствует в обеих — берём первый-же.
+    Если правило только в одной — reconciler потом дополнит до обеих.
+    """
     marks: dict[str, _ActiveMark] = {}
-    for line in output.splitlines():
-        match = _IPTABLES_MARK_RE.search(line)
-        if match is None:
-            continue
-        ipset_name = match.group("ipset")
-        marks[ipset_name] = _ActiveMark(
-            ipset_name=ipset_name,
-            fwmark=_parse_mark(match.group("mark")),
+    for chain in _MARK_CHAINS:
+        output = await run_command(
+            [*ctx.command_prefix, family.iptables_cmd, "-t", "mangle", "-S", chain],
         )
+        for line in output.splitlines():
+            match = _IPTABLES_MARK_RE.search(line)
+            if match is None:
+                continue
+            ipset_name = match.group("ipset")
+            marks.setdefault(
+                ipset_name,
+                _ActiveMark(ipset_name=ipset_name, fwmark=_parse_mark(match.group("mark"))),
+            )
     return marks
 
 
@@ -215,25 +230,33 @@ async def _add_iptables_mark(
     ipset_name: str,
     fwmark: int,
 ) -> None:
-    await run_command(
-        [
-            *ctx.command_prefix,
-            family.iptables_cmd,
-            "-t",
-            "mangle",
-            "-A",
-            "PREROUTING",
-            "-m",
-            "set",
-            "--match-set",
-            ipset_name,
-            "dst",
-            "-j",
-            "MARK",
-            "--set-mark",
-            str(fwmark),
-        ],
-    )
+    """Добавляет MARK-правило в обе chain'ы (PREROUTING + OUTPUT).
+
+    PREROUTING — для forwarded трафика (клиенты внутри AWG-server-контейнера,
+    проходящего через хост-роутер). OUTPUT — для трафика С самого хоста
+    (curl/любой локальный процесс на сервере). Без OUTPUT хостовой трафик
+    уходит мимо ipset/match-set через дефолтный маршрут.
+    """
+    for chain in _MARK_CHAINS:
+        await run_command(
+            [
+                *ctx.command_prefix,
+                family.iptables_cmd,
+                "-t",
+                "mangle",
+                "-A",
+                chain,
+                "-m",
+                "set",
+                "--match-set",
+                ipset_name,
+                "dst",
+                "-j",
+                "MARK",
+                "--set-mark",
+                str(fwmark),
+            ],
+        )
 
 
 async def _remove_iptables_mark(
@@ -243,25 +266,30 @@ async def _remove_iptables_mark(
     ipset_name: str,
     fwmark: int,
 ) -> None:
-    await run_command(
-        [
-            *ctx.command_prefix,
-            family.iptables_cmd,
-            "-t",
-            "mangle",
-            "-D",
-            "PREROUTING",
-            "-m",
-            "set",
-            "--match-set",
-            ipset_name,
-            "dst",
-            "-j",
-            "MARK",
-            "--set-mark",
-            str(fwmark),
-        ],
-    )
+    """Удаляет MARK-правило из обеих chain'ы. `check=False` per-chain — если
+    в одной из chain правила нет (например только в OUTPUT, а PREROUTING
+    случайно очищен), не падаем."""
+    for chain in _MARK_CHAINS:
+        await run_command(
+            [
+                *ctx.command_prefix,
+                family.iptables_cmd,
+                "-t",
+                "mangle",
+                "-D",
+                chain,
+                "-m",
+                "set",
+                "--match-set",
+                ipset_name,
+                "dst",
+                "-j",
+                "MARK",
+                "--set-mark",
+                str(fwmark),
+            ],
+            check=False,
+        )
 
 
 async def _add_ip_rule(
