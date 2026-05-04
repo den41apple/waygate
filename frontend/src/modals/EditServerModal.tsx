@@ -4,6 +4,7 @@ import { useEditServerSettings, type ServerSettingsPatch } from "../api/servers"
 import type { ServerSummary } from "../api/types";
 import { Icon } from "../components/Icon";
 import { IconTile } from "../components/primitives";
+import { type SshAuthMode, SshCredentialsFields } from "../components/SshCredentialsFields";
 
 interface Props {
   server: ServerSummary;
@@ -23,7 +24,7 @@ export function EditServerModal({ server, onClose }: Props) {
 
   const [sshUser, setSshUser] = useState(server.ssh_user);
   const [sshPort, setSshPort] = useState(String(server.ssh_port));
-  const [authMode, setAuthMode] = useState<"password" | "key">(
+  const [authMode, setAuthMode] = useState<SshAuthMode>(
     server.has_ssh_private_key ? "key" : "password",
   );
   // Plaintext-поля. Если уже сохранено — placeholder показывает «••• сохранено».
@@ -140,99 +141,22 @@ export function EditServerModal({ server, onClose }: Props) {
               поверх SECRET_KEY на стороне control-plane.
             </div>
 
-            <div className="field-row">
-              <div className="field">
-                <label>SSH-user</label>
-                <input
-                  className="input"
-                  value={sshUser}
-                  onChange={(event) => setSshUser(event.target.value)}
-                  placeholder="root"
-                />
-              </div>
-              <div className="field">
-                <label>SSH-port</label>
-                <input
-                  className="input"
-                  value={sshPort}
-                  onChange={(event) => setSshPort(event.target.value.replace(/[^0-9]/g, ""))}
-                  placeholder="22"
-                />
-              </div>
-            </div>
-
-            <div className="field">
-              <label>Аутентификация</label>
-              <div className="tab-switcher">
-                <button
-                  className={authMode === "password" ? "active" : ""}
-                  onClick={() => setAuthMode("password")}
-                  type="button"
-                >
-                  Пароль
-                  {server.has_ssh_password && (
-                    <span style={{ marginLeft: 6, color: "var(--green)" }}>✓</span>
-                  )}
-                </button>
-                <button
-                  className={authMode === "key" ? "active" : ""}
-                  onClick={() => setAuthMode("key")}
-                  type="button"
-                >
-                  Private key
-                  {server.has_ssh_private_key && (
-                    <span style={{ marginLeft: 6, color: "var(--green)" }}>✓</span>
-                  )}
-                </button>
-              </div>
-            </div>
-
-            {authMode === "password" ? (
-              <div className="field">
-                <label>SSH-пароль</label>
-                <input
-                  className="input"
-                  type="password"
-                  value={sshPassword}
-                  onChange={(event) => setSshPassword(event.target.value)}
-                  placeholder={
-                    server.has_ssh_password
-                      ? "••••• сохранён, ввести новый чтобы заменить"
-                      : "введите пароль"
-                  }
-                  autoComplete="new-password"
-                />
-              </div>
-            ) : (
-              <div className="field">
-                <label>Private key (PEM)</label>
-                <textarea
-                  className="textarea"
-                  rows={8}
-                  value={sshPrivateKey}
-                  onChange={(event) => setSshPrivateKey(event.target.value)}
-                  placeholder={
-                    server.has_ssh_private_key
-                      ? "••••• сохранён, ввести новый чтобы заменить"
-                      : "-----BEGIN OPENSSH PRIVATE KEY-----\n…\n-----END OPENSSH PRIVATE KEY-----"
-                  }
-                  spellCheck={false}
-                  style={{ fontFamily: "var(--mono)", fontSize: 11 }}
-                />
-              </div>
-            )}
-
-            {(server.has_ssh_password || server.has_ssh_private_key) && (
-              <button
-                className="btn ghost"
-                onClick={removeAllCreds}
-                disabled={update.isPending}
-                type="button"
-                style={{ fontSize: 12, color: "var(--red, #ef4444)" }}
-              >
-                <Icon name="x" size={12} /> Удалить сохранённые SSH-креды
-              </button>
-            )}
+            <SshCredentialsFields
+              sshUser={sshUser}
+              onSshUserChange={setSshUser}
+              sshPort={sshPort}
+              onSshPortChange={setSshPort}
+              authMode={authMode}
+              onAuthModeChange={setAuthMode}
+              sshPassword={sshPassword}
+              onSshPasswordChange={setSshPassword}
+              sshPrivateKey={sshPrivateKey}
+              onSshPrivateKeyChange={setSshPrivateKey}
+              hasSavedPassword={server.has_ssh_password}
+              hasSavedPrivateKey={server.has_ssh_private_key}
+              onRemoveCreds={removeAllCreds}
+              removeBusy={update.isPending}
+            />
           </div>
 
           {update.error && (

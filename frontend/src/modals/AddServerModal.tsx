@@ -4,6 +4,7 @@ import { api } from "../api/client";
 import { useProvisionServer } from "../api/servers";
 import { Icon } from "../components/Icon";
 import { IconTile } from "../components/primitives";
+import { type SshAuthMode, SshCredentialsFields } from "../components/SshCredentialsFields";
 import { useAuthStore } from "../store/auth";
 
 interface Props {
@@ -19,7 +20,7 @@ interface FormState {
   name: string;
   region: string;
   agent_port: string;
-  authMode: "password" | "key";
+  authMode: SshAuthMode;
   save_ssh_credentials: boolean;
 }
 
@@ -312,46 +313,19 @@ function ConnectStep({ form, update, disabled }: ConnectStepProps) {
           <input className="input" value={form.agent_port} onChange={(event) => update({ agent_port: event.target.value })} />
         </div>
       </div>
-      <div className="field">
-        <label>Способ авторизации</label>
-        <div className="tab-switcher">
-          <button className={form.authMode === "password" ? "active" : ""} onClick={() => update({ authMode: "password" })}>Пароль</button>
-          <button className={form.authMode === "key" ? "active" : ""} onClick={() => update({ authMode: "key" })}>SSH-ключ</button>
-        </div>
-      </div>
-      {form.authMode === "password" ? (
-        <div className="field-row">
-          <div className="field">
-            <label>SSH-пользователь</label>
-            <input className="input" value={form.ssh_user} onChange={(event) => update({ ssh_user: event.target.value })} />
-          </div>
-          <div className="field">
-            <label>Пароль</label>
-            <input
-              className="input"
-              type="password"
-              value={form.ssh_password}
-              onChange={(event) => update({ ssh_password: event.target.value })}
-            />
-          </div>
-        </div>
-      ) : (
-        <>
-          <div className="field">
-            <label>SSH-пользователь</label>
-            <input className="input" value={form.ssh_user} onChange={(event) => update({ ssh_user: event.target.value })} />
-          </div>
-          <div className="field">
-            <label>Приватный ключ (PEM)</label>
-            <textarea
-              className="textarea"
-              value={form.ssh_private_key}
-              onChange={(event) => update({ ssh_private_key: event.target.value })}
-              placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
-            />
-          </div>
-        </>
-      )}
+      <SshCredentialsFields
+        sshUser={form.ssh_user}
+        onSshUserChange={(value) => update({ ssh_user: value })}
+        sshPort={form.ssh_port}
+        onSshPortChange={(value) => update({ ssh_port: value })}
+        authMode={form.authMode}
+        onAuthModeChange={(value) => update({ authMode: value })}
+        sshPassword={form.ssh_password}
+        onSshPasswordChange={(value) => update({ ssh_password: value })}
+        sshPrivateKey={form.ssh_private_key}
+        onSshPrivateKeyChange={(value) => update({ ssh_private_key: value })}
+        hideUserPort
+      />
       <label
         style={{
           display: "flex",
