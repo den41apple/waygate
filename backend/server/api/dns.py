@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from loguru import logger
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
@@ -17,11 +17,36 @@ from shared.schemas import DnsRule as AgentDnsRule
 router = APIRouter(prefix="/servers/{server_id}/dns", tags=["dns"])
 
 
+def _clean_domains(raw: list[str]) -> list[str]:
+    """Из вводимого списка убираем пустые строки и комментарии (`#`, `///`).
+
+    Юзеры часто пастят domain-list с заголовками вроде `### Подгруппа:` и
+    blanks. Без фильтрации Pydantic-validator DomainPattern на агенте даёт
+    422/500 на первой плохой строке, а пользователь не понимает причины.
+    """
+    cleaned: list[str] = []
+    for raw_line in raw:
+        domain = raw_line.strip()
+        if not domain:
+            continue
+        if domain.startswith(("#", "//")):
+            continue
+        cleaned.append(domain)
+    return cleaned
+
+
 class DnsRuleCreate(BaseModel):
     name: str = Field(description="Группа доменов, для UI")
     domains: list[str] = Field(description="Домены для подмены резолва в ipset")
     ipset_name: str = Field(description="Куда писать резолвы")
     enabled: bool = Field(default=True)
+
+    @field_validator("domains", mode="before")
+    @classmethod
+    def _strip_comments(cls, value: object) -> object:
+        if isinstance(value, list):
+            return _clean_domains([str(item) for item in value])
+        return value
 
 
 class DnsRuleUpdate(BaseModel):
@@ -29,6 +54,13 @@ class DnsRuleUpdate(BaseModel):
     domains: list[str] | None = None
     ipset_name: str | None = None
     enabled: bool | None = None
+
+    @field_validator("domains", mode="before")
+    @classmethod
+    def _strip_comments(cls, value: object) -> object:
+        if isinstance(value, list):
+            return _clean_domains([str(item) for item in value])
+        return value
 
 
 class DnsRuleResponse(BaseModel):
