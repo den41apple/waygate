@@ -287,11 +287,42 @@ async def test_apply_rules_isolates_host_and_container_scopes(monkeypatch, make_
 
 
 @pytest.mark.asyncio
+async def test_apply_rules_empty_desired_cleans_host_orphans(monkeypatch):
+    """`apply_rules(rules=[])` (или все enabled=False) должен удалять orphan'ы
+    в host-scope. До фикса пустой desired не доходил до reconciler'а и
+    iptables-правила оставались после toggle direction → off → Apply.
+    """
+    runner = _FakeRunner(
+        responses={
+            ("iptables", "-t", "mangle", "-S", "PREROUTING"): (
+                "-P PREROUTING ACCEPT\n-A PREROUTING -m set --match-set legacy dst -j MARK --set-xmark 0x1\n"
+            ),
+            ("ip6tables", "-t", "mangle", "-S", "PREROUTING"): "-P PREROUTING ACCEPT\n",
+            ("ip", "rule", "show"): "32765:\tfrom all fwmark 0x1 lookup 100\n",
+            ("ip", "-6", "rule", "show"): "",
+            ("ip", "route", "show", "table", "100"): "default via 10.0.0.1 dev awg0 onlink\n",
+            ("ip", "-6", "route", "show", "table", "100"): "",
+        },
+    )
+    monkeypatch.setattr(routing, "run_command", runner)
+
+    response = await routing.apply_rules(rules=[])
+
+    assert response.errors == []
+    iptables_dels = _calls_starting_with(runner.calls, ("iptables", "-t", "mangle", "-D"))
+    assert any("legacy" in call for call in iptables_dels)
+    ip_rule_dels = _calls_starting_with(runner.calls, ("ip", "rule", "del"))
+    assert len(ip_rule_dels) == 1
+
+
+@pytest.mark.asyncio
 async def test_apply_rules_skips_disabled(monkeypatch, make_rule):
     runner = _FakeRunner(
         responses={
             ("iptables", "-t", "mangle", "-S", "PREROUTING"): "-P PREROUTING ACCEPT\n",
+            ("ip6tables", "-t", "mangle", "-S", "PREROUTING"): "-P PREROUTING ACCEPT\n",
             ("ip", "rule", "show"): "",
+            ("ip", "-6", "rule", "show"): "",
         },
     )
     monkeypatch.setattr(routing, "run_command", runner)

@@ -552,13 +552,25 @@ async def apply_rules(*, rules: list[RoutingRule]) -> ApplyRulesResponse:
     Группирует правила по (scope, scope_target). Для каждой группы строит
     `_ScopeContext` (host или nsenter в netns container'а) и вызывает один и тот
     же diff-applier с этим контекстом — отдельно для IPv4 и IPv6 стеков.
+
+    Если desired пуст (все правила выключены / direction'ов больше нет) — всё
+    равно делаем reconcile host-scope с пустым desired, чтобы удалить orphan'ы
+    (висячие iptables/ip rule/ip route от прошлых apply). Без этого toggle
+    direction → off → Apply не освобождал бы systemd-уровневые правила.
     """
     desired = [rule for rule in rules if rule.enabled]
     errors: list[str] = []
 
+    # Гарантируем что host-scope reconcile запускается даже при пустом desired.
+    # Container-scope без активных правил — не reconcile'им: pid контейнера может
+    # не существовать (контейнер удалён); orphan'ы там сами уйдут вместе с netns.
+    groups = _group_by_scope(desired)
+    if (RoutingScope.HOST, None) not in groups:
+        groups[(RoutingScope.HOST, None)] = []
+
     total_applied = 0
     total_skipped = 0
-    for (scope, target), group_rules in _group_by_scope(desired).items():
+    for (scope, target), group_rules in groups.items():
         try:
             ctx = await _build_scope_context(scope=scope, scope_target=target)
         except CommandError as exc:
