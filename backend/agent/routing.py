@@ -68,18 +68,28 @@ _FAMILIES = (_FAMILY_V4, _FAMILY_V6)
 
 
 _IPTABLES_MARK_RE = re.compile(
-    r"-A\s+(?:PREROUTING|OUTPUT)\s+-m\s+set\s+--match-set\s+(?P<ipset>\S+)\s+dst\s+-j\s+MARK"
+    r"-A\s+(?:PREROUTING|FORWARD|OUTPUT)\s+-m\s+set\s+--match-set\s+(?P<ipset>\S+)\s+dst\s+-j\s+MARK"
     r"\s+--set-x?mark\s+(?P<mark>0x[0-9a-fA-F]+|\d+)(?:/\S+)?",
 )
 
 # Цепочки, в которые добавляем `--match-set ... -j MARK`:
-# - PREROUTING ловит forwarded трафик (трафик клиентов AWG-server-контейнера,
-#   проходящий ЧЕРЕЗ хост — там host действует как роутер).
-# - OUTPUT ловит локальный трафик С самого хоста (curl с этого сервера).
-# Без OUTPUT хостовой curl уходит через default-gw мимо VPN, потому что
-# PREROUTING только для входящих пакетов, а исходящие из локальных
-# процессов идут OUTPUT → POSTROUTING.
-_MARK_CHAINS = ("PREROUTING", "OUTPUT")
+# - FORWARD ловит **только** трафик который проходит ЧЕРЕЗ хост (in одно iface,
+#   out другое iface) — это и есть наш forwarded use-case (mac/phone → AWG-server
+#   → инет). PREROUTING бы ловил ВСЁ входящее, включая incoming WG handshake'и
+#   на local IP — отсюда раньше нужен был зоопарк bypass'ов (addrtype LOCAL,
+#   UDP sport 42014, dport 22/7743). С FORWARD это всё ненужно — local-destined
+#   пакеты идут PREROUTING → INPUT и не попадают в FORWARD.
+# - OUTPUT ловит локальный трафик С самого хоста (curl с этого VM). Опционально:
+#   local-originated policy-routing хрупок в Linux (socket-bind mismatch для
+#   NEW connection), поэтому для local-curl практичнее использовать
+#   `--interface awg-X` явно. Но MARK в OUTPUT не вредит и поддерживает
+#   простые случаи.
+# До 0.2.26 use'али `("PREROUTING", "OUTPUT")` — отсюда тонна corner case'ов.
+# Reconciler ниже также читает старый PREROUTING для cleanup'а легаси-правил.
+_MARK_CHAINS = ("FORWARD", "OUTPUT")
+# Все цепи которые читаем при reconcile (для миграции legacy: до 0.2.26
+# match-set правила висели в PREROUTING — нужно их оттуда убрать).
+_READ_MARK_CHAINS = ("PREROUTING", "FORWARD", "OUTPUT")
 
 # Comment-метка для self-bypass правил, чтобы их легко находить и не дублировать.
 # Раньше было `waygate-ssh-bypass` (только порт 22) — переименовали в `self-bypass`
@@ -238,8 +248,8 @@ async def _read_iptables_marks(
     «уже есть» и не добавлял в PREROUTING. Forwarded-трафик (клиенты mac
     через AWG-server на хосте) не маркировался → шёл мимо туннеля.
     """
-    marks: dict[str, dict[str, _ActiveMark]] = {chain: {} for chain in _MARK_CHAINS}
-    for chain in _MARK_CHAINS:
+    marks: dict[str, dict[str, _ActiveMark]] = {chain: {} for chain in _READ_MARK_CHAINS}
+    for chain in _READ_MARK_CHAINS:
         output = await run_command(
             [*ctx.command_prefix, family.iptables_cmd, "-t", "mangle", "-S", chain],
         )
@@ -696,7 +706,7 @@ async def _read_state(
         marks = await _read_iptables_marks(ctx=ctx, family=family)
     except CommandError as exc:
         errors.append(f"[{ctx.name}/{family.family}] read iptables marks: {exc}")
-        marks = {chain: {} for chain in _MARK_CHAINS}
+        marks = {chain: {} for chain in _READ_MARK_CHAINS}
     try:
         ip_rules = await _read_ip_rules(ctx=ctx, family=family)
     except CommandError as exc:

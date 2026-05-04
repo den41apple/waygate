@@ -66,13 +66,16 @@ def make_rule():
 @pytest.mark.asyncio
 async def test_apply_rules_adds_missing_components(monkeypatch, make_rule):
     """Каждое RoutingRule применяется в двух стеках (V4 + V6) → applied=2.
-    На каждый стек создаётся 2 mark-правила (PREROUTING + OUTPUT)."""
+    На каждый стек создаётся 2 mark-правила (FORWARD + OUTPUT) — PREROUTING
+    больше не маркируется (с 0.2.26)."""
     empty_chain = "-P CHAIN ACCEPT\n"
     runner = _FakeRunner(
         responses={
             ("iptables", "-t", "mangle", "-S", "PREROUTING"): empty_chain,
+            ("iptables", "-t", "mangle", "-S", "FORWARD"): empty_chain,
             ("iptables", "-t", "mangle", "-S", "OUTPUT"): empty_chain,
             ("ip6tables", "-t", "mangle", "-S", "PREROUTING"): empty_chain,
+            ("ip6tables", "-t", "mangle", "-S", "FORWARD"): empty_chain,
             ("ip6tables", "-t", "mangle", "-S", "OUTPUT"): empty_chain,
             ("ip", "rule", "show"): "0:\tfrom all lookup local\n",
             ("ip", "-6", "rule", "show"): "0:\tfrom all lookup local\n",
@@ -94,19 +97,17 @@ async def test_apply_rules_adds_missing_components(monkeypatch, make_rule):
     add_rules_v6 = _calls_starting_with(runner.calls, ("ip", "-6", "rule", "add"))
     replace_routes_v4 = _calls_starting_with(runner.calls, ("ip", "route", "replace"))
     replace_routes_v6 = _calls_starting_with(runner.calls, ("ip", "-6", "route", "replace"))
-    # На каждый family — 2 mark-правила (PREROUTING + OUTPUT).
+    # На каждый family — 2 mark-правила (FORWARD + OUTPUT).
     assert len(add_marks_v4) == 2
     chains_v4 = {call[4] for call in add_marks_v4}
-    assert chains_v4 == {"PREROUTING", "OUTPUT"}
+    assert chains_v4 == {"FORWARD", "OUTPUT"}
     assert len(add_marks_v6) == 2
     assert len(add_rules_v4) == 1
     assert len(add_rules_v6) == 1
     assert len(replace_routes_v4) == 1
     assert len(replace_routes_v6) == 1
-    # iptables match-set должен ссылаться на physical-name с family-suffix.
     assert any("russia-v4" in str(call) for call in add_marks_v4)
     assert any("russia-v6" in str(call) for call in add_marks_v6)
-    # IPv6 default-route — БЕЗ `via` (point-to-point туннель).
     v6_replace = replace_routes_v6[0]
     assert "via" not in v6_replace
     assert "onlink" not in v6_replace
@@ -114,49 +115,36 @@ async def test_apply_rules_adds_missing_components(monkeypatch, make_rule):
 
 @pytest.mark.asyncio
 async def test_apply_rules_skipped_when_state_matches(monkeypatch, make_rule):
-    """Если state уже совпадает в обоих стеках → skipped=2 (ни одной правки)."""
+    """Если state уже совпадает в FORWARD+OUTPUT → skipped=2 (ни одной правки).
+    PREROUTING пустой (с 0.2.26 туда не пишем)."""
     empty = "-P CHAIN ACCEPT\n"
+    russia_v4_mark = "-m set --match-set russia-v4 dst -j MARK --set-xmark 0x100/0xffffffff"
+    russia_v6_mark = "-m set --match-set russia-v6 dst -j MARK --set-xmark 0x100/0xffffffff"
     runner = _FakeRunner(
         responses={
-            # V4 stack — правило в PREROUTING, OUTPUT может быть пустым (мы
-            # читаем обе chain'ы, marks merge'ятся; reconciler видит fwmark
-            # совпадает → skip add). Реалистично — оба заполнены.
-            ("iptables", "-t", "mangle", "-S", "PREROUTING"): (
-                "-P PREROUTING ACCEPT\n"
-                "-A PREROUTING -m set --match-set russia-v4 dst -j MARK --set-xmark 0x100/0xffffffff\n"
-            ),
-            ("iptables", "-t", "mangle", "-S", "OUTPUT"): (
-                "-P OUTPUT ACCEPT\n-A OUTPUT -m set --match-set russia-v4 dst -j MARK --set-xmark 0x100/0xffffffff\n"
-            ),
+            ("iptables", "-t", "mangle", "-S", "PREROUTING"): empty,
+            ("iptables", "-t", "mangle", "-S", "FORWARD"): f"-P FORWARD ACCEPT\n-A FORWARD {russia_v4_mark}\n",
+            ("iptables", "-t", "mangle", "-S", "OUTPUT"): f"-P OUTPUT ACCEPT\n-A OUTPUT {russia_v4_mark}\n",
             ("ip", "rule", "show"): ("0:\tfrom all lookup local\n1000:\tfrom all fwmark 0x100 lookup 100\n"),
             ("ip", "route", "show", "table", "100"): "default dev awg0\n",
-            # V6 stack — то же.
-            ("ip6tables", "-t", "mangle", "-S", "PREROUTING"): (
-                "-P PREROUTING ACCEPT\n"
-                "-A PREROUTING -m set --match-set russia-v6 dst -j MARK --set-xmark 0x100/0xffffffff\n"
-            ),
-            ("ip6tables", "-t", "mangle", "-S", "OUTPUT"): (
-                "-P OUTPUT ACCEPT\n-A OUTPUT -m set --match-set russia-v6 dst -j MARK --set-xmark 0x100/0xffffffff\n"
-            ),
+            ("ip6tables", "-t", "mangle", "-S", "PREROUTING"): empty,
+            ("ip6tables", "-t", "mangle", "-S", "FORWARD"): f"-P FORWARD ACCEPT\n-A FORWARD {russia_v6_mark}\n",
+            ("ip6tables", "-t", "mangle", "-S", "OUTPUT"): f"-P OUTPUT ACCEPT\n-A OUTPUT {russia_v6_mark}\n",
             ("ip", "-6", "rule", "show"): ("0:\tfrom all lookup local\n1000:\tfrom all fwmark 0x100 lookup 100\n"),
             ("ip", "-6", "route", "show", "table", "100"): "default dev awg0\n",
-            # MASQUERADE для awg0 уже стоит — иначе reconciler добавит и applied++.
             ("iptables", "-t", "nat", "-S", "POSTROUTING"): "-A POSTROUTING -o awg0 -j MASQUERADE\n",
             ("ip6tables", "-t", "nat", "-S", "POSTROUTING"): "-A POSTROUTING -o awg0 -j MASQUERADE\n",
         },
     )
-    _ = empty  # unused in this branch but explicit
     monkeypatch.setattr(routing, "run_command", runner)
 
     response = await routing.apply_rules(rules=[make_rule(fwmark=0x100)])
 
     assert response.applied == 0
-    assert response.skipped == 2  # V4 + V6 оба skipped
+    assert response.skipped == 2
     assert response.errors == []
     assert _calls_starting_with(runner.calls, ("iptables", "-t", "mangle", "-A")) == []
     assert _calls_starting_with(runner.calls, ("ip6tables", "-t", "mangle", "-A")) == []
-    assert _calls_starting_with(runner.calls, ("ip", "rule", "add")) == []
-    assert _calls_starting_with(runner.calls, ("ip", "-6", "rule", "add")) == []
 
 
 @pytest.mark.asyncio

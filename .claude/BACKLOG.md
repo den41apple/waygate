@@ -31,6 +31,29 @@
 
 **Зачем сейчас не делаю:** есть hot-issues (dnsmasq waygate.conf, kernel-модуль), это работа на пол-дня и завязана на reliable CI mirror.
 
+### 0a-future. self-bypass: упростить после миграции на FORWARD-chain (0.2.26)
+
+**Состояние:** в `_ensure_self_bypass` (`backend/agent/routing.py`) до 0.2.25
+было 5 разных bypass'ов в **PREROUTING**:
+- `addrtype --dst-type LOCAL` — incoming на свой IP
+- `tcp --dport 22` — incoming SSH
+- `tcp --dport 7743` — incoming agent
+- `conntrack RELATED,ESTABLISHED` — reply на existing
+- (планировался `udp --dport 42014` — для AWG-server)
+
+Все они появились потому что в PREROUTING висел `--match-set --dst -j MARK`
+который ловил **incoming на local-IP** при широких ipset'ах (catch-all).
+
+В 0.2.26 `_MARK_CHAINS = ("FORWARD", "OUTPUT")` — incoming на local никогда
+не попадает в FORWARD, поэтому **bypass'ы в PREROUTING больше не нужны**.
+Текущий код их всё ещё ставит для backward-compat, но это dead code.
+
+**Что сделать:** в `_ensure_self_bypass` удалить ветки для PREROUTING. Оставить
+только OUTPUT-bypass'ы (для local-curl с самого хоста). Сократит ~50 строк.
+
+**Когда:** через 1-2 релиза, когда все production-instances мигрируют с
+старого PREROUTING-набора правил (reconciler удалит их при первом 0.2.26-Apply).
+
 ### 0z. scope=container — orphan-cleanup в чужих netns'ах при удалении direction'а
 
 **Состояние:** при `apply_rules` агент 0.2.21+ группирует RoutingRule по `(scope, scope_target)` и для отсутствующих в desired host-scope'ах делает orphan-cleanup. Но для **container-scope'ов** аналогичного механизма НЕТ: если direction со scope=container удалён, group исчезает из desired → reconcile внутри netns не запускается → match-set + ip rule + ip route + ipsets остаются висеть в netns целевого контейнера.
