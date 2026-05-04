@@ -22,6 +22,7 @@ from enum import StrEnum
 
 from loguru import logger
 
+from agent import awg_clients
 from agent.config import settings
 from agent.subprocess_runner import CommandError, run_command
 from shared.schemas import ApplyRulesResponse, RoutingRule, RoutingScope
@@ -161,6 +162,62 @@ async def _build_scope_context(*, scope: RoutingScope, scope_target: str | None)
         name=f"container:{scope_target}",
         command_prefix=["nsenter", "-t", str(pid), "-n"],
     )
+
+
+async def _ensure_awg_clients_in_netns_host(*, via_interfaces: set[str]) -> None:
+    """Возвращает AWG-client'ы в host netns (если ранее были перевезены в
+    container-netns под scope=container, а сейчас direction'ы со scope=host).
+
+    Симметрично `_ensure_awg_clients_in_netns` — обе функции idempotent.
+    """
+    for iface in via_interfaces:
+        client_name = await awg_clients.find_client_by_iface(iface=iface)
+        if client_name is None:
+            continue
+        try:
+            await awg_clients.redeploy_with_network_mode(name=client_name, network_mode="host")
+        except awg_clients.AwgClientError as exc:
+            raise CommandError(
+                command=["awg-redeploy", client_name],
+                returncode=1,
+                stderr=str(exc),
+            ) from exc
+
+
+async def _ensure_awg_clients_in_netns(*, via_interfaces: set[str], scope_target: str) -> None:
+    """Для каждого awg-iface из правил scope=container проверяет, что AWG-client-
+    контейнер запущен с `--network container:<scope_target>`. Если нет —
+    перезапускает.
+
+    Без этого `nsenter -n iptables -A ... -j MARK ... -o awg-X` падает с
+    `Cannot find device awg-X` — потому что iface awg-X живёт в host netns
+    (если AWG-client запущен с `--network host`), а команда выполняется в
+    netns scope_target'а.
+
+    Цена переключения — кратковременный разрыв туннеля и потеря host'овой
+    видимости (iface уезжает в netns scope_target'а). Это by design: один
+    AWG-client = одна netns. Если у пользователя есть direction'ы со scope=host
+    использующие тот же via_interface, они после этого сломаются — UI должен
+    предупреждать оператора об этой исключительности.
+    """
+    expected_mode = f"container:{scope_target}"
+    for iface in via_interfaces:
+        client_name = await awg_clients.find_client_by_iface(iface=iface)
+        if client_name is None:
+            logger.warning(
+                "routing: для iface {} не найден waygate-managed AWG-client "
+                "(возможно iface создан вне waygate). Пропускаем netns-переключение.",
+                iface,
+            )
+            continue
+        try:
+            await awg_clients.redeploy_with_network_mode(name=client_name, network_mode=expected_mode)
+        except awg_clients.AwgClientError as exc:
+            raise CommandError(
+                command=["awg-redeploy", client_name],
+                returncode=1,
+                stderr=str(exc),
+            ) from exc
 
 
 def _parse_mark(value: str) -> int:
@@ -910,6 +967,26 @@ async def apply_rules(*, rules: list[RoutingRule]) -> ApplyRulesResponse:
     total_applied = 0
     total_skipped = 0
     for (scope, target), group_rules in groups.items():
+        # Для scope=container нужно сначала перезапустить relevant AWG-client'ы
+        # с `--network container:<target>`, иначе iface awg-X живёт в host netns
+        # и nsenter в чужой netns его не находит.
+        if scope is RoutingScope.CONTAINER and target is not None:
+            via_ifaces = {rule.via_interface for rule in group_rules}
+            try:
+                await _ensure_awg_clients_in_netns(via_interfaces=via_ifaces, scope_target=target)
+            except CommandError as exc:
+                errors.append(f"[container:{target}] netns-switch: {exc}")
+                continue
+        # Симметрично: для scope=host AWG-client должен быть в host netns. Если
+        # пользователь раньше применял scope=container (iface уехал в чужой netns),
+        # вернём awg-client с `--network host`.
+        if scope is RoutingScope.HOST and group_rules:
+            via_ifaces = {rule.via_interface for rule in group_rules}
+            try:
+                await _ensure_awg_clients_in_netns_host(via_interfaces=via_ifaces)
+            except CommandError as exc:
+                errors.append(f"[host] netns-switch back to host: {exc}")
+                continue
         try:
             ctx = await _build_scope_context(scope=scope, scope_target=target)
         except CommandError as exc:

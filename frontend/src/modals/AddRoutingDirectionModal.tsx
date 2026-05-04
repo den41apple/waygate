@@ -295,11 +295,23 @@ export function AddRoutingDirectionModal({ serverId, editing, onClose }: Props) 
                 </div>
 
                 {scope === "container" && (
-                  <ContainerScopeTargetPicker
-                    serverId={serverId}
-                    value={scopeTarget}
-                    onChange={setScopeTarget}
-                  />
+                  <>
+                    <ContainerScopeTargetPicker
+                      serverId={serverId}
+                      value={scopeTarget}
+                      onChange={setScopeTarget}
+                    />
+                    <div
+                      className="hint"
+                      style={{ fontSize: 11, color: "var(--text-3)", marginTop: 6, lineHeight: 1.4 }}
+                    >
+                      ℹ️ При первом Apply агент перезапустит выбранный AWG-клиент с
+                      <code> --network container:{scopeTarget || "<target>"}</code> — чтобы
+                      iface awg-* появился в netns целевого контейнера. На host'е iface
+                      пропадёт, host'овые direction'ы со scope=host через тот же клиент
+                      перестанут работать. Один AWG-клиент = одна netns.
+                    </div>
+                  </>
                 )}
 
                 <div className="field-row">

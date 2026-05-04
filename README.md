@@ -231,7 +231,22 @@ Iptables/ip rule/ip route ставятся в root netns target-сервера. 
 
 Те же правила применяются **внутри netns** конкретного docker-контейнера через
 `nsenter -t <pid> -n`. Используется когда нужно роутить трафик одного контейнера
-через AWG-туннель, не затрагивая host'овую таблицу.
+(например AmneziaWG-server'а для конечных клиентов) через AWG-client-туннель,
+не затрагивая host'овую таблицу — «двойной VPN».
+
+**Что делает агент при scope=container** (autonomously, при Apply):
+
+1. Находит выбранный via_interface (например `awg-firstbyte`) → сопоставляет с
+   waygate-managed AWG-client'ом по docker-label.
+2. Проверяет docker `NetworkMode` этого client'а: если `host`, перезапускает
+   с `--network container:<scope_target>`. После этого `awg-quick` поднимает
+   iface awg-firstbyte **внутри netns** scope_target'а.
+3. `nsenter` в этот netns и применяет iptables/ip rule/ip route как обычно.
+
+Симметрично: при Apply со scope=host агент возвращает AWG-client с `--network host`
+если он был «уведён» в чужой netns предыдущим scope=container Apply'ем. Из-за
+этого **один AWG-client = одна netns одновременно** — нельзя использовать его
+параллельно в scope=host и scope=container Direction'ах. UI это предупреждает.
 
 ⚠️ **Waygate не разворачивает AmneziaWG-server-контейнер автоматически.** Он
 управляет только AWG-**client'ами** (исходящие туннели). Если хотите принимать

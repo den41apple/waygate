@@ -96,8 +96,15 @@ def _info_from_config(*, name: str, config: AwgFullConfig, status: AwgClientStat
     )
 
 
-async def deploy_client(*, name: str, config_text: str) -> AwgClientInfo:
+async def deploy_client(*, name: str, config_text: str, network_mode: str = "host") -> AwgClientInfo:
     """Парсит .conf, сохраняет на диск, разворачивает docker-контейнер.
+
+    `network_mode` — что передаётся в `docker run --network`:
+    - `"host"` (default) — iface awg-<name> появляется в host netns, использовать
+      со scope=host direction'ами.
+    - `"container:<name>"` — контейнер использует netns другого контейнера, iface
+      появляется ВНУТРИ его netns. Нужно для scope=container — чтобы iptables
+      mangle и ip route внутри netns target'а могли роутить через awg-iface.
 
     Кидает AwgClientError на парсинге или docker-команде.
     """
@@ -144,7 +151,7 @@ async def deploy_client(*, name: str, config_text: str) -> AwgClientInfo:
                 "--restart",
                 "unless-stopped",
                 "--network",
-                "host",
+                network_mode,
                 # `--privileged` нужен для записи sysctl `net.ipv4.conf.all.src_valid_mark=1`,
                 # которую awg-quick делает в /proc/sys (read-only с обычными cap'ами при
                 # `--network host`). Безопасно ТОЛЬКО в паре с `Table = off` в конфиге
@@ -174,6 +181,76 @@ async def deploy_client(*, name: str, config_text: str) -> AwgClientInfo:
         raise AwgClientError(f"docker run упал: {exc.stderr.strip()}") from exc
 
     return _info_from_config(name=name, config=config, status=AwgClientStatus.RUNNING)
+
+
+async def get_network_mode(*, name: str) -> str | None:
+    """Возвращает текущий `--network` mode awg-client-контейнера или None.
+
+    Формат соответствует docker'овскому: `"host"`, `"bridge"`, `"none"`,
+    `"container:<id-or-name>"`. None — контейнера нет.
+    """
+    container = _container_name(name=name)
+    try:
+        output = await run_command(
+            ["docker", "inspect", "-f", "{{.HostConfig.NetworkMode}}", container],
+        )
+    except CommandError:
+        return None
+    mode = output.strip()
+    return mode or None
+
+
+async def find_client_by_iface(*, iface: str) -> str | None:
+    """Поиск client.name по имени iface (awg-X). Используется routing.py чтобы
+    переключать AWG-client'ов в нужную netns для scope=container."""
+    output = await run_command(
+        [
+            "docker",
+            "ps",
+            "-a",
+            "--filter",
+            f"label={_CLIENT_IFACE_LABEL_KEY}={iface}",
+            "--format",
+            "{{.Names}}",
+        ],
+        check=False,
+    )
+    for line in output.splitlines():
+        full_name = line.strip()
+        if full_name.startswith(_CONTAINER_NAME_PREFIX):
+            return full_name.removeprefix(_CONTAINER_NAME_PREFIX)
+    return None
+
+
+async def redeploy_with_network_mode(*, name: str, network_mode: str) -> None:
+    """Перезапускает существующего client'а с другим `--network` mode без потери .conf.
+
+    Идемпотентно — если текущий mode уже совпадает с желаемым, no-op.
+    Используется в routing.py при scope=container: agent видит что awg-client
+    запущен с `--network host`, но direction требует `--network container:<X>`,
+    и переключает.
+    """
+    current = await get_network_mode(name=name)
+    if current == network_mode:
+        return
+    config_path = _config_path(name=name)
+    if not config_path.exists():
+        # Backward-compat: ранние клиенты сохраняли как `awg0.conf`.
+        legacy = _client_dir(name=name) / "awg0.conf"
+        if legacy.exists():
+            config_path = legacy
+        else:
+            raise AwgClientError(
+                f"конфиг для client'а {name} не найден на диске — не могу пересоздать в новом netns",
+            )
+    config_text = config_path.read_text()
+    logger.info(
+        "awg-clients: redeploy {} с {} → {}",
+        name,
+        current or "<отсутствует>",
+        network_mode,
+    )
+    await deploy_client(name=name, config_text=config_text, network_mode=network_mode)
 
 
 async def list_managed_clients() -> list[AwgClientInfo]:
