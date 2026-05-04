@@ -452,65 +452,59 @@ async def _ensure_mss_clamp(
     *,
     ctx: _ScopeContext,
     family: _FamilyTools,
-    interfaces: set[str],
+    interfaces: set[str],  # kept в API для обратной совместимости — clamp теперь без -o filter
 ) -> None:
-    """TCPMSS-clamp на awg-интерфейсах в mangle POSTROUTING.
+    """Глобальный TCPMSS-clamp на mangle POSTROUTING без iface-фильтра.
 
     WireGuard добавляет ~80 байт overhead, MTU iface 1420 (vs eth0 1500).
     Без clamp'а большие пакеты (TLS Server Hello ~4KB) фрагментируются на
     IP-уровне. На сетях которые блокируют ICMP "fragmentation needed"
     (РФ-провайдеры) PMTU Discovery не работает → пакеты молча дропаются →
-    connections виснут.
+    connections виснут / медленный throughput.
 
-    Почему POSTROUTING а не OUTPUT/FORWARD:
-    На этапе OUTPUT mangle pkt ещё имеет out=eth0 (initial route lookup).
-    Reroute на awg-firstbyte по mark происходит ПОСЛЕ mangle OUTPUT. Поэтому
-    matcher `-o awg-firstbyte` в OUTPUT не срабатывает (counter=0 наблюдался).
-    POSTROUTING — последняя точка перед отправкой, out-iface уже финальный.
+    Раньше клампили только `-o awg-<X>` для каждого awg-iface'а из direction'ов.
+    Это работало для исходящих SYN'ов на firstbyte (telephone→VPN→инет), но
+    НЕ работало для **возвратных** SYN'ов (yandex.ru → firstbyte → AWG-server-iface
+    → телефон) — там outbound iface это AWG-server (например awg0 в netns
+    container'а), который НЕ был в `interfaces`. Backwards-MSS не клампился,
+    yandex слал TCP-сегменты по 1410, и они не помещались в WG-iface'е к
+    телефону.
 
-    `--clamp-mss-to-pmtu` ставит MSS = MTU-40 автоматически. Идемпотентно
-    через `iptables -C` перед `-A`.
+    Решение — `-A POSTROUTING -p tcp --tcp-flags SYN,RST SYN -j TCPMSS
+    --clamp-mss-to-pmtu` БЕЗ `-o`. Kernel сам берёт MTU выходного iface'а
+    и клампит. Для eth0 (1500) MSS=1460, для awg-* (1420) MSS=1380. Никаких
+    регрессий — просто более полное покрытие.
+
+    Идемпотентно через `iptables -C` перед `-A`.
     """
     iptables = [*ctx.command_prefix, family.iptables_cmd, "-t", "mangle"]
-    for iface in interfaces:
-        args = [
-            "-o",
-            iface,
-            "-p",
-            "tcp",
-            "--tcp-flags",
-            "SYN,RST",
-            "SYN",
-            "-j",
-            "TCPMSS",
-            "--clamp-mss-to-pmtu",
-        ]
-        # `iptables -C` возвращает 0 если правило существует, иначе бросает
-        # CommandError. Проверяем для идемпотентности.
-        try:
-            await run_command([*iptables, "-C", "POSTROUTING", *args])
-            continue  # уже стоит
-        except CommandError:
-            pass
+    args = [
+        "-p",
+        "tcp",
+        "--tcp-flags",
+        "SYN,RST",
+        "SYN",
+        "-j",
+        "TCPMSS",
+        "--clamp-mss-to-pmtu",
+    ]
+    try:
+        await run_command([*iptables, "-C", "POSTROUTING", *args])
+    except CommandError:
         await run_command([*iptables, "-A", "POSTROUTING", *args])
 
-    # Удаляем legacy-правила в OUTPUT/FORWARD (от 0.2.18 — там counter=0
-    # потому что matcher не срабатывал, но правила оставались). Идемпотентно.
-    for chain in ("FORWARD", "OUTPUT"):
-        for iface in interfaces:
-            args = [
-                "-o",
-                iface,
-                "-p",
-                "tcp",
-                "--tcp-flags",
-                "SYN,RST",
-                "SYN",
-                "-j",
-                "TCPMSS",
-                "--clamp-mss-to-pmtu",
-            ]
-            await run_command([*iptables, "-D", chain, *args], check=False)
+    # Cleanup legacy-правил с `-o iface`-фильтром (от 0.2.19+) и из OUTPUT/FORWARD
+    # (от 0.2.18). Они становятся избыточными при глобальном clamp'е.
+    listing = await run_command([*iptables, "-S"], check=False)
+    for line in listing.splitlines():
+        if "TCPMSS" not in line or "clamp-mss-to-pmtu" not in line:
+            continue
+        if "-o " not in line and "POSTROUTING" in line:
+            continue  # это наш желаемый, не трогаем
+        if not line.startswith("-A "):
+            continue
+        delete_args = line.replace("-A ", "-D ", 1).split()
+        await run_command([*iptables, *delete_args], check=False)
 
 
 async def _replace_default_route(
