@@ -31,28 +31,18 @@
 
 **Зачем сейчас не делаю:** есть hot-issues (dnsmasq waygate.conf, kernel-модуль), это работа на пол-дня и завязана на reliable CI mirror.
 
-### 0a-future. self-bypass: упростить после миграции на FORWARD-chain (0.2.26)
+### 0a-future. self-bypass: проконсолидировать port-bypass'ы под `addrtype LOCAL`
 
-**Состояние:** в `_ensure_self_bypass` (`backend/agent/routing.py`) до 0.2.25
-было 5 разных bypass'ов в **PREROUTING**:
-- `addrtype --dst-type LOCAL` — incoming на свой IP
-- `tcp --dport 22` — incoming SSH
-- `tcp --dport 7743` — incoming agent
-- `conntrack RELATED,ESTABLISHED` — reply на existing
-- (планировался `udp --dport 42014` — для AWG-server)
+**Состояние:** `_ensure_self_bypass` ставит 5 правил в PREROUTING:
+- `tcp --dport 22` (SSH), `tcp --dport 7743` (agent), `conntrack ESTABLISHED`,
+  `addrtype --dst-type LOCAL`, и port-bypass'ы в OUTPUT.
 
-Все они появились потому что в PREROUTING висел `--match-set --dst -j MARK`
-который ловил **incoming на local-IP** при широких ipset'ах (catch-all).
+`addrtype --dst-type LOCAL` уже покрывает SSH/agent/handshake'и (любой incoming
+на local IP). Остальные bypass'ы стали избыточными — но удалить их нельзя
+просто так: при апгрейде с 0.2.25 reconciler не пройдёт по ним (legacy).
 
-В 0.2.26 `_MARK_CHAINS = ("FORWARD", "OUTPUT")` — incoming на local никогда
-не попадает в FORWARD, поэтому **bypass'ы в PREROUTING больше не нужны**.
-Текущий код их всё ещё ставит для backward-compat, но это dead code.
-
-**Что сделать:** в `_ensure_self_bypass` удалить ветки для PREROUTING. Оставить
-только OUTPUT-bypass'ы (для local-curl с самого хоста). Сократит ~50 строк.
-
-**Когда:** через 1-2 релиза, когда все production-instances мигрируют с
-старого PREROUTING-набора правил (reconciler удалит их при первом 0.2.26-Apply).
+**Что сделать:** через 1-2 релиза удалить port-specific и ESTABLISHED bypass'ы
+(они не нужны при `addrtype LOCAL` уже стоящем). Сократит ~40 строк.
 
 ### 0z. scope=container — orphan-cleanup в чужих netns'ах при удалении direction'а
 

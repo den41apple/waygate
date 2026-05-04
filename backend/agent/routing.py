@@ -73,22 +73,19 @@ _IPTABLES_MARK_RE = re.compile(
 )
 
 # Цепочки, в которые добавляем `--match-set ... -j MARK`:
-# - FORWARD ловит **только** трафик который проходит ЧЕРЕЗ хост (in одно iface,
-#   out другое iface) — это и есть наш forwarded use-case (mac/phone → AWG-server
-#   → инет). PREROUTING бы ловил ВСЁ входящее, включая incoming WG handshake'и
-#   на local IP — отсюда раньше нужен был зоопарк bypass'ов (addrtype LOCAL,
-#   UDP sport 42014, dport 22/7743). С FORWARD это всё ненужно — local-destined
-#   пакеты идут PREROUTING → INPUT и не попадают в FORWARD.
-# - OUTPUT ловит локальный трафик С самого хоста (curl с этого VM). Опционально:
-#   local-originated policy-routing хрупок в Linux (socket-bind mismatch для
-#   NEW connection), поэтому для local-curl практичнее использовать
-#   `--interface awg-X` явно. Но MARK в OUTPUT не вредит и поддерживает
-#   простые случаи.
-# До 0.2.26 use'али `("PREROUTING", "OUTPUT")` — отсюда тонна corner case'ов.
-# Reconciler ниже также читает старый PREROUTING для cleanup'а легаси-правил.
-_MARK_CHAINS = ("FORWARD", "OUTPUT")
-# Все цепи которые читаем при reconcile (для миграции legacy: до 0.2.26
-# match-set правила висели в PREROUTING — нужно их оттуда убрать).
+# - PREROUTING — для forwarded трафика. Mark ставится ДО routing decision'а,
+#   поэтому `ip rule fwmark X table Y` корректно пересматривает out_iface.
+#   В 0.2.26 пробовал FORWARD — но там mark ставится УЖЕ ПОСЛЕ route lookup'а,
+#   и `ip rule` не вызывает reroute → counter растёт но пакеты всё равно уходят
+#   через initial out_iface (eth0), не через awg-eurohoster.
+# - OUTPUT — для local-originated (curl с самого VM). Linux также сделает
+#   reroute через `ip rule` после OUTPUT mangle. Хрупок для NEW TCP из-за
+#   socket-bind mismatch'а, но для основных use case'ов работает.
+# Чтобы PREROUTING не ломал self-traffic (incoming SSH/agent/handshake на
+# local-IP), используем `addrtype --dst-type LOCAL -j RETURN` в начале
+# цепи (см. _ensure_self_bypass).
+_MARK_CHAINS = ("PREROUTING", "OUTPUT")
+# Cleanup'аем правила в обоих legacy-наборах (PREROUTING/OUTPUT/FORWARD).
 _READ_MARK_CHAINS = ("PREROUTING", "FORWARD", "OUTPUT")
 
 # Comment-метка для self-bypass правил, чтобы их легко находить и не дублировать.

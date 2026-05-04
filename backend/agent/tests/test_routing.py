@@ -66,8 +66,7 @@ def make_rule():
 @pytest.mark.asyncio
 async def test_apply_rules_adds_missing_components(monkeypatch, make_rule):
     """Каждое RoutingRule применяется в двух стеках (V4 + V6) → applied=2.
-    На каждый стек создаётся 2 mark-правила (FORWARD + OUTPUT) — PREROUTING
-    больше не маркируется (с 0.2.26)."""
+    На каждый стек создаётся 2 mark-правила (PREROUTING + OUTPUT)."""
     empty_chain = "-P CHAIN ACCEPT\n"
     runner = _FakeRunner(
         responses={
@@ -97,10 +96,9 @@ async def test_apply_rules_adds_missing_components(monkeypatch, make_rule):
     add_rules_v6 = _calls_starting_with(runner.calls, ("ip", "-6", "rule", "add"))
     replace_routes_v4 = _calls_starting_with(runner.calls, ("ip", "route", "replace"))
     replace_routes_v6 = _calls_starting_with(runner.calls, ("ip", "-6", "route", "replace"))
-    # На каждый family — 2 mark-правила (FORWARD + OUTPUT).
     assert len(add_marks_v4) == 2
     chains_v4 = {call[4] for call in add_marks_v4}
-    assert chains_v4 == {"FORWARD", "OUTPUT"}
+    assert chains_v4 == {"PREROUTING", "OUTPUT"}
     assert len(add_marks_v6) == 2
     assert len(add_rules_v4) == 1
     assert len(add_rules_v6) == 1
@@ -115,20 +113,21 @@ async def test_apply_rules_adds_missing_components(monkeypatch, make_rule):
 
 @pytest.mark.asyncio
 async def test_apply_rules_skipped_when_state_matches(monkeypatch, make_rule):
-    """Если state уже совпадает в FORWARD+OUTPUT → skipped=2 (ни одной правки).
-    PREROUTING пустой (с 0.2.26 туда не пишем)."""
+    """Если state уже совпадает в PREROUTING+OUTPUT → skipped=2 (ни одной правки)."""
     empty = "-P CHAIN ACCEPT\n"
     russia_v4_mark = "-m set --match-set russia-v4 dst -j MARK --set-xmark 0x100/0xffffffff"
     russia_v6_mark = "-m set --match-set russia-v6 dst -j MARK --set-xmark 0x100/0xffffffff"
     runner = _FakeRunner(
         responses={
-            ("iptables", "-t", "mangle", "-S", "PREROUTING"): empty,
-            ("iptables", "-t", "mangle", "-S", "FORWARD"): f"-P FORWARD ACCEPT\n-A FORWARD {russia_v4_mark}\n",
+            ("iptables", "-t", "mangle", "-S", "PREROUTING"): f"-P PREROUTING ACCEPT\n-A PREROUTING {russia_v4_mark}\n",
+            ("iptables", "-t", "mangle", "-S", "FORWARD"): empty,
             ("iptables", "-t", "mangle", "-S", "OUTPUT"): f"-P OUTPUT ACCEPT\n-A OUTPUT {russia_v4_mark}\n",
             ("ip", "rule", "show"): ("0:\tfrom all lookup local\n1000:\tfrom all fwmark 0x100 lookup 100\n"),
             ("ip", "route", "show", "table", "100"): "default dev awg0\n",
-            ("ip6tables", "-t", "mangle", "-S", "PREROUTING"): empty,
-            ("ip6tables", "-t", "mangle", "-S", "FORWARD"): f"-P FORWARD ACCEPT\n-A FORWARD {russia_v6_mark}\n",
+            ("ip6tables", "-t", "mangle", "-S", "PREROUTING"): (
+                f"-P PREROUTING ACCEPT\n-A PREROUTING {russia_v6_mark}\n"
+            ),
+            ("ip6tables", "-t", "mangle", "-S", "FORWARD"): empty,
             ("ip6tables", "-t", "mangle", "-S", "OUTPUT"): f"-P OUTPUT ACCEPT\n-A OUTPUT {russia_v6_mark}\n",
             ("ip", "-6", "rule", "show"): ("0:\tfrom all lookup local\n1000:\tfrom all fwmark 0x100 lookup 100\n"),
             ("ip", "-6", "route", "show", "table", "100"): "default dev awg0\n",
