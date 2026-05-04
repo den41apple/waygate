@@ -24,6 +24,11 @@ typecheck/build зелёные, docker compose поднимается за ~12 �
 - `.claude/SPEC.md` — спецификация (источник истины для контрактов API).
 - `.claude/STYLE.md` — стиль кода (Python 3.13, без `from __future__`, StrEnum, русские комментарии).
 - `.claude/PROJECT_STATE.md` — текущее состояние, ключевые решения, файловая карта.
+- `.claude/ROUTING_ARCHITECTURE.md` — **обязательно при routing-вопросах**:
+  какие mangle-цепи (`PREROUTING` only, не FORWARD/OUTPUT), self-bypass'ы,
+  scope=host vs scope=container, известные ограничения (двойной NAT через
+  bridge, socket-bind mismatch local-TCP, и т.д.).
+- `.claude/SESSION_*.md` — снапшоты длинных сессий с открытыми вопросами.
 - `.claude/BACKLOG.md` — список follow-up'ов и недоделок (что отложено и почему).
 - `.claude/memory/` — feedback и project-заметки между сессиями.
 - `README.md` — пользовательская документация (как запустить, как добавить сервер).
@@ -109,3 +114,10 @@ cd ../frontend && npm run generate-types
 - **При предложении прод-команд думать про сетевые побочки** — `--privileged`
   без `Table=off` в `[Interface]` AmneziaWG hijack'ит default-route → SSH
   обрывается. См. `agent/awg_clients.py` и `shared/awg_config.py::serialize_awg_config`.
+- **Routing/iptables правила НИКОГДА не патчить инкрементально** —
+  `_MARK_CHAINS = ("PREROUTING",)`, не FORWARD (mark после route lookup'а
+  не вызывает reroute) и не OUTPUT (socket-bind mismatch ломает local TCP).
+  Полная архитектура — в `.claude/ROUTING_ARCHITECTURE.md`. Перед изменениями
+  обязательно прорисовать **полный путь пакета** через netfilter hooks для
+  forwarded vs local-originated vs incoming-на-local. Иначе ушёл целый день
+  в reactive-mode (см. `.claude/SESSION_2026_05_04.md`).
