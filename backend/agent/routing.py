@@ -389,6 +389,50 @@ async def _remove_masquerade(
     )
 
 
+async def _ensure_mss_clamp(
+    *,
+    ctx: _ScopeContext,
+    family: _FamilyTools,
+    interfaces: set[str],
+) -> None:
+    """TCPMSS-clamp на awg-интерфейсах в mangle FORWARD/OUTPUT.
+
+    WireGuard добавляет ~80 байт overhead к каждому пакету, поэтому MTU iface'а
+    1420 (vs eth0 1500). Для forwarded TCP (mac→yandex→awg-firstbyte→инет) и
+    локального TCP (curl с yandex'а через туннель) большие пакеты надо
+    фрагментировать. Если PMTU Discovery ICMP-сообщения теряются (часто на
+    российских сетях/файрволах), большие пакеты молча дропаются — connections
+    "вроде открываются, но капец" (TCP retransmits, TLS handshake timeout).
+
+    Решение: TCPMSS clamp на SYN-пакетах для всех awg-* интерфейсов.
+    `--clamp-mss-to-pmtu` ставит MSS = MTU-40 автоматически. Идемпотентно
+    через `iptables -C` перед `-A`.
+    """
+    iptables = [*ctx.command_prefix, family.iptables_cmd, "-t", "mangle"]
+    for chain in ("FORWARD", "OUTPUT"):
+        for iface in interfaces:
+            args = [
+                "-o",
+                iface,
+                "-p",
+                "tcp",
+                "--tcp-flags",
+                "SYN,RST",
+                "SYN",
+                "-j",
+                "TCPMSS",
+                "--clamp-mss-to-pmtu",
+            ]
+            # `iptables -C` возвращает 0 если правило существует, иначе бросает
+            # CommandError (ненулевой код). Проверяем для идемпотентности.
+            try:
+                await run_command([*iptables, "-C", chain, *args])
+                continue  # уже стоит
+            except CommandError:
+                pass
+            await run_command([*iptables, "-A", chain, *args])
+
+
 async def _replace_default_route(
     *,
     ctx: _ScopeContext,
@@ -622,6 +666,15 @@ async def _apply_rules_in_scope_family(
             await _remove_masquerade(ctx=ctx, family=family, interface=orphan_iface)
         except CommandError as exc:
             errors.append(f"[{ctx.name}/{family.family}] remove orphan masquerade {orphan_iface}: {exc}")
+
+    # MSS-clamp на awg-интерфейсах. Без него большие пакеты теряются на сетях
+    # которые блокируют ICMP "fragmentation needed" — TCP retransmits, TLS
+    # handshake timeout, "вроде работает но капец медленно".
+    if desired_interfaces:
+        try:
+            await _ensure_mss_clamp(ctx=ctx, family=family, interfaces=desired_interfaces)
+        except CommandError as exc:
+            errors.append(f"[{ctx.name}/{family.family}] mss-clamp: {exc}")
 
     applied = 0
     skipped = 0
