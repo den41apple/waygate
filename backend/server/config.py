@@ -1,14 +1,40 @@
 from envparse import env
 
+# Литералы, которые исторически валялись как дефолты — отклоняем явно, чтобы
+# забытый ENV не превращался в «всё работает, ключи predictable». Список
+# держим коротким; если в будущем нужно добавить — просто сюда.
+_FORBIDDEN_SECRET_KEYS = frozenset(
+    {
+        "",
+        "dev-secret-key-change-me-in-production-please",
+        "change-me",
+        "secret",
+    },
+)
+
+
+def _require_secret_key() -> str:
+    """`SECRET_KEY` должен быть выставлен из ENV — без fallback'а на dev-default.
+
+    Любой dev-default означает predictable Fernet/JWT-ключи: оператор клонировал
+    репо → запустил docker-compose без ENV → его SSH-креды лежат в БД зашифрованные
+    общеизвестным ключом. Проще сразу падать на старте.
+    """
+    value: str = env.str("SECRET_KEY", default="")
+    if value in _FORBIDDEN_SECRET_KEYS:
+        raise RuntimeError(
+            "SECRET_KEY не задан или совпадает с dev-default. Сгенерируй случайный "
+            "(`openssl rand -hex 32`) и положи в ENV/.env. Без этого Fernet и JWT "
+            "используют predictable ключ — recovery невозможна.",
+        )
+    return value
+
 
 class Settings:
     """Конфигурация control-plane сервера, читается из переменных окружения."""
 
     db_url: str = env.str("DATABASE_URL", default="sqlite+aiosqlite:///waygate.db")
-    secret_key: str = env.str(
-        "SECRET_KEY",
-        default="dev-secret-key-change-me-in-production-please",
-    )
+    secret_key: str = _require_secret_key()
     port: int = env.int("PORT", default=8000)
     cors_origins: list[str] = env.list("CORS_ORIGINS", default=["http://localhost:5173"])
     log_level: str = env.str("LOG_LEVEL", default="INFO")

@@ -10,7 +10,7 @@ import { useDnsRules } from "../api/dns";
 import { useGeoIpLists } from "../api/geoip";
 import { useIpsetGroups } from "../api/ipsetGroups";
 import { useApplyRules } from "../api/rules";
-import type { AwgClient, Direction } from "../api/types";
+import type { AwgClient, Direction, DnsRule, GeoList, IpsetGroup } from "../api/types";
 import { flagFor } from "../components/CountrySelect";
 import { Icon } from "../components/Icon";
 import { AddRoutingDirectionModal } from "../modals/AddRoutingDirectionModal";
@@ -25,12 +25,25 @@ interface Props {
 export function RoutingTab({ serverId, showSpark }: Props) {
   const { data: directions = [], isLoading } = useDirections(serverId);
   const { data: awgClients = [] } = useAwgClients(serverId);
+  // Бейджи на DirectionCard'ах резолвят geo/dns/ipset/awgClient'ы по id —
+  // подгружаем все списки один раз на уровне RoutingTab и прокидываем в виде
+  // Map'ов. Раньше каждая карточка дёргала эти 4 хука сама → 80 hook calls
+  // на 20 direction'ов (BACKLOG B4).
+  const { data: geoLists = [] } = useGeoIpLists();
+  const { data: dnsRules = [] } = useDnsRules(serverId);
+  const { data: ipsetGroups = [] } = useIpsetGroups(serverId);
   const updateDirection = useUpdateDirection(serverId);
   const deleteDirection = useDeleteDirection(serverId);
   const applyRules = useApplyRules(serverId);
 
   const [showAdd, setShowAdd] = useState(false);
   const [editing, setEditing] = useState<Direction | null>(null);
+
+  // Pre-computed lookups для карточек.
+  const geoMap = useMemo(() => new Map(geoLists.map((g) => [g.id, g])), [geoLists]);
+  const dnsMap = useMemo(() => new Map(dnsRules.map((d) => [d.id, d])), [dnsRules]);
+  const ipsetMap = useMemo(() => new Map(ipsetGroups.map((g) => [g.id, g])), [ipsetGroups]);
+  const awgClientMap = useMemo(() => new Map(awgClients.map((c) => [c.id, c])), [awgClients]);
 
   // Группировка direction'ов по awg_client
   const grouped = useMemo(() => {
@@ -143,12 +156,16 @@ export function RoutingTab({ serverId, showSpark }: Props) {
       )}
 
       {[...grouped.entries()].map(([key, list]) => {
-        const awgClient = key === "host" ? null : awgClients.find((item) => item.id === key) ?? null;
+        const awgClient = key === "host" ? null : awgClientMap.get(key) ?? null;
         return (
           <DirectionGroup
             key={String(key)}
             awgClient={awgClient}
             directions={list}
+            geoMap={geoMap}
+            dnsMap={dnsMap}
+            ipsetMap={ipsetMap}
+            awgClientMap={awgClientMap}
             onToggle={(direction) =>
               updateDirection.mutate({
                 directionId: direction.id,
@@ -182,12 +199,26 @@ export function RoutingTab({ serverId, showSpark }: Props) {
 interface GroupProps {
   awgClient: AwgClient | null;
   directions: Direction[];
+  geoMap: Map<number, GeoList>;
+  dnsMap: Map<number, DnsRule>;
+  ipsetMap: Map<number, IpsetGroup>;
+  awgClientMap: Map<number, AwgClient>;
   onToggle: (direction: Direction) => void;
   onEdit: (direction: Direction) => void;
   onDelete: (direction: Direction) => void;
 }
 
-function DirectionGroup({ awgClient, directions, onToggle, onEdit, onDelete }: GroupProps) {
+function DirectionGroup({
+  awgClient,
+  directions,
+  geoMap,
+  dnsMap,
+  ipsetMap,
+  awgClientMap,
+  onToggle,
+  onEdit,
+  onDelete,
+}: GroupProps) {
   return (
     <div style={{ marginBottom: 16 }}>
       <div
@@ -223,6 +254,10 @@ function DirectionGroup({ awgClient, directions, onToggle, onEdit, onDelete }: G
         <DirectionCard
           key={direction.id}
           direction={direction}
+          geoMap={geoMap}
+          dnsMap={dnsMap}
+          ipsetMap={ipsetMap}
+          awgClientMap={awgClientMap}
           onToggle={() => onToggle(direction)}
           onEdit={() => onEdit(direction)}
           onDelete={() => onDelete(direction)}
@@ -234,33 +269,33 @@ function DirectionGroup({ awgClient, directions, onToggle, onEdit, onDelete }: G
 
 interface CardProps {
   direction: Direction;
+  geoMap: Map<number, GeoList>;
+  dnsMap: Map<number, DnsRule>;
+  ipsetMap: Map<number, IpsetGroup>;
+  awgClientMap: Map<number, AwgClient>;
   onToggle: () => void;
   onEdit: () => void;
   onDelete: () => void;
 }
 
-function DirectionCard({ direction, onToggle, onEdit, onDelete }: CardProps) {
-  const { data: geoLists = [] } = useGeoIpLists();
-  const { data: dnsRules = [] } = useDnsRules(direction.server_id);
-  const { data: ipsetGroups = [] } = useIpsetGroups(direction.server_id);
-  const { data: awgClients = [] } = useAwgClients(direction.server_id);
-
-  const geoBadges = direction.geo_list_ids
-    .map((id) => geoLists.find((list) => list.id === id))
-    .filter(Boolean);
-  const dnsBadges = direction.dns_rule_ids
-    .map((id) => dnsRules.find((rule) => rule.id === id))
-    .filter(Boolean);
-  const ipsetBadges = direction.ipset_group_ids
-    .map((id) => ipsetGroups.find((group) => group.id === id))
-    .filter(Boolean);
+function DirectionCard({
+  direction,
+  geoMap,
+  dnsMap,
+  ipsetMap,
+  awgClientMap,
+  onToggle,
+  onEdit,
+  onDelete,
+}: CardProps) {
+  const geoBadges = direction.geo_list_ids.map((id) => geoMap.get(id)).filter(Boolean);
+  const dnsBadges = direction.dns_rule_ids.map((id) => dnsMap.get(id)).filter(Boolean);
+  const ipsetBadges = direction.ipset_group_ids.map((id) => ipsetMap.get(id)).filter(Boolean);
 
   // Integrity-check: awg_client_id ссылается на существующий running клиент?
   // Иначе при apply'е агент вернёт `Cannot find device awg-X` (юзер уже ловил
   // это после удаления firstbyte клиента, direction остался ссылаться).
-  const awgClient = direction.awg_client_id
-    ? awgClients.find((item) => item.id === direction.awg_client_id)
-    : null;
+  const awgClient = direction.awg_client_id !== null ? awgClientMap.get(direction.awg_client_id) : null;
   const clientMissing = direction.awg_client_id !== null && awgClient === undefined;
   const clientNotRunning = awgClient !== undefined && awgClient !== null && awgClient.status !== "running";
 

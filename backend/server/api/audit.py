@@ -45,12 +45,17 @@ async def list_audit(
     range: AuditRange = Query(default=AuditRange.DAY),
     server_id: int | None = Query(default=None),
     limit: int = Query(default=200, ge=1, le=1000),
+    offset: int = Query(default=0, ge=0, description="Сколько записей пропустить (для пагинации)"),
     session: AsyncSession = Depends(get_session),
 ) -> AuditListResponse:
     """Последние записи аудита. payload не возвращаем в листинге — он может быть большим."""
     cutoff = datetime.now() - timedelta(hours=_RANGE_TO_HOURS[range])
     statement = (
-        select(AuditEntry).where(AuditEntry.timestamp >= cutoff).order_by(AuditEntry.timestamp.desc()).limit(limit)
+        select(AuditEntry)
+        .where(AuditEntry.timestamp >= cutoff)
+        .order_by(AuditEntry.timestamp.desc())
+        .offset(offset)
+        .limit(limit)
     )
     if server_id is not None:
         statement = statement.where(AuditEntry.server_id == server_id)

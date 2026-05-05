@@ -1864,6 +1864,8 @@ export interface operations {
                 range?: components["schemas"]["AuditRange"];
                 server_id?: number | null;
                 limit?: number;
+                /** @description Сколько записей пропустить (для пагинации) */
+                offset?: number;
                 access_token?: string;
             };
             header?: {
@@ -3192,6 +3194,8 @@ export interface operations {
         parameters: {
             query?: {
                 range?: components["schemas"]["MetricsRange"];
+                /** @description Безопасный cap на количество точек (последние N в выбранном range) */
+                limit?: number;
                 access_token?: string;
             };
             header?: {

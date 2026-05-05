@@ -297,26 +297,13 @@ export interface DirectionUpdate {
   is_default_egress?: boolean;
 }
 
-export type WsEventType =
-  | "server.created"
-  | "server.deleted"
-  | "server.status_changed"
-  | "server.metrics"
-  | "server.agent_updated"
-  | "rule.applied"
-  | "dns.applied"
-  | "geoip.synced"
-  | "tls.applied"
-  | "provision.progress"
-  | "awg_client.created"
-  | "awg_client.deleted"
-  | "awg_client.status_changed"
-  | "direction.created"
-  | "direction.updated"
-  | "direction.deleted"
-  | "ipset_group.created"
-  | "ipset_group.updated"
-  | "ipset_group.deleted";
+// `WsEventType` генерируется из backend-enum'а через
+// `backend/server/scripts/dump_ws_events.py` — не редактировать руками.
+// При добавлении нового события: правим Python enum, гоняем codegen,
+// фронт-handler в `useWS.ts` обновляем явно.
+import type { WsEventType } from "./wsEventTypes.gen";
+
+export type { WsEventType };
 
 export interface WsEvent {
   type: WsEventType;

@@ -14,11 +14,16 @@ SPEC закрыты + CI/CD + большой кусок техдолга и prod
 Защита: username/password → bcrypt + session-JWT. Первый админ создаётся при
 старте из ENV `WAYGATE_ADMIN_USER`/`WAYGATE_ADMIN_PASSWORD`.
 
-**166 backend-тестов + 11 e2e-тестов проходят** (+7 integration с реальным
+**201 backend-тестов + 11+ e2e-тестов проходят** (+13 integration с реальным
 Docker-контейнером — отключены в `addopts`, гоняются явно через
-`uv run pytest -m integration` ~46 сек, покрывают ipset/dns/routing.apply
-end-to-end), ruff/format/mypy чисто, frontend typecheck/build зелёные,
-docker compose поднимается за ~12 сек.
+`uv run pytest -m integration` ~50-60 сек, покрывают ipset/dns/routing.apply +
+ssh-провижионер end-to-end), ruff/format/mypy чисто, frontend typecheck/build
+зелёные, docker compose поднимается за ~12 сек.
+
+**SECRET_KEY обязателен в проде** (нет fallback'а на dev-default — fail-fast
+на старте). В тестах подкидывается через `conftest.py`. Для запуска
+`alembic upgrade head` или `dump_openapi.py` тоже нужно выставить
+ENV — иначе RuntimeError.
 
 ## Что где
 

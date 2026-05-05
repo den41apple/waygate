@@ -1,4 +1,5 @@
-from typing import Any
+from collections.abc import Awaitable, Callable
+from typing import Any, ParamSpec, TypeVar
 
 import aiohttp
 from loguru import logger
@@ -30,6 +31,10 @@ from shared.schemas import (
     UpdateResponse,
 )
 
+_P = ParamSpec("_P")
+_R = TypeVar("_R")
+_TModel = TypeVar("_TModel", bound=BaseModel)
+
 
 class AgentClientError(RuntimeError):
     """Агент вернул ошибку (4xx/5xx) или прислал нечитаемое тело."""
@@ -37,6 +42,27 @@ class AgentClientError(RuntimeError):
 
 class AgentUnreachable(AgentClientError):
     """Не удалось установить соединение с агентом."""
+
+
+def _retry_unreachable() -> Callable[
+    [Callable[_P, Awaitable[_R]]],
+    Callable[_P, Awaitable[_R]],
+]:
+    """Декоратор: 3 попытки exponential-backoff на AgentUnreachable.
+
+    Применяется только к read-only методам (GET status/metrics/tunnels/clients) —
+    у них retry безопасен. POST'ы с побочными эффектами (apply_*) не ретраим,
+    чтобы не дуплицировать iptables/ipset state на target'е.
+
+    `ParamSpec`+`TypeVar` сохраняют типы декорируемой функции — без этого
+    mypy получит `Any -> Any` и потеряет return-type на каждом методе клиента.
+    """
+    return retry(
+        retry=retry_if_exception_type(AgentUnreachable),
+        wait=wait_exponential(multiplier=1, max=8),
+        stop=stop_after_attempt(3),
+        reraise=True,
+    )
 
 
 class AgentClient:
@@ -81,6 +107,20 @@ class AgentClient:
         except (TimeoutError, aiohttp.ClientConnectionError) as exc:
             raise AgentUnreachable(f"GET {path}: {exc}") from exc
 
+    async def _typed_get(self, *, path: str, response_model: type[_TModel]) -> _TModel:
+        """GET + JSON-валидация в один шаг — убирает duplication по `model_validate`."""
+        return response_model.model_validate(await self._get(path=path))
+
+    async def _typed_post(
+        self,
+        *,
+        path: str,
+        payload: BaseModel,
+        response_model: type[_TModel],
+    ) -> _TModel:
+        """POST с типизированным request+response."""
+        return response_model.model_validate(await self._post(path=path, payload=payload))
+
     async def _post(self, *, path: str, payload: BaseModel) -> dict[str, Any]:
         url = f"{self._base_url}{path}"
         body = payload.model_dump(mode="json")
@@ -101,53 +141,41 @@ class AgentClient:
         except (TimeoutError, aiohttp.ClientConnectionError) as exc:
             raise AgentUnreachable(f"POST {path}: {exc}") from exc
 
-    @retry(
-        retry=retry_if_exception_type(AgentUnreachable),
-        wait=wait_exponential(multiplier=1, max=8),
-        stop=stop_after_attempt(3),
-        reraise=True,
-    )
+    @_retry_unreachable()
     async def status(self) -> AgentStatus:
+        # Прямой `Class.model_validate` (не через `_typed_get`): tenacity-retry
+        # стирает Generic'и из TypeVar — без явного класса в return mypy
+        # видит Any. Для не-retry методов это ниже не критично.
         return AgentStatus.model_validate(await self._get(path="/status"))
 
-    @retry(
-        retry=retry_if_exception_type(AgentUnreachable),
-        wait=wait_exponential(multiplier=1, max=8),
-        stop=stop_after_attempt(3),
-        reraise=True,
-    )
+    @_retry_unreachable()
     async def metrics(self) -> MetricsSnapshot:
         return MetricsSnapshot.model_validate(await self._get(path="/metrics"))
 
-    @retry(
-        retry=retry_if_exception_type(AgentUnreachable),
-        wait=wait_exponential(multiplier=1, max=8),
-        stop=stop_after_attempt(3),
-        reraise=True,
-    )
+    @_retry_unreachable()
     async def tunnels(self) -> TunnelsResponse:
         return TunnelsResponse.model_validate(await self._get(path="/tunnels"))
 
     async def list_containers(self) -> ContainerListResponse:
-        return ContainerListResponse.model_validate(await self._get(path="/containers"))
+        return await self._typed_get(path="/containers", response_model=ContainerListResponse)
 
     async def apply_rules(self, *, request: ApplyRulesRequest) -> ApplyRulesResponse:
-        return ApplyRulesResponse.model_validate(await self._post(path="/rules/apply", payload=request))
+        return await self._typed_post(path="/rules/apply", payload=request, response_model=ApplyRulesResponse)
 
     async def sync_geoip(self, *, request: GeoIpSyncRequest) -> GeoIpSyncResponse:
-        return GeoIpSyncResponse.model_validate(await self._post(path="/geoip/sync", payload=request))
+        return await self._typed_post(path="/geoip/sync", payload=request, response_model=GeoIpSyncResponse)
 
     async def apply_custom_ipset(self, *, request: IpsetApplyRequest) -> IpsetApplyResponse:
-        return IpsetApplyResponse.model_validate(await self._post(path="/ipset/apply", payload=request))
+        return await self._typed_post(path="/ipset/apply", payload=request, response_model=IpsetApplyResponse)
 
     async def apply_dns(self, *, request: ApplyDnsRequest) -> ApplyDnsResponse:
-        return ApplyDnsResponse.model_validate(await self._post(path="/dns/apply", payload=request))
+        return await self._typed_post(path="/dns/apply", payload=request, response_model=ApplyDnsResponse)
 
     async def apply_tls(self, *, config: TlsConfig) -> TlsApplyResponse:
-        return TlsApplyResponse.model_validate(await self._post(path="/tls/apply", payload=config))
+        return await self._typed_post(path="/tls/apply", payload=config, response_model=TlsApplyResponse)
 
     async def update(self, *, request: UpdateRequest) -> UpdateResponse:
-        return UpdateResponse.model_validate(await self._post(path="/update", payload=request))
+        return await self._typed_post(path="/update", payload=request, response_model=UpdateResponse)
 
     # ---------- AWG-клиенты (managed deployment) ----------
 
@@ -156,16 +184,9 @@ class AgentClient:
         *,
         request: CreateAwgClientRequest,
     ) -> CreateAwgClientResponse:
-        return CreateAwgClientResponse.model_validate(
-            await self._post(path="/clients", payload=request),
-        )
+        return await self._typed_post(path="/clients", payload=request, response_model=CreateAwgClientResponse)
 
-    @retry(
-        retry=retry_if_exception_type(AgentUnreachable),
-        wait=wait_exponential(multiplier=1, max=8),
-        stop=stop_after_attempt(3),
-        reraise=True,
-    )
+    @_retry_unreachable()
     async def list_clients(self) -> ListAwgClientsResponse:
         return ListAwgClientsResponse.model_validate(await self._get(path="/clients"))
 

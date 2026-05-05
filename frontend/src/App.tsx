@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 
 import { useCurrentUser } from "./api/auth";
 import { ApiError } from "./api/client";
@@ -21,6 +21,7 @@ import { MetricsTab } from "./pages/MetricsTab";
 import { RoutingTab } from "./pages/RoutingTab";
 import { TunnelsTab } from "./pages/TunnelsTab";
 import { useAuthStore } from "./store/auth";
+import { useModalsStore } from "./store/modals";
 import { type TabId, useUiStore } from "./store/ui";
 import { useWebSocket } from "./ws/useWS";
 
@@ -64,14 +65,22 @@ function Dashboard() {
   const setActiveServerId = useUiStore((state) => state.setActiveServerId);
   const activeTab = useUiStore((state) => state.activeTab);
   const setActiveTab = useUiStore((state) => state.setActiveTab);
-  const showAddServer = useUiStore((state) => state.showAddServer);
-  const setShowAddServer = useUiStore((state) => state.setShowAddServer);
-  const showTls = useUiStore((state) => state.showTls);
-  const setShowTls = useUiStore((state) => state.setShowTls);
-  const showUpdate = useUiStore((state) => state.showUpdate);
-  const setShowUpdate = useUiStore((state) => state.setShowUpdate);
-  const [showEditServer, setShowEditServer] = useState(false);
+  // Все эфемерные модалки управляются единым store. Вся логика «открыта/нет» —
+  // через `useModalsStore` (не размазывается по useUiStore + useState).
+  const openModals = useModalsStore((state) => state.open);
+  const showModal = useModalsStore((state) => state.show);
+  const hideModal = useModalsStore((state) => state.hide);
   const showSparklines = useUiStore((state) => state.showSparklines);
+
+  // На случай если активный сервер удалён — закрываем зависящие от него модалки,
+  // иначе они останутся в open-state и при следующем выборе сервера снова покажутся.
+  useEffect(() => {
+    if (activeServerId === null) {
+      hideModal("tls");
+      hideModal("updateAgent");
+      hideModal("editServer");
+    }
+  }, [activeServerId, hideModal]);
 
   useEffect(() => {
     if (activeServerId == null && servers.length > 0) {
@@ -101,7 +110,7 @@ function Dashboard() {
         servers={servers}
         activeId={activeServerId}
         onSelect={(id) => setActiveServerId(id)}
-        onAdd={() => setShowAddServer(true)}
+        onAdd={() => showModal("addServer")}
         onDelete={(server) => {
           if (server.id === activeServerId) setActiveServerId(null);
           deleteServer.mutate(server.id);
@@ -124,9 +133,9 @@ function Dashboard() {
       >
         <Topbar
           server={activeServer}
-          onTLS={() => setShowTls(true)}
-          onUpdate={() => setShowUpdate(true)}
-          onEditSettings={() => setShowEditServer(true)}
+          onTLS={() => showModal("tls")}
+          onUpdate={() => showModal("updateAgent")}
+          onEditSettings={() => showModal("editServer")}
         />
         <Tabs tab={activeTab} onTab={(tab: TabId) => setActiveTab(tab)} tabs={tabsWithCounts} />
         <div className="content" key={`${activeTab}-${activeServerId ?? "none"}`}>
@@ -150,17 +159,19 @@ function Dashboard() {
         <StatusBar server={activeServer} />
       </div>
 
-      {showAddServer && <AddServerModal onClose={() => setShowAddServer(false)} />}
-      {showTls && activeServer && <TlsModal serverId={activeServer.id} onClose={() => setShowTls(false)} />}
-      {showUpdate && activeServer && (
+      {openModals.has("addServer") && <AddServerModal onClose={() => hideModal("addServer")} />}
+      {openModals.has("tls") && activeServer && (
+        <TlsModal serverId={activeServer.id} onClose={() => hideModal("tls")} />
+      )}
+      {openModals.has("updateAgent") && activeServer && (
         <UpdateAgentModal
           serverId={activeServer.id}
           currentVersion={activeServer.version}
-          onClose={() => setShowUpdate(false)}
+          onClose={() => hideModal("updateAgent")}
         />
       )}
-      {showEditServer && activeServer && (
-        <EditServerModal server={activeServer} onClose={() => setShowEditServer(false)} />
+      {openModals.has("editServer") && activeServer && (
+        <EditServerModal server={activeServer} onClose={() => hideModal("editServer")} />
       )}
     </div>
   );

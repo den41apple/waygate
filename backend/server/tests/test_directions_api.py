@@ -186,7 +186,7 @@ async def test_update_direction_rebuilds_children(
             "name": "x",
             "via_interface": "awg-x",
             "via_gateway": "10.0.0.1",
-            "geo_list_ids": [geo_id, dns_id],  # ошибочно — dns_id not a geoist, ничего не найдёт
+            "geo_list_ids": [geo_id],
             "dns_rule_ids": [dns_id],
             "ipset_group_ids": [],
         },
@@ -236,6 +236,49 @@ async def test_delete_direction_cascades_rules(
     rules_after = await client.get(f"/api/v1/servers/{server_id}/rules")
     assert rules_after.json()["rules"] == []
     assert any(event.type is EventType.DIRECTION_DELETED for event in fake_broadcaster)
+
+
+async def test_collect_refs_reads_from_direction_sources_pivot(
+    client,
+    server_id,
+    monkeypatch,
+    fake_broadcaster,
+) -> None:
+    """B1: `_collect_refs` читает источники из pivot-таблицы `direction_sources`.
+
+    Раньше (#C5) reverse-lookup парсил `RoutingRule.ipset_name` (legacy
+    `geoip-ru-v4` vs modern `geoip-ru`). После B1 источники хранятся явно
+    типизировано — никакого string-magic'а. Тест убеждается что
+    create-direction → fetch'ит refs обратно через _collect_refs корректно.
+    """
+    geo_id = await _seed_geolist(client)
+    dns_id, _ = await _seed_dns_rule(client, server_id)
+    group_id, _ = await _seed_ipset_group(client, server_id, monkeypatch)
+
+    create = await client.post(
+        f"/api/v1/servers/{server_id}/directions",
+        json={
+            "name": "pivot-test",
+            "via_interface": "awg-x",
+            "via_gateway": "10.0.0.1",
+            "geo_list_ids": [geo_id],
+            "dns_rule_ids": [dns_id],
+            "ipset_group_ids": [group_id],
+        },
+    )
+    assert create.status_code == 201, create.text
+    body = create.json()
+    assert body["geo_list_ids"] == [geo_id]
+    assert body["dns_rule_ids"] == [dns_id]
+    assert body["ipset_group_ids"] == [group_id]
+
+    # GET тоже должен вернуть тот же набор refs (читается через _collect_refs).
+    listing = await client.get(f"/api/v1/servers/{server_id}/directions")
+    assert listing.status_code == 200
+    direction = listing.json()["directions"][0]
+    assert sorted(direction["geo_list_ids"]) == [geo_id]
+    assert sorted(direction["dns_rule_ids"]) == [dns_id]
+    assert sorted(direction["ipset_group_ids"]) == [group_id]
 
 
 async def test_create_direction_404_when_awg_client_not_found(

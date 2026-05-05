@@ -40,19 +40,28 @@ class MetricsRangeResponse(BaseModel):
 async def get_metrics(
     server_id: int,
     range: MetricsRange = Query(default=MetricsRange.HOUR),
+    limit: int = Query(
+        default=10_000,
+        ge=1,
+        le=100_000,
+        description="Безопасный cap на количество точек (последние N в выбранном range)",
+    ),
     session: AsyncSession = Depends(get_session),
 ) -> MetricsRangeResponse:
     server = await session.get(Server, server_id)
     if server is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"server id={server_id} не найден")
     cutoff = datetime.now() - timedelta(hours=_RANGE_TO_HOURS[range])
+    # Берём последние N → разворачиваем обратно в asc для графика. ORM не любит
+    # `LIMIT в ASC`-комбинации с лучшим порядком чтения.
     result = await session.execute(
         select(MetricsPoint)
         .where(MetricsPoint.server_id == server_id, MetricsPoint.timestamp >= cutoff)
-        .order_by(MetricsPoint.timestamp),
+        .order_by(MetricsPoint.timestamp.desc())
+        .limit(limit),
     )
     points = [
         MetricsPointResponse(timestamp=point.timestamp, rx_bytes=point.rx_bytes, tx_bytes=point.tx_bytes)
-        for point in result.scalars().all()
+        for point in reversed(result.scalars().all())
     ]
     return MetricsRangeResponse(range=range, points=points)

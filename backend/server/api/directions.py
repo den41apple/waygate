@@ -25,6 +25,8 @@ from sqlmodel import select
 from server.db import get_session
 from server.models import (
     AwgClient,
+    DirectionSource,
+    DirectionSourceType,
     DnsRule,
     GeoList,
     IpsetGroup,
@@ -150,6 +152,46 @@ async def _next_fwmark_and_table(*, server_id: int, session: AsyncSession) -> tu
     next_fwmark = max(direction.fwmark for direction in directions) + 1
     next_table = max(99, *(direction.table_id for direction in directions)) + 1
     return next_fwmark, next_table
+
+
+async def _persist_sources(
+    *,
+    direction_id: int,
+    geo_list_ids: list[int],
+    dns_rule_ids: list[int],
+    ipset_group_ids: list[int],
+    session: AsyncSession,
+) -> None:
+    """Записывает выбранные источники в pivot-таблицу `direction_sources`.
+
+    Это типизированная замена reverse-lookup'у через `RoutingRule.ipset_name`.
+    Источники остаются единственным источником истины (см. `_collect_refs`),
+    а child-RoutingRule'ы — только denormalized cache для агента.
+    """
+    for geo_id in geo_list_ids:
+        session.add(
+            DirectionSource(
+                direction_id=direction_id,
+                source_type=DirectionSourceType.GEO_LIST.value,
+                source_id=geo_id,
+            ),
+        )
+    for dns_id in dns_rule_ids:
+        session.add(
+            DirectionSource(
+                direction_id=direction_id,
+                source_type=DirectionSourceType.DNS_RULE.value,
+                source_id=dns_id,
+            ),
+        )
+    for group_id in ipset_group_ids:
+        session.add(
+            DirectionSource(
+                direction_id=direction_id,
+                source_type=DirectionSourceType.IPSET_GROUP.value,
+                source_id=group_id,
+            ),
+        )
 
 
 async def _materialize_rules(
@@ -316,42 +358,26 @@ async def _collect_refs(
     direction_id: int,
     session: AsyncSession,
 ) -> tuple[list[int], list[int], list[int]]:
-    """Из child-правил восстанавливаем какие geo/dns/ipset_group участвовали.
+    """Достаёт geo/dns/ipset_group IDs напрямую из pivot-таблицы `direction_sources`.
 
-    Делаем reverse-lookup по `ipset_name`:
-    - `geoip-<cc>-v4` → находим GeoList с country=<cc>.
-    - matched DnsRule.ipset_name → DnsRule.id.
-    - matched IpsetGroup.name → IpsetGroup.id.
+    До B1 здесь был reverse-lookup по `RoutingRule.ipset_name` (string-magic,
+    legacy-имена с/без `-v4`-суффикса). Теперь источники хранятся явно,
+    типы и id — из `DirectionSourceType` enum'а.
     """
-    rules_result = await session.execute(
-        select(RoutingRule).where(RoutingRule.direction_id == direction_id),
+    result = await session.execute(
+        select(DirectionSource).where(DirectionSource.direction_id == direction_id),
     )
-    rules = rules_result.scalars().all()
-    if not rules:
-        return [], [], []
-
-    server_id = rules[0].server_id
-    ipsets = {rule.ipset_name for rule in rules}
-
-    geo_result = await session.execute(select(GeoList))
-    # Поддерживаем legacy-имя `geoip-ru-v4` (старые RoutingRule до Sprint 5)
-    # и новое логическое `geoip-ru` (после фикса dual-family). Reverse-lookup
-    # принимает оба формата.
-    geo_ids = [
-        geo.id
-        for geo in geo_result.scalars().all()
-        if geo.id is not None
-        and (f"geoip-{geo.country.lower()}" in ipsets or f"geoip-{geo.country.lower()}-v4" in ipsets)
-    ]
-
-    dns_result = await session.execute(select(DnsRule).where(DnsRule.server_id == server_id))
-    dns_ids = [rule.id for rule in dns_result.scalars().all() if rule.id is not None and rule.ipset_name in ipsets]
-
-    group_result = await session.execute(
-        select(IpsetGroup).where(IpsetGroup.server_id == server_id),
-    )
-    group_ids = [group.id for group in group_result.scalars().all() if group.id is not None and group.name in ipsets]
-
+    sources = result.scalars().all()
+    geo_ids: list[int] = []
+    dns_ids: list[int] = []
+    group_ids: list[int] = []
+    for source in sources:
+        if source.source_type == DirectionSourceType.GEO_LIST.value:
+            geo_ids.append(source.source_id)
+        elif source.source_type == DirectionSourceType.DNS_RULE.value:
+            dns_ids.append(source.source_id)
+        elif source.source_type == DirectionSourceType.IPSET_GROUP.value:
+            group_ids.append(source.source_id)
     return geo_ids, dns_ids, group_ids
 
 
@@ -439,7 +465,15 @@ async def create_direction(
     )
     session.add(direction)
     await session.flush()  # получаем direction.id для materialize'а
+    assert direction.id is not None  # после flush'а ID гарантированно есть
 
+    await _persist_sources(
+        direction_id=direction.id,
+        geo_list_ids=list(request.geo_list_ids),
+        dns_rule_ids=list(request.dns_rule_ids),
+        ipset_group_ids=list(request.ipset_group_ids),
+        session=session,
+    )
     await _materialize_rules(
         direction=direction,
         geo_list_ids=request.geo_list_ids,
@@ -535,9 +569,19 @@ async def update_direction(
         dns_ids = payload.get("dns_rule_ids", current_dns)
         group_ids = payload.get("ipset_group_ids", current_groups)
 
-        # Удаляем старых child'ов и создаём новых.
+        # Удаляем старых sources + child'ов и создаём новых.
+        await session.execute(
+            sqlmodel_delete(DirectionSource).where(DirectionSource.direction_id == direction_id),
+        )
         await session.execute(
             sqlmodel_delete(RoutingRule).where(RoutingRule.direction_id == direction_id),
+        )
+        await _persist_sources(
+            direction_id=direction_id,
+            geo_list_ids=list(geo_ids),
+            dns_rule_ids=list(dns_ids),
+            ipset_group_ids=list(group_ids),
+            session=session,
         )
         await _materialize_rules(
             direction=direction,

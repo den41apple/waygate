@@ -1,5 +1,6 @@
 from server.models.audit import AuditEntry
 from server.models.awg_client import AwgClient, AwgClientStatus
+from server.models.direction_source import DirectionSource, DirectionSourceType
 from server.models.dns_rule import DnsRule
 from server.models.geo_list import GeoList
 from server.models.ipset_group import IpsetGroup
@@ -14,6 +15,8 @@ __all__ = [
     "AuditEntry",
     "AwgClient",
     "AwgClientStatus",
+    "DirectionSource",
+    "DirectionSourceType",
     "DnsRule",
     "GeoList",
     "IpsetGroup",

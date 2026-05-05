@@ -10,23 +10,34 @@ from server.config import settings
 from server.models import MetricsPoint, Server
 from server.ws.events import EventType, WsEvent
 from server.ws.manager import get_manager
+from shared.schemas import MetricsSnapshot
 
 
-async def _poll_server(*, server: Server, session: AsyncSession) -> None:
-    """Тянет /v1/metrics, пишет точку и шлёт SERVER_METRICS.
+async def _fetch_metrics(*, server: Server) -> tuple[int, MetricsSnapshot] | None:
+    """HTTP-only fetch /v1/metrics. Возвращает (server_id, snapshot) или None.
 
-    Статусом server'а не управляет — это ответственность healthcheck-таски.
-    Если агент недоступен, тихо логируем и идём дальше.
+    Намеренно не трогает БД — это позволяет вызывать N штук параллельно через
+    `asyncio.gather` без conflict'а на shared `AsyncSession` (sqlalchemy сессия
+    не concurrent-safe). Запись и broadcast делает poll_once sequentially.
     """
     if server.id is None:
-        return
+        return None
     client = AgentClient(host=server.host, port=server.port, token=server.token)
     try:
         snapshot = await client.metrics()
     except (AgentUnreachable, AgentClientError) as exc:
         logger.debug("metrics poller: server={} недоступен: {}", server.host, exc)
-        return
+        return None
+    return server.id, snapshot
 
+
+def _persist_snapshot(
+    *,
+    server_id: int,
+    snapshot: MetricsSnapshot,
+    session: AsyncSession,
+) -> dict[str, object]:
+    """Записывает MetricsPoint в session и возвращает payload для WS-broadcast."""
     rx_total = sum(tunnel.rx_bytes for tunnel in snapshot.tunnels)
     tx_total = sum(tunnel.tx_bytes for tunnel in snapshot.tunnels)
     # `snapshot.timestamp` приходит aware (Pydantic ISO-8601 → tz-aware), а
@@ -39,24 +50,17 @@ async def _poll_server(*, server: Server, session: AsyncSession) -> None:
     )
     session.add(
         MetricsPoint(
-            server_id=server.id,
+            server_id=server_id,
             timestamp=timestamp_naive_utc,
             rx_bytes=rx_total,
             tx_bytes=tx_total,
         ),
     )
-    await get_manager().broadcast(
-        event=WsEvent(
-            type=EventType.SERVER_METRICS,
-            server_id=server.id,
-            payload={
-                "timestamp": snapshot.timestamp.isoformat(),
-                "rx_bytes": rx_total,
-                "tx_bytes": tx_total,
-            },
-            timestamp=datetime.now(tz=UTC),
-        ),
-    )
+    return {
+        "timestamp": snapshot.timestamp.isoformat(),
+        "rx_bytes": rx_total,
+        "tx_bytes": tx_total,
+    }
 
 
 async def _retention_cleanup(*, session: AsyncSession) -> None:
@@ -67,11 +71,42 @@ async def _retention_cleanup(*, session: AsyncSession) -> None:
 
 
 async def poll_once(*, session: AsyncSession) -> None:
-    """Один проход — собрать метрики со всех серверов, прибраться по retention."""
+    """Один проход — собрать метрики со всех серверов параллельно, прибраться по retention.
+
+    Раньше polling был последовательный (`for server in servers: await _poll_server`),
+    и медленный/недоступный агент задерживал весь цикл. Теперь HTTP-запросы
+    идут через `asyncio.gather`, а запись в session и WS-broadcast — sequentially
+    (sqlalchemy AsyncSession не concurrent-safe).
+    """
     result = await session.execute(select(Server))
     servers = list(result.scalars().all())
-    for server in servers:
-        await _poll_server(server=server, session=session)
+
+    # Fetch'и параллельно. `return_exceptions=True` чтобы один упавший fetch не
+    # ронял остальные — `_fetch_metrics` уже сам ловит AgentClientError'ы и
+    # возвращает None, но на всякий case (например asyncio.TimeoutError) ловим.
+    fetched = await asyncio.gather(
+        *(_fetch_metrics(server=server) for server in servers),
+        return_exceptions=True,
+    )
+
+    manager = get_manager()
+    for outcome in fetched:
+        if isinstance(outcome, BaseException):
+            logger.warning("metrics poller: fetch упал: {}", outcome)
+            continue
+        if outcome is None:
+            continue
+        server_id, snapshot = outcome
+        payload = _persist_snapshot(server_id=server_id, snapshot=snapshot, session=session)
+        await manager.broadcast(
+            event=WsEvent(
+                type=EventType.SERVER_METRICS,
+                server_id=server_id,
+                payload=payload,
+                timestamp=datetime.now(tz=UTC),
+            ),
+        )
+
     await _retention_cleanup(session=session)
     await session.commit()
 

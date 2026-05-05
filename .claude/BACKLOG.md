@@ -12,6 +12,34 @@
 
 ## Что осталось делать
 
+### B6 (отложено). Распил `agent/routing.py` на под-модули
+
+**Состояние:** 1267 строк, ruff жалуется на PLR0912 в
+`_apply_rules_in_scope_family` (с noqa). Логично распилить на
+`routing/marks.py`, `routing/rules.py`, `routing/routes.py`,
+`routing/bypass.py`, `routing/mss.py`.
+
+**Почему отложено (после аудита 2026-05-05):** существующие тесты
+`agent/tests/test_routing.py` делают `monkeypatch.setattr(routing, "run_command", ...)`
+и `monkeypatch.setattr(routing, "_iface_has_global_ipv6", ...)` — это
+полагается на то, что все вызовы идут через одно module-level имя в
+`agent/routing.py`. После распила submodule'ы будут импортировать
+`run_command` из `agent.subprocess_runner` напрямую, monkeypatch
+по `routing.run_command` перестанет влиять на их вызовы → 7+ тестов
+сломаются.
+
+**Что нужно сделать перед распилом:**
+1. Перевести тесты на patch конкретного submodule'а или
+   `monkeypatch.setattr("agent.subprocess_runner.run_command", ...)`.
+2. Только потом — физически разнести по файлам.
+
+**Альтернатива:** dependency-injection вместо моножизни module-level
+`run_command` (передавать как параметр в context'е). Но это инвазивный
+рефактор всех ~30 функций в routing.py.
+
+**Trigger:** когда routing.py перевалит за 1500 строк или появится
+третий PLR0912/PLR0915 noqa — тогда оплачиваем стоимость распила.
+
 ### 0-1. Self-hosted mirror для amneziawg `.deb` (RU-блокировка PPA)
 
 **Состояние:** установка amneziawg-dkms идёт через `add-apt-repository ppa:amnezia/ppa`. PPA размещается на `launchpadcontent.net` — РКН/провайдеры могут блокировать в любой момент. На российском хостинге онбординг ляжет.
@@ -212,6 +240,31 @@ ip link show | grep awg
 ---
 
 ## Что уже закрыто (для истории)
+
+### Аудит-batch 2026-05-05 (A1-A5, B1-B5, C1-C6)
+
+**Tier A — security/perf fixes:**
+- ✅ A1 SECRET_KEY fail-fast — без default'а на dev-string, RuntimeError на старте если не задан или совпадает с известным dev-pattern. Тесты + conftest подкидывает значение для тестов.
+- ✅ A2 `metrics_poller` через `asyncio.gather` — раньше `for s in servers: await _poll_server(s)` стоял на одном медленном агенте, теперь fetch'и параллельны (запись и broadcast — sequentially, sqlalchemy session не concurrent-safe). Тесты замеряют параллельность через искусственную задержку.
+- ✅ A3 audit middleware — log level `WARN → ERROR` (silent failure аудита = пропавший trail, security-relevant).
+- ✅ A4 `Server.host` index + миграция `c8d2a4f1e9b3`.
+- ✅ A5 pagination — `offset` параметр на `/audit`, безопасный `limit` cap на `/metrics`.
+
+**Tier B — модулярность:**
+- ✅ B1 direction_sources pivot table (миграция `d5e9a3c4b1a8`) — replace string-magic reverse-lookup'а в `_collect_refs` на типизированный pivot. Data-migration backfill из существующих RoutingRule.ipset_name через тот же reverse-lookup. Добавление нового типа источника теперь — одна enum-value + handler в materialize, без правок _collect_refs'а.
+- ✅ B2 WS-event-types codegen — `backend/server/scripts/dump_ws_events.py` экспортит TS-литералы `WsEventType` из Python-enum'а в `frontend/src/api/wsEventTypes.gen.ts`. Раньше был manual sync.
+- ✅ B3 `AgentClient._typed_get/_typed_post` — generic helpers для retry/timeout/model_validate boilerplate. ParamSpec+TypeVar сохраняют типы декорируемых методов.
+- ✅ B4 `DirectionCard` — `useGeoIpLists/useDnsRules/...` подняты на уровень RoutingTab, передаются Map-ами. Раньше 4 хука×N карточек = 80 hook calls per render на 20 directions'ах.
+- ✅ B5 `useModalsStore` — единый store для эфемерных модалок (addServer/tls/updateAgent/editServer). Добавление новой модалки = 1 правка.
+- 🔶 B6 split routing.py — отложено (см. секцию выше) — тесты делают `monkeypatch.setattr(routing, "run_command", ...)` что несовместимо с распилом без рефакторинга test-инфраструктуры.
+
+**Tier C — тесты (закрывают потерянные code paths):**
+- ✅ C1 `redact()` unit-тесты — параметризовано по каждому ключу из `_SENSITIVE_KEYS`, покрывает nested dict'ы и списки.
+- ✅ C2 lifespan — bootstrap admin из ENV (3 теста: создание/idempotency/skip-if-users-exist) + старт/останов фоновых тасок.
+- ✅ C3 scheduler — happy path + exception-swallow для metrics-job, cert-expiry warn/silent/no-cert.
+- ✅ C4 ssh integration — `agent/sshd-on-Ubuntu` контейнер с password-auth, тестирует `SshSession.run/write_file/ensure_root_or_sudo` против реального OpenSSH. Маркер `@pytest.mark.integration`.
+- ✅ C5 `_collect_refs` через pivot — заменил старые legacy/modern format тесты на `test_collect_refs_reads_from_direction_sources_pivot` (после B1 reverse-lookup нет, тестируем pivot path).
+- ✅ C6 направления — `directions.spec.ts` расширен edge-case'ом «edit-кнопка открывает модалку с pre-filled полями».
 
 ### Backlog batch 2026-05-05 (#12, #13, #14/15, #16, #20, #21a, #0b, #11)
 - ✅ **#13 agent updater paths** — swap-script и log в `/var/lib/waygate-agent/` (был зафикшен в b1d224f, добавил регрессионный тест на случай отката).

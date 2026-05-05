@@ -19,7 +19,9 @@ class Server(SQLModel, table=True):
     __tablename__ = "server"
 
     id: int | None = Field(default=None, primary_key=True)
-    host: str
+    # Индекс на host: provision-flow делает upsert по `host` (см. провижионер) —
+    # full-scan на тысячах серверов был бы заметным.
+    host: str = Field(index=True)
     port: int = Field(default=7743)
     name: str
     token: str  # Bearer-токен агента

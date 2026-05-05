@@ -135,5 +135,8 @@ class AuditMiddleware:
                 )
                 await session.commit()
         except Exception as exc:
-            # audit-log не критичен для работы API — глотаем ошибки чтобы не уронить ответ
-            logger.warning("audit: запись не получилась: {}", exc)
+            # audit-log не критичен для работы API — глотаем ошибки чтобы не уронить ответ.
+            # Однако ошибка важна для observability: silent failure здесь = пропавший audit-trail
+            # (security-relevant). Лог идёт на ERROR — оператор должен это видеть в Prometheus
+            # alert'ах и Grafana-дашбордах.
+            logger.error("audit: запись не получилась: {}", exc)

@@ -1,4 +1,9 @@
+import os
 from collections.abc import AsyncIterator
+
+# `server.config` валидирует SECRET_KEY на module-load (без default'а в проде).
+# Подкидываем тестовое значение ДО любого импорта server.* — иначе RuntimeError.
+os.environ.setdefault("SECRET_KEY", "test-secret-key-fixed-len-32-characters")
 
 import pytest
 from httpx import ASGITransport, AsyncClient
