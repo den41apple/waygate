@@ -55,23 +55,6 @@
 
 **Зачем сейчас не делаю:** требует дизайн-решения какие именно сокеты защищать (только агентский? все 22? configurable?), плюс watchdog/rollback — отдельная инфраструктура.
 
-### 0b. Catch-all direction (split-tunnel по принципу «всё что не RU → server B»)
-
-**Состояние:** не реализовано. Сейчас Direction матчит только включением (`--match-set <ipset> dst -j MARK`); чтобы «всё кроме RU отправить на другую страну», нужен дефолтный egress.
-
-**Подход (выбран вариант 1):** добавить `Direction.is_default_egress: bool` (UNIQUE per-server). На агенте после всех match-set правил — финальный безусловный `MARK --set-mark <fwmark>` для пакетов с `mark 0`. UI: чекбокс «дефолтный egress (catch-all)» в модалке создания/редактирования direction'а с предупреждением «весь оставшийся трафик включая SSH-out и DNS пойдёт через эту direction».
-
-**Файлы при реализации:**
-- `backend/server/db.py` (Direction model + alembic-миграция).
-- `backend/server/api/directions.py` (валидация UNIQUE, materialize child-RoutingRule с особым sentinel-значением).
-- `backend/agent/routing.py` (после `_apply_rules_in_scope_family` навесить unconditional MARK с `-m mark --mark 0`).
-- `backend/agent/tests/test_routing.py` + integration с реальным контейнером.
-- `frontend/src/modals/AddRoutingDirectionModal.tsx` (чекбокс + warning-баннер).
-
-**Почему отложено:** пользователь хочет сначала отдебажить текущие проблемы, фича сама по себе средне-большая (2–3 часа с тестами).
-
-**Альтернатива (отвергнута):** negative match `! --match-set` per-direction. Гибче, но при нескольких ipset'ах семантика «не в (RU∪DE)» vs «не в RU AND не в DE» путает пользователя.
-
 ### 1. ACME-клиент в `backend/agent/tls.py::_apply_acme`
 
 **Состояние:** функция бросает `TlsApplyError("ACME HTTP-01/DNS-01 пока не реализован")`. Validate в `TlsConfig` пропускает `mode=acme`, дальше — стенка.
@@ -153,29 +136,6 @@
 
 **Что сделать (опционально):** если нужна reprovision-функция без участия оператора — шифровать через `cryptography.fernet` ключом из `SECRET_KEY` и хранить в `Server.encrypted_ssh_creds`. Для MVP политика «минимум attack surface» оставлена.
 
-### 11. Edit-форма для существующих DNS / GeoIP / IPset / Direction
-
-**Состояние:** все эти сущности создаются (модалки) и удаляются; backend `PATCH` есть для всех (включая `RoutingDirection`). UI **edit-формы** ещё нет — нужно либо открывать AddXxxModal в режиме edit (с заполненными полями + кнопкой «Сохранить» вместо «Создать»), либо инлайн-edit на карточке. Не критично — через UI можно delete + create.
-
-### 12. ipset_group.* WS-events на бекенде
-
-**Состояние:** фронт-handler в `useWS.ts` для `ipset_group.created/updated/deleted` подготовлен (закомментирован), но backend не шлёт эти события — после CRUD `IpsetGroup` фронт обновляется только через ручной refetch / открытие таба. Не критично, т.к. правок IPset мало и они идут через свою модалку с `invalidateQueries`.
-
-**Что сделать:** в `server/api/ipset_groups.py` после `session.commit()` слать `WsEvent(type=EventType.IPSET_GROUP_CREATED, ...)` через `get_manager().broadcast(...)`; добавить три enum-значения в `server/ws/events.py::EventType`; добавить три литерала в `frontend/src/api/types.ts::WsEventType`; раскомментировать handler в `useWS.ts`.
-
-### 13. Self-update агента сломан: `_SWAP_LOG_PATH` и `_SWAP_SCRIPT_PATH` в недоступных каталогах
-
-**Состояние (CRITICAL — блокирует update flow):** `agent.service` имеет `ProtectSystem=strict` + `ReadWritePaths=/etc/waygate /etc/dnsmasq.d /var/lib/waygate-agent` + `PrivateTmp=true`. У `agent/updater.py` две константы попадают в недоступные каталоги:
-
-- `_SWAP_LOG_PATH = /var/log/waygate-update.log` — не в `ReadWritePaths`, `exec >>"$LOG"` падает с `OSError: [Errno 30] Read-only file system`.
-- `_SWAP_SCRIPT_PATH = /tmp/waygate-update-swap.sh` — при `PrivateTmp=true` /tmp приватный для процесса агента; `systemctl restart` гибнет namespace → файл недоступен → swap-скрипт обрывается посередине exec'а. Это была причина update-timeout'ов у пользователя в раннем тестировании.
-
-**Что сделать:** переехать обе константы на `/var/lib/waygate-agent/` (writable, persistent, не приватный):
-- `_SWAP_LOG_PATH = /var/lib/waygate-agent/update.log`
-- `_SWAP_SCRIPT_PATH = /var/lib/waygate-agent/update-swap.sh`
-
-После этого self-update должен работать end-to-end. Опционально вынести оба в `agent/config.py::data_dir` чтобы переопределялись через ENV.
-
 ### 13a. Накопленные agent-правки в repo не дошли до сервера `den41`
 
 **Состояние:** в repo с момента последнего деплоя агента накопились критичные правки в `agent/`:
@@ -196,24 +156,6 @@
    - scp нового unit'а в `/etc/systemd/system/waygate-agent.service` + `daemon-reload`.
    - Через UI Topbar → Update Agent → ввести `0.2.0` (запустит self-update flow с workaround'нутыми путями).
 4. После — снять с BACKLOG `#3` (первый GitHub Release wheel'а), `#13`, `#13a`, `#15` (workaround на ipset already exists), `#14` (agent/dns.py создаёт ipset).
-
-### 14. `agent/dns.py` должен создавать ipset'ы перед reload dnsmasq
-
-**Состояние:** dnsmasq НЕ создаёт ipset'ы автоматически — он только пишет резолвы в существующие. Если ipset не создан заранее, iptables `--match-set <name>` падает с `Set <name> doesn't exist`. Сейчас server-side workaround в `server/api/rules.py::apply_rules`: перед `apply_dns` для каждого DNS-rule дёргается `/v1/ipset/apply` с пустыми cidrs — это создаёт пустой ipset через `ipset create -exist`. Лишний round-trip для каждой DNS-rule.
-
-**Что сделать:** в `agent/dns.py::apply_dns` добавить шаг «создать ipset если нет» перед reload dnsmasq — `ipset create -exist <name> hash:ip family inet`. После этого workaround на server'е удалить.
-
-### 15. agent/ipset.py: убрать server-side workaround на «already exists»
-
-**Состояние:** баг идемпотентности был — `apply_custom_ipset` создавал tmp set с `hashsize/maxelem`, а целевой — без, после swap параметры расходились, повторный `create -exist` падал с "Set cannot be created: set with the same name already exists". В коде агента исправлено (одинаковые параметры в обоих create), но `server/api/rules.py::apply_rules` пока ловит и игнорирует эту ошибку чтобы работать со старыми wheel'ами агента.
-
-**Что сделать:** после релиза нового wheel'а агента, удалить `try/except` вокруг `apply_custom_ipset` в `server/api/rules.py` — фикс агента сам обеспечит идемпотентность.
-
-### 16. Reconcile AwgClient.status ↔ реальное состояние docker-контейнера
-
-**Состояние:** `AwgClient.status` в БД показывает `running`, но соответствующего docker-контейнера на агенте может не быть (например, кто-то сделал `docker rm` руками или контейнер вылетел на старте и не оставил трупа). UI на основе stale-БД показывает «active» — пользователь думает что всё ОК, потом получает «netdev awg-X не найден» при apply routing-правил.
-
-**Что сделать:** добавить в healthcheck-таску (`server/tasks/healthcheck.py` или новая периодическая reconcile-таска) — для каждого `AwgClient` дёргать `/v1/clients/{name}/status` на агенте, агент проверяет `docker inspect` и возвращает реальное состояние; server обновляет `AwgClient.status` если расходится. Также — broadcast WS-event `awg_client.status_changed` чтобы UI обновился без F5.
 
 ### 17. AmneziaWG-клиент должен работать с `Table = off` (отключить hijack дефолтного маршрута)
 
@@ -239,12 +181,6 @@
 
 **Что сделать:** при следующем касании старого теста — дописать аннотации параметров. Возврат не аннотируем (всегда None). Не делаем массовый refactor одним PR — слишком много merge-конфликтов.
 
-### 20. Унификация AwgClient `name` ↔ `awg-<name>` netdev
-
-**Состояние:** имя netdev'а генерится во фронте (`AddRoutingDirectionModal.tsx`) как `` `awg-${client.name.slice(0, 11)}` `` — это дублирует логику из `agent/awg_clients.py::_iface_name`. Если правила генерации netdev-имён в агенте поменяются (Linux IFNAMSIZ=16, поэтому 15 символов и `awg-`-префикс — фиксированы) — фронт и агент рассинхронизируются.
-
-**Что сделать:** агент возвращать `interface_name` в `/v1/clients` response → фронт берёт оттуда вместо локальной формулы. Уже есть `client.name`, нужен ещё `interface_name`.
-
 ### 21b. UI-предупреждение/диагностика когда AWG-сервер не делает MASQUERADE
 
 **Состояние:** в нашем sprint'е у пользователя проявилась ситуация — все routing-фиксы (dnsmasq config, OUTPUT-mark, MTU-clamp, IPv6-стек) на стороне waygate-агента работают корректно, но TCP-трафик в интернет через VPN-туннель не возвращается. Причина — AmneziaWG-сервер на стороне VPN-провайдера не настроен на `iptables -t nat -A POSTROUTING -j MASQUERADE` + `sysctl net.ipv4.ip_forward=1`. Подтверждено через `awg show`: `transfer: 319 KiB received, 4.87 MiB sent` — отправляем 15× больше чем получаем.
@@ -254,18 +190,6 @@
 - TCP connect к 1.1.1.1:443 через awg-X с timeout=3s — если timeout, эмитить warning «AWG-server не возвращает TCP-ответы — попроси admin VPN-сервера добавить MASQUERADE».
 
 Это сэкономит часы дебага user'у.
-
-### 21a. dnsmasq `no-aaaa` для маршрутизируемых доменов (когда у AWG-туннеля нет IPv6)
-
-**Состояние:** agent v0.2.5 настраивает IPv6-стек (ip6tables, ip -6 rule, `<name>-v6` ipset) для каждого RoutingRule. Это работает только если на awg-клиентском интерфейсе есть IPv6-адрес (`ip -6 addr show awg-X` непустой). У большинства AmneziaWG-серверов IPv6 не настроен — туннель только IPv4. В этом случае:
-- dnsmasq получает AAAA-record от upstream → пишет в `dns-youtube-v6`.
-- iptables-правило на v6 матчит → fwmark.
-- ip -6 rule отправляет в table N → но `default dev awg-nl` без link-local IPv6 на awg-nl → kernel молча дропает пакет.
-- curl без `-4` (default IPv6-preferred) падает на TLS handshake.
-
-**Что сделать:** в `agent/dns.py` добавить директиву `no-aaaa` per-domain для маршрутизируемых правил. Тогда dnsmasq возвращает только A для этих доменов → curl всегда через IPv4 → роутинг работает. Пользовательский AAAA-резолв для немаршрутизируемых доменов остаётся.
-
-Альтернатива: если detect'нем что у клиента нет IPv6 (через `ip -6 addr show` на startup'е agent'а), отключать v6-стек глобально per-rule.
 
 ### 21. UI-диагностика managed-сервера (через тот же SSH-flow что update)
 
@@ -288,6 +212,16 @@ ip link show | grep awg
 ---
 
 ## Что уже закрыто (для истории)
+
+### Backlog batch 2026-05-05 (#12, #13, #14/15, #16, #20, #21a, #0b, #11)
+- ✅ **#13 agent updater paths** — swap-script и log в `/var/lib/waygate-agent/` (был зафикшен в b1d224f, добавил регрессионный тест на случай отката).
+- ✅ **#12 WS-events для ipset_groups** — CRUD шлёт `ipset_group.created/.updated/.deleted`, фронт инвалидирует без F5.
+- ✅ **#14/#15 убрать DNS-prereq workaround** — `agent/dns.py::_ensure_dual_family_ipsets` создаёт ipset'ы перед reload dnsmasq (с 0.2.5), server-side pre-create через `/v1/ipset/apply` с пустыми CIDR'ами удалён. Workaround на «already exists» в `apply_custom_ipset` тоже убран.
+- ✅ **#16 reconcile AwgClient.status** — healthcheck-таска после `client.status()` дёргает `client.list_clients()` и обновляет БД если расходится. Бродкастит `awg_client.status_changed`. Контейнер пропал → status=error.
+- ✅ **#20 interface_name в /v1/clients** — общий хелпер `shared/awg_naming.py` (`iface_name_for`/`container_name_for`), агент expose'ит `interface_name` в `AwgClientInfo`, фронт берёт оттуда вместо локальной формулы.
+- ✅ **#21a v6-skip per-rule** — `_iface_has_global_ipv6` и `_filter_v6_skippable_rules`: на awg-iface без GUA-IPv6 v6-стек скипается. Раньше AAAA-резолв уходил в `<name>-v6` ipset → `default dev awg-X` без v6 → silent drop.
+- ✅ **#0b catch-all direction** — поле `is_default_egress` на `RoutingDirection` и `RoutingRule` (миграция f3a91d4c2e8b с partial-UNIQUE на (server, scope)). Sentinel-RoutingRule без ipset_name. Agent ставит `-m mark --mark 0 -j MARK` после всех match-set правил. Frontend: чекбокс с warning-баннером в AddRoutingDirectionModal.
+- ✅ **#11 edit-формы DNS/GeoIP/IPset/Direction** — все 4 модалки уже принимали `editing?` prop в предыдущих сессиях, у каждого таба есть кнопка edit. Закрыто как «фактически готово».
 
 ### Routing-directions редизайн (Sprint 1-4)
 - ✅ **Custom IPset как третья сущность** (`backend/server/models/ipset_group.py` + миграция `d8e2f4a17b65`): `IpsetGroup(server_id, name, cidrs JSON)` с UNIQUE(server_id, name); агентский `apply_custom_ipset()` с atomic-swap (`ipset restore` во временный set + `ipset swap`); CRUD-API `/servers/{id}/ipset-groups` с `?apply=true` параметром для немедленного push'а на агента.
