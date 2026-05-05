@@ -14,7 +14,7 @@ SPEC закрыты + CI/CD + большой кусок техдолга и prod
 Защита: username/password → bcrypt + session-JWT. Первый админ создаётся при
 старте из ENV `WAYGATE_ADMIN_USER`/`WAYGATE_ADMIN_PASSWORD`.
 
-**158 backend-тестов + 11 e2e-тестов проходят** (+7 integration с реальным
+**166 backend-тестов + 11 e2e-тестов проходят** (+7 integration с реальным
 Docker-контейнером — отключены в `addopts`, гоняются явно через
 `uv run pytest -m integration` ~46 сек, покрывают ipset/dns/routing.apply
 end-to-end), ruff/format/mypy чисто, frontend typecheck/build зелёные,
