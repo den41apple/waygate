@@ -1,6 +1,7 @@
 import pytest
 
 from server.api import ipset_groups as ipset_groups_api
+from server.ws.events import EventType, WsEvent
 
 
 @pytest.fixture
@@ -24,6 +25,20 @@ class _FakeAgent:
 
 def _patch_agent(monkeypatch, fake: _FakeAgent) -> None:
     monkeypatch.setattr(ipset_groups_api, "AgentClient", lambda **_kwargs: fake)
+
+
+@pytest.fixture
+def fake_broadcaster(monkeypatch):
+    """Перехватывает WS-events чтобы проверить что CRUD их шлёт."""
+    events: list[WsEvent] = []
+
+    class _FakeManager:
+        async def broadcast(self, *, event):
+            events.append(event)
+
+    fake = _FakeManager()
+    monkeypatch.setattr(ipset_groups_api, "get_manager", lambda: fake)
+    return events
 
 
 async def test_create_ipset_group_persists_and_applies(client, server_id, monkeypatch):
@@ -137,3 +152,28 @@ async def test_delete_group(client, server_id, monkeypatch):
     assert response.status_code == 204
     listing = await client.get(f"/api/v1/servers/{server_id}/ipset-groups")
     assert listing.json()["groups"] == []
+
+
+async def test_crud_broadcasts_ws_events(client, server_id, monkeypatch, fake_broadcaster):
+    """Регрессия #12: CRUD ipset-group должен слать WS-events чтобы фронт
+    инвалидировал список без ручного refetch."""
+    _patch_agent(monkeypatch, _FakeAgent())
+
+    create = await client.post(
+        f"/api/v1/servers/{server_id}/ipset-groups?apply=false",
+        json={"name": "ws-test", "cidrs": []},
+    )
+    gid = create.json()["id"]
+
+    await client.patch(
+        f"/api/v1/servers/{server_id}/ipset-groups/{gid}?apply=false",
+        json={"cidrs": ["1.2.3.0/24"]},
+    )
+    await client.delete(f"/api/v1/servers/{server_id}/ipset-groups/{gid}")
+
+    types = [event.type for event in fake_broadcaster]
+    assert EventType.IPSET_GROUP_CREATED in types
+    assert EventType.IPSET_GROUP_UPDATED in types
+    assert EventType.IPSET_GROUP_DELETED in types
+    # Все события привязаны к серверу — фронт фильтрует по server_id.
+    assert all(event.server_id == server_id for event in fake_broadcaster)

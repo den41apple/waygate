@@ -25,6 +25,8 @@ class RoutingRule(SQLModel, table=True):
         ),
     )
     country: str
+    # Для catch-all (`is_default_egress=True`) ipset_name пустой ("") — в этом
+    # случае agent применяет unconditional MARK для пакетов с `mark==0`.
     ipset_name: str
     fwmark: int
     table_id: int
@@ -35,3 +37,6 @@ class RoutingRule(SQLModel, table=True):
     # указанного контейнера через nsenter.
     scope: str = Field(default="host")
     scope_target: str | None = Field(default=None)
+    # Catch-all egress: помечать все пакеты с mark=0 этим fwmark'ом. Один такой
+    # rule на (server, scope) max — гарантируется API directions'а.
+    is_default_egress: bool = Field(default=False)

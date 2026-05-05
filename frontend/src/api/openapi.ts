@@ -911,6 +911,8 @@ export interface components {
             id: number;
             /** Interface Address */
             interface_address: string | null;
+            /** Interface Name */
+            interface_name: string;
             /** Name */
             name: string;
             /** Peer Endpoint */
@@ -1009,6 +1011,12 @@ export interface components {
              */
             ipset_group_ids?: number[];
             /**
+             * Is Default Egress
+             * @description Catch-all: «всё что не попало в другие direction'ы → через этот VPN». Один такой direction на (server, scope) max — control-plane вернёт 409 если уже есть.
+             * @default false
+             */
+            is_default_egress: boolean;
+            /**
              * Name
              * @description Человеческое имя направления (например: 'Streaming-EU')
              */
@@ -1054,6 +1062,8 @@ export interface components {
             id: number;
             /** Ipset Group Ids */
             ipset_group_ids: number[];
+            /** Is Default Egress */
+            is_default_egress: boolean;
             /** Name */
             name: string;
             /** Scope */
@@ -1089,6 +1099,8 @@ export interface components {
             geo_list_ids?: number[] | null;
             /** Ipset Group Ids */
             ipset_group_ids?: number[] | null;
+            /** Is Default Egress */
+            is_default_egress?: boolean | null;
             /** Name */
             name?: string | null;
             scope?: components["schemas"]["RoutingScope"] | null;

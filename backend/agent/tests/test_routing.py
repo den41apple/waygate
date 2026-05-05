@@ -39,6 +39,18 @@ def _calls_starting_with(calls: Iterable[tuple[str, ...]], prefix: tuple[str, ..
     return [call for call in calls if _matches(stored_key=prefix, actual=call)]
 
 
+@pytest.fixture(autouse=True)
+def _assume_iface_has_v6(monkeypatch):
+    """В большинстве тестов считаем что awg-iface имеет GUA-IPv6 → v6-стек
+    применяется. Тесты которые проверяют именно skip-логику могут override
+    через monkeypatch уже после fixture."""
+
+    async def fake(*, ctx, iface):
+        return True
+
+    monkeypatch.setattr(routing, "_iface_has_global_ipv6", fake)
+
+
 @pytest.fixture
 def make_rule():
     def _make(
@@ -110,6 +122,142 @@ async def test_apply_rules_adds_missing_components(monkeypatch, make_rule):
     v6_replace = replace_routes_v6[0]
     assert "via" not in v6_replace
     assert "onlink" not in v6_replace
+
+
+@pytest.mark.asyncio
+async def test_apply_rules_default_egress_uses_unconditional_mark(monkeypatch, make_rule):
+    """#0b: catch-all rule (`is_default_egress=True`) ставит `-m mark --mark 0`,
+    а не `-m set --match-set`. ipset_name'а не имеет."""
+    empty_chain = "-P CHAIN ACCEPT\n"
+    runner = _FakeRunner(
+        responses={
+            ("iptables", "-t", "mangle", "-S", "PREROUTING"): empty_chain,
+            ("iptables", "-t", "mangle", "-S", "FORWARD"): empty_chain,
+            ("iptables", "-t", "mangle", "-S", "OUTPUT"): empty_chain,
+            ("ip6tables", "-t", "mangle", "-S", "PREROUTING"): empty_chain,
+            ("ip6tables", "-t", "mangle", "-S", "FORWARD"): empty_chain,
+            ("ip6tables", "-t", "mangle", "-S", "OUTPUT"): empty_chain,
+            ("ip", "rule", "show"): "0:\tfrom all lookup local\n",
+            ("ip", "-6", "rule", "show"): "0:\tfrom all lookup local\n",
+            ("ip", "route", "show", "table", "100"): "",
+            ("ip", "-6", "route", "show", "table", "100"): "",
+        },
+    )
+    monkeypatch.setattr(routing, "run_command", runner)
+
+    rule = RoutingRule(
+        country=None,
+        ipset_name=None,
+        fwmark=256,
+        table_id=100,
+        via_interface="awg0",
+        via_gateway="10.0.0.1",
+        enabled=True,
+        scope=RoutingScope.HOST,
+        scope_target=None,
+        is_default_egress=True,
+    )
+    response = await routing.apply_rules(rules=[rule])
+
+    assert response.errors == []
+    assert response.applied == 2  # V4 + V6 — оба стека получают unconditional MARK
+
+    add_marks_v4 = _calls_starting_with(runner.calls, ("iptables", "-t", "mangle", "-A"))
+    assert len(add_marks_v4) == 1
+    cmd = add_marks_v4[0]
+    assert "--match-set" not in cmd, cmd
+    assert "--mark" in cmd and "0" in cmd, cmd
+    assert "MARK" in cmd and "--set-mark" in cmd, cmd
+
+
+@pytest.mark.asyncio
+async def test_apply_rules_default_egress_skipped_when_already_set(monkeypatch, make_rule):
+    """Idempotency: повторный apply catch-all rule с тем же fwmark → skipped=2."""
+    rule_v4 = "-m mark --mark 0 -j MARK --set-xmark 0x100/0xffffffff"
+    rule_v6 = rule_v4
+    runner = _FakeRunner(
+        responses={
+            ("iptables", "-t", "mangle", "-S", "PREROUTING"): f"-P PREROUTING ACCEPT\n-A PREROUTING {rule_v4}\n",
+            ("iptables", "-t", "mangle", "-S", "FORWARD"): "-P FORWARD ACCEPT\n",
+            ("iptables", "-t", "mangle", "-S", "OUTPUT"): "-P OUTPUT ACCEPT\n",
+            ("ip6tables", "-t", "mangle", "-S", "PREROUTING"): f"-P PREROUTING ACCEPT\n-A PREROUTING {rule_v6}\n",
+            ("ip6tables", "-t", "mangle", "-S", "FORWARD"): "-P FORWARD ACCEPT\n",
+            ("ip6tables", "-t", "mangle", "-S", "OUTPUT"): "-P OUTPUT ACCEPT\n",
+            ("ip", "rule", "show"): "0:\tfrom all lookup local\n1000:\tfrom all fwmark 0x100 lookup 100\n",
+            ("ip", "route", "show", "table", "100"): "default dev awg0\n",
+            ("ip", "-6", "rule", "show"): "0:\tfrom all lookup local\n1000:\tfrom all fwmark 0x100 lookup 100\n",
+            ("ip", "-6", "route", "show", "table", "100"): "default dev awg0\n",
+            ("iptables", "-t", "nat", "-S", "POSTROUTING"): "-A POSTROUTING -o awg0 -j MASQUERADE\n",
+            ("ip6tables", "-t", "nat", "-S", "POSTROUTING"): "-A POSTROUTING -o awg0 -j MASQUERADE\n",
+        },
+    )
+    monkeypatch.setattr(routing, "run_command", runner)
+
+    rule = RoutingRule(
+        country=None,
+        ipset_name=None,
+        fwmark=0x100,
+        table_id=100,
+        via_interface="awg0",
+        via_gateway="10.0.0.1",
+        enabled=True,
+        scope=RoutingScope.HOST,
+        scope_target=None,
+        is_default_egress=True,
+    )
+    response = await routing.apply_rules(rules=[rule])
+
+    assert response.applied == 0
+    assert response.skipped == 2
+    add_marks_v4 = _calls_starting_with(runner.calls, ("iptables", "-t", "mangle", "-A"))
+    assert add_marks_v4 == []
+
+
+@pytest.mark.asyncio
+async def test_apply_rules_skips_v6_when_iface_has_no_global_ipv6(monkeypatch, make_rule):
+    """#21a: на awg-iface без GUA-IPv6 v6-стек должен быть пропущен.
+
+    Регрессия: AmneziaWG-туннели у большинства провайдеров без v6 → AAAA-резолв
+    клиента уходит в `<name>-v6` ipset, iptables v6 mark → ip -6 rule → table N
+    → `default dev awg-X` без link-peer'а → silent drop. Лучше отдать AAAA на
+    дефолтный маршрут (eth0), чем отправить в чёрную дыру.
+    """
+
+    async def fake_no_v6(*, ctx, iface):
+        return False
+
+    monkeypatch.setattr(routing, "_iface_has_global_ipv6", fake_no_v6)
+
+    empty_chain = "-P CHAIN ACCEPT\n"
+    runner = _FakeRunner(
+        responses={
+            ("iptables", "-t", "mangle", "-S", "PREROUTING"): empty_chain,
+            ("iptables", "-t", "mangle", "-S", "FORWARD"): empty_chain,
+            ("iptables", "-t", "mangle", "-S", "OUTPUT"): empty_chain,
+            ("ip6tables", "-t", "mangle", "-S", "PREROUTING"): empty_chain,
+            ("ip6tables", "-t", "mangle", "-S", "FORWARD"): empty_chain,
+            ("ip6tables", "-t", "mangle", "-S", "OUTPUT"): empty_chain,
+            ("ip", "rule", "show"): "0:\tfrom all lookup local\n",
+            ("ip", "-6", "rule", "show"): "0:\tfrom all lookup local\n",
+            ("ip", "route", "show", "table", "100"): "",
+            ("ip", "-6", "route", "show", "table", "100"): "",
+        },
+    )
+    monkeypatch.setattr(routing, "run_command", runner)
+
+    response = await routing.apply_rules(rules=[make_rule()])
+
+    # V4 применилось, V6 — скипнуто.
+    assert response.applied == 1
+    assert response.errors == []
+    add_marks_v4 = _calls_starting_with(runner.calls, ("iptables", "-t", "mangle", "-A"))
+    add_marks_v6 = _calls_starting_with(runner.calls, ("ip6tables", "-t", "mangle", "-A"))
+    assert len(add_marks_v4) == 1
+    assert add_marks_v6 == []  # ни одного MARK в v6
+    add_rules_v6 = _calls_starting_with(runner.calls, ("ip", "-6", "rule", "add"))
+    assert add_rules_v6 == []
+    replace_routes_v6 = _calls_starting_with(runner.calls, ("ip", "-6", "route", "replace"))
+    assert replace_routes_v6 == []
 
 
 @pytest.mark.asyncio

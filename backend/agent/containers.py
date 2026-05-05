@@ -15,11 +15,9 @@ import json
 
 from loguru import logger
 
-from agent.awg_clients import (
-    _CONTAINER_NAME_PREFIX,
-    _docker_status_to_state,
-)
+from agent.awg_clients import _docker_status_to_state
 from agent.subprocess_runner import CommandError, run_command
+from shared.awg_naming import CONTAINER_NAME_PREFIX as _CONTAINER_NAME_PREFIX
 from shared.schemas import ContainerInfo
 
 

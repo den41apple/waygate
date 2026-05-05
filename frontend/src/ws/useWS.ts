@@ -86,6 +86,15 @@ export function useWebSocket(): void {
             queryClient.invalidateQueries({ queryKey: ipsetGroupsKey(event.server_id) });
           }
           break;
+        case "ipset_group.created":
+        case "ipset_group.updated":
+        case "ipset_group.deleted":
+          if (event.server_id != null) {
+            queryClient.invalidateQueries({ queryKey: ipsetGroupsKey(event.server_id) });
+            // direction-карточки могут ссылаться на эту группу — обновим счётчики
+            queryClient.invalidateQueries({ queryKey: directionsKey(event.server_id) });
+          }
+          break;
         default:
           break;
       }

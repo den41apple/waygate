@@ -35,5 +35,15 @@ class RoutingDirection(SQLModel, table=True):
     scope: str = Field(default="host", description="`host` или `container`")
     scope_target: str | None = Field(default=None, description="Имя контейнера для scope=container")
     enabled: bool = Field(default=True)
+    is_default_egress: bool = Field(
+        default=False,
+        description=(
+            "Catch-all: «всё что не попало в другие direction'ы → через этот VPN». "
+            "На (server_id, scope) допустим максимум один такой direction "
+            "(валидируется в API). Materialize создаёт ровно один RoutingRule "
+            "без ipset_name'а — agent добавляет unconditional MARK после всех "
+            "match-set правил."
+        ),
+    )
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)

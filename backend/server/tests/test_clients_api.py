@@ -62,6 +62,7 @@ class _FakeAgent:
             client=AwgClientInfo(
                 name=request.name,
                 container_name=f"waygate-amnezia-client-{request.name}",
+                interface_name=f"awg-{request.name[:11]}",
                 status=AwgClientStatus.RUNNING,
                 peer_endpoint="vpn.example.com:51820",
                 peer_pubkey=_PUB,

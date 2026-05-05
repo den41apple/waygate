@@ -23,6 +23,9 @@ class EventType(StrEnum):
     DIRECTION_CREATED = "direction.created"
     DIRECTION_UPDATED = "direction.updated"
     DIRECTION_DELETED = "direction.deleted"
+    IPSET_GROUP_CREATED = "ipset_group.created"
+    IPSET_GROUP_UPDATED = "ipset_group.updated"
+    IPSET_GROUP_DELETED = "ipset_group.deleted"
 
 
 class WsEvent(BaseModel):

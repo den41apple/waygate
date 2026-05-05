@@ -22,6 +22,17 @@ async def test_validate_version_rejects_dangerous_strings():
         updater._validate_version(version="0.1.0; rm -rf /")
 
 
+def test_swap_paths_live_under_data_dir():
+    """Регрессия #13: swap-script и log не должны жить в /tmp или /var/log.
+
+    `agent.service` имеет `ProtectSystem=strict` (no /var/log) и
+    `PrivateTmp=true` (/tmp умирает вместе с namespace при `systemctl restart`).
+    Если кто-то случайно вернёт пути обратно — обе самообновлялки развалятся.
+    """
+    assert str(updater._SWAP_SCRIPT_PATH).startswith("/var/lib/waygate-agent/")
+    assert str(updater._SWAP_LOG_PATH).startswith("/var/lib/waygate-agent/")
+
+
 async def test_update_agent_writes_swap_script_and_spawns(monkeypatch, tmp_path, _stub_swap):
     """Happy-path: скачиваем wheel, пишем swap-скрипт, отвязанно spawn'им его."""
     downloaded: list[str] = []

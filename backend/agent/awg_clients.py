@@ -15,36 +15,25 @@ from loguru import logger
 from agent.config import settings
 from agent.subprocess_runner import CommandError, run_command
 from shared.awg_config import AwgFullConfig, parse_awg_config, serialize_awg_config
+from shared.awg_naming import (
+    CONTAINER_NAME_PREFIX as _CONTAINER_NAME_PREFIX,
+)
+from shared.awg_naming import (
+    container_name_for as _container_name,
+)
+from shared.awg_naming import (
+    iface_name_for as _iface_name,
+)
 from shared.schemas import AwgClientInfo, AwgClientStatus
 
 # docker label наших клиентов — детект и фильтрация ровно того, что мы развернули.
 _CLIENT_ROLE_LABEL = "io.waygate.role=client"
 _CLIENT_NAME_LABEL_KEY = "io.waygate.client-name"
 _CLIENT_IFACE_LABEL_KEY = "io.waygate.client-iface"
-_CONTAINER_NAME_PREFIX = "waygate-amnezia-client-"
-
-# Linux IFNAMSIZ=16 → имя netdev должно быть ≤15 символов. Префикс `awg-` (4) +
-# имя клиента, обрезанное до 11 символов. Несколько клиентов с --network host
-# делят host netns, поэтому имена должны различаться.
-_IFACE_PREFIX = "awg-"
-_IFACE_MAX_NAME_LEN = 11
 
 
 class AwgClientError(RuntimeError):
     """Ошибка lifecycle клиента (parse, deploy, docker)."""
-
-
-def _container_name(*, name: str) -> str:
-    return f"{_CONTAINER_NAME_PREFIX}{name}"
-
-
-def _iface_name(*, name: str) -> str:
-    """Имя netdev'а внутри host-netns для клиента <name>.
-
-    Берётся из имени клиента, обрезается до 11 chars + префикс `awg-` (всего ≤15).
-    Гарантируется что валидно для `awg-quick up <iface>.conf` и `ip link`.
-    """
-    return f"{_IFACE_PREFIX}{name[:_IFACE_MAX_NAME_LEN]}"
 
 
 def _client_dir(*, name: str) -> Path:
@@ -89,6 +78,7 @@ def _info_from_config(*, name: str, config: AwgFullConfig, status: AwgClientStat
     return AwgClientInfo(
         name=name,
         container_name=_container_name(name=name),
+        interface_name=_iface_name(name=name),
         status=status,
         peer_endpoint=config.peer.endpoint,
         peer_pubkey=config.peer.public_key,
@@ -306,6 +296,7 @@ async def list_managed_clients() -> list[AwgClientInfo]:
             AwgClientInfo(
                 name=name,
                 container_name=full_name,
+                interface_name=_iface_name(name=name),
                 status=status,
                 peer_endpoint=None,
                 peer_pubkey=None,

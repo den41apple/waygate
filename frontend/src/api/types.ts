@@ -197,6 +197,12 @@ export interface AwgClient {
   server_id: number;
   name: string;
   container_name: string;
+  /**
+   * Имя netdev'а на target — `awg-${name[:11]}`. Считает агент (формула в
+   * `shared/awg_naming.py`); фронт берёт это поле, а не повторяет formula
+   * локально, чтобы не разойтись на edge-case'ах IFNAMSIZ=16.
+   */
+  interface_name: string;
   status: AwgClientStatus;
   country: string | null;
   peer_endpoint: string | null;
@@ -246,6 +252,12 @@ export interface Direction {
   scope: "host" | "container";
   scope_target: string | null;
   enabled: boolean;
+  /**
+   * Catch-all egress: «всё что не попало в другие direction'ы → этот VPN».
+   * На (server, scope) max один такой direction (бэк вернёт 409 на дубликат).
+   * Несовместим с geo/dns/ipset источниками — бэк вернёт 400 если переданы вместе.
+   */
+  is_default_egress: boolean;
   geo_list_ids: number[];
   dns_rule_ids: number[];
   ipset_group_ids: number[];
@@ -268,6 +280,7 @@ export interface DirectionCreate {
   scope?: "host" | "container";
   scope_target?: string | null;
   enabled?: boolean;
+  is_default_egress?: boolean;
 }
 
 export interface DirectionUpdate {
@@ -281,6 +294,7 @@ export interface DirectionUpdate {
   scope?: "host" | "container";
   scope_target?: string | null;
   enabled?: boolean;
+  is_default_egress?: boolean;
 }
 
 export type WsEventType =
@@ -299,7 +313,10 @@ export type WsEventType =
   | "awg_client.status_changed"
   | "direction.created"
   | "direction.updated"
-  | "direction.deleted";
+  | "direction.deleted"
+  | "ipset_group.created"
+  | "ipset_group.updated"
+  | "ipset_group.deleted";
 
 export interface WsEvent {
   type: WsEventType;

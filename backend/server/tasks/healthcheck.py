@@ -7,7 +7,7 @@ from sqlmodel import select
 
 from server.agent_client import AgentClient, AgentClientError, AgentUnreachable
 from server.config import settings
-from server.models import Server, ServerStatus
+from server.models import AwgClient, Server, ServerStatus
 from server.ws.events import EventType, WsEvent
 from server.ws.manager import get_manager
 
@@ -44,6 +44,56 @@ async def _broadcast_agent_updated(
             timestamp=datetime.now(tz=UTC),
         ),
     )
+
+
+async def _reconcile_awg_clients(
+    *,
+    server: Server,
+    session: AsyncSession,
+    agent: AgentClient,
+) -> None:
+    """Синхронизирует `AwgClient.status` в БД с реальным состоянием docker-контейнеров.
+
+    Без этого DB может говорить `running`, в то время как контейнер давно
+    `stopped`/`error` (например, оператор сделал `docker rm` руками или клиент
+    вылетел на старте). UI показывает stale-«active» → пользователь ожидает что
+    apply routing-правил пройдёт, и получает «netdev awg-X не найден» при первом
+    же apply. См. BACKLOG #16.
+    """
+    if server.id is None:
+        return
+    try:
+        listing = await agent.list_clients()
+    except (AgentUnreachable, AgentClientError) as exc:
+        logger.debug("healthcheck: list_clients server={} не удался: {}", server.host, exc)
+        return
+
+    real_status_by_name: dict[str, str] = {info.name: info.status.value for info in listing.clients}
+
+    db_result = await session.execute(select(AwgClient).where(AwgClient.server_id == server.id))
+    db_clients = list(db_result.scalars().all())
+
+    for client_record in db_clients:
+        previous = client_record.status
+        # Если контейнер пропал на target — это явно ERROR-state (не STOPPED:
+        # stopped означает «есть, но не запущен», а тут его нет вообще).
+        new_status = real_status_by_name.get(client_record.name, "error")
+        if new_status == previous:
+            continue
+        client_record.status = new_status
+        await get_manager().broadcast(
+            event=WsEvent(
+                type=EventType.AWG_CLIENT_STATUS_CHANGED,
+                server_id=server.id,
+                payload={
+                    "id": client_record.id,
+                    "name": client_record.name,
+                    "status": new_status,
+                    "previous": previous,
+                },
+                timestamp=datetime.now(tz=UTC),
+            ),
+        )
 
 
 async def _check_server(*, server: Server, session: AsyncSession) -> None:
@@ -86,6 +136,10 @@ async def _check_server(*, server: Server, session: AsyncSession) -> None:
             version=server.version,
             awg_containers=list(server.awg_containers),
         )
+    # Сервер онлайн → reconcile AwgClient.status с реальным состоянием docker'а.
+    # Делаем после status-broadcast'а: даже если list_clients упадёт, online уже
+    # отправлено наверх.
+    await _reconcile_awg_clients(server=server, session=session, agent=client)
 
 
 async def healthcheck_once(*, session: AsyncSession) -> None:

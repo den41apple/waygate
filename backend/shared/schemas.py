@@ -133,7 +133,10 @@ class RoutingRule(BaseModel):
         default=None,
         description="Код страны ISO 3166-1 alpha-2 (RU, BY ...) либо None для DNS/IPset-правил",
     )
-    ipset_name: IpsetName = Field(description="Имя ipset-множества (russia, belarus ...)")
+    ipset_name: IpsetName | None = Field(
+        default=None,
+        description="Имя ipset (russia, belarus ...). None для catch-all default-egress правил",
+    )
     fwmark: int = Field(ge=1, le=0xFFFFFFFF, description="Метка пакетов для policy routing")
     table_id: int = Field(ge=1, le=252, description="Номер таблицы маршрутизации")
     via_interface: InterfaceName = Field(description="Исходящий интерфейс (awg0 ...)")
@@ -143,6 +146,14 @@ class RoutingRule(BaseModel):
     scope_target: str | None = Field(
         default=None,
         description="Имя docker-контейнера для scope=container (e.g. amnezia-awg2)",
+    )
+    is_default_egress: bool = Field(
+        default=False,
+        description=(
+            "Catch-all: маркировать ВСЕ пакеты с mark=0 (не помеченные другими "
+            "правилами) этим fwmark'ом. UNIQUE per (server, scope) — гарантируется "
+            "control-plane'ом. Несовместимо с `ipset_name`."
+        ),
     )
 
 
@@ -292,6 +303,13 @@ class AwgClientInfo(BaseModel):
 
     name: str = Field(description="Идентификатор клиента")
     container_name: str = Field(description="Полное docker-имя контейнера")
+    interface_name: str = Field(
+        description=(
+            "Имя netdev'а внутри host/container netns (например `awg-myclient`). "
+            "Генерируется агентом из `name` с учётом IFNAMSIZ=16 — фронт берёт "
+            "это поле вместо локальной формулы."
+        ),
+    )
     status: AwgClientStatus = Field(description="Текущий статус")
     peer_endpoint: str | None = Field(default=None, description="host:port VPN-сервера из [Peer]")
     peer_pubkey: str | None = Field(default=None, description="Публичный ключ VPN-сервера из [Peer]")
@@ -384,6 +402,14 @@ class DirectionCreate(BaseModel):
     scope: RoutingScope = Field(default=RoutingScope.HOST)
     scope_target: str | None = Field(default=None)
     enabled: bool = Field(default=True)
+    is_default_egress: bool = Field(
+        default=False,
+        description=(
+            "Catch-all: «всё что не попало в другие direction'ы → через этот VPN». "
+            "Один такой direction на (server, scope) max — control-plane вернёт "
+            "409 если уже есть."
+        ),
+    )
 
 
 class DirectionUpdate(BaseModel):
@@ -399,6 +425,7 @@ class DirectionUpdate(BaseModel):
     scope: RoutingScope | None = None
     scope_target: str | None = None
     enabled: bool | None = None
+    is_default_egress: bool | None = None
 
 
 class DirectionResponse(BaseModel):
@@ -413,6 +440,7 @@ class DirectionResponse(BaseModel):
     scope: str
     scope_target: str | None
     enabled: bool
+    is_default_egress: bool
     geo_list_ids: list[int]
     dns_rule_ids: list[int]
     ipset_group_ids: list[int]

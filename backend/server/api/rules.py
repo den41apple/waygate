@@ -177,17 +177,10 @@ async def apply_rules(
     """
     server = await _get_server(server_id=server_id, session=session)
 
-    # 1. DNS-prereq: пушим dnsmasq-config + создаём пустые ipset'ы.
-    #
-    # dnsmasq НЕ создаёт ipset'ы автоматически — он только пишет резолвенные IP в
-    # существующие set'ы. Если ipset не создан заранее, то iptables-правило
-    # `--match-set <name>` падает с `Set <name> doesn't exist`. Поэтому для каждого
-    # DNS-правила здесь дёргаем `/v1/ipset/apply` с пустыми cidrs — agent создаёт
-    # ipset через `ipset create -exist`. dnsmasq при следующем DNS-запросе на
-    # домен из правила сам начнёт писать в него IP'шники.
-    #
-    # Долгосрочный фикс — встроить `ipset create -exist` прямо в agent/dns.py,
-    # но это требует релиза нового wheel'а агента (см. BACKLOG #15).
+    # 1. DNS-prereq: пушим dnsmasq-config. Сами ipset'ы создаёт agent внутри
+    # `apply_dns` (см. agent/dns.py::_ensure_dual_family_ipsets) — раньше тут
+    # был лишний round-trip с пустым `/v1/ipset/apply` для каждого DNS-rule
+    # ради `ipset create -exist`. Это убрано после фикса агента (BACKLOG #14).
     dns_result = await session.execute(
         select(DnsRule).where(DnsRule.server_id == server_id, DnsRule.enabled == True),  # noqa: E712
     )
@@ -195,21 +188,6 @@ async def apply_rules(
     client = AgentClient(host=server.host, port=server.port, token=server.token)
     if dns_rules:
         try:
-            for rule in dns_rules:
-                try:
-                    await client.apply_custom_ipset(
-                        request=IpsetApplyRequest(name=rule.ipset_name, cidrs=[]),
-                    )
-                except AgentClientError as exc:
-                    # Идемпотентный bug в agent/ipset.py: tmp_name создаётся с
-                    # `hashsize 4096 maxelem 1000000`, целевой — без; после swap
-                    # параметры расходятся, повторный `create -exist` падает с
-                    # "Set cannot be created: set with the same name already
-                    # exists". Set всё равно есть и пригоден — игнорируем.
-                    # Долгосрочный фикс — BACKLOG #16.
-                    if "already exists" not in str(exc):
-                        raise
-                    logger.debug("apply_rules: pre-create ipset {} уже есть, продолжаю", rule.ipset_name)
             await client.apply_dns(
                 request=ApplyDnsRequest(
                     rules=[
@@ -231,6 +209,8 @@ async def apply_rules(
     # ссылается из direction'а (ipset_group_ids → RoutingRule.ipset_name).
     # Без этого `iptables --match-set <name>` падает с `Set <name> doesn't exist`,
     # и user должен был отдельно жать Apply на ipset-карточке. Делаем за него.
+    # Workaround на «already exists» удалён после фикса агентского
+    # `apply_custom_ipset` (одинаковые параметры у tmp/целевого set'а — BACKLOG #15).
     ipset_groups_result = await session.execute(
         select(IpsetGroup).where(IpsetGroup.server_id == server_id),
     )
@@ -241,9 +221,6 @@ async def apply_rules(
                 request=IpsetApplyRequest(name=group.name, cidrs=list(group.cidrs)),
             )
         except AgentClientError as exc:
-            if "already exists" in str(exc):
-                logger.debug("apply_rules: pre-create custom ipset {} уже есть, продолжаю", group.name)
-                continue
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail=f"pre-apply custom ipset {group.name} упал: {exc}",
@@ -262,7 +239,9 @@ async def apply_rules(
                 # `ZZ` (ISO 3166-1 reserved code для unknown country); агент `country` вообще
                 # не использует, это метаданные. Новые версии агента примут и None.
                 country=rule.country if rule.country and rule.country != "--" else "ZZ",
-                ipset_name=rule.ipset_name,
+                # Catch-all rule имеет пустой ipset_name'а в БД → шлём None,
+                # чтобы агент включил unconditional MARK для пакетов с mark=0.
+                ipset_name=rule.ipset_name if rule.ipset_name else None,
                 fwmark=rule.fwmark,
                 table_id=rule.table_id,
                 via_interface=rule.via_interface,
@@ -270,6 +249,7 @@ async def apply_rules(
                 enabled=rule.enabled,
                 scope=RoutingScope(rule.scope),
                 scope_target=rule.scope_target,
+                is_default_egress=rule.is_default_egress,
             )
             for rule in rules
         ],

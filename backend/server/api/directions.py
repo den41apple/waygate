@@ -160,7 +160,31 @@ async def _materialize_rules(
     ipset_group_ids: list[int],
     session: AsyncSession,
 ) -> list[RoutingRule]:
-    """Создаёт N RoutingRule для каждого ref. Каждое правило с одним fwmark/table_id."""
+    """Создаёт N RoutingRule для каждого ref. Каждое правило с одним fwmark/table_id.
+
+    Для catch-all direction'а (`is_default_egress=True`) создаётся ровно один
+    sentinel-RoutingRule с пустым `ipset_name` и `is_default_egress=True`.
+    Источники (geo/dns/ipset_group) не нужны — agent применяет unconditional
+    MARK для пакетов с `mark==0`.
+    """
+    if direction.is_default_egress:
+        sentinel = RoutingRule(
+            server_id=direction.server_id,
+            direction_id=direction.id,
+            country="--",
+            ipset_name="",
+            fwmark=direction.fwmark,
+            table_id=direction.table_id,
+            via_interface=direction.via_interface,
+            via_gateway=direction.via_gateway,
+            enabled=direction.enabled,
+            scope=direction.scope,
+            scope_target=direction.scope_target,
+            is_default_egress=True,
+        )
+        session.add(sentinel)
+        return [sentinel]
+
     geo_map = await _resolve_ipset_for_geo(geo_list_ids=geo_list_ids, session=session)
     dns_map = await _resolve_ipset_for_dns(
         server_id=direction.server_id,
@@ -249,12 +273,42 @@ def _to_response(
         scope=direction.scope,
         scope_target=direction.scope_target,
         enabled=direction.enabled,
+        is_default_egress=direction.is_default_egress,
         geo_list_ids=geo_list_ids,
         dns_rule_ids=dns_rule_ids,
         ipset_group_ids=ipset_group_ids,
         created_at=direction.created_at,
         updated_at=direction.updated_at,
     )
+
+
+async def _ensure_unique_default_egress(
+    *,
+    server_id: int,
+    scope: str,
+    is_default_egress: bool,
+    exclude_direction_id: int | None,
+    session: AsyncSession,
+) -> None:
+    """Бросает 409 если в (server, scope) уже есть другой `is_default_egress=True`."""
+    if not is_default_egress:
+        return
+    query = select(RoutingDirection).where(
+        RoutingDirection.server_id == server_id,
+        RoutingDirection.scope == scope,
+        RoutingDirection.is_default_egress.is_(True),
+    )
+    existing = (await session.execute(query)).scalars().all()
+    for direction in existing:
+        if direction.id == exclude_direction_id:
+            continue
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"catch-all direction уже существует на server_id={server_id} в scope={scope} "
+                f"(direction id={direction.id}, name='{direction.name}')"
+            ),
+        )
 
 
 async def _collect_refs(
@@ -356,6 +410,18 @@ async def create_direction(
         awg_client_id=request.awg_client_id,
         session=session,
     )
+    await _ensure_unique_default_egress(
+        server_id=server_id,
+        scope=request.scope.value,
+        is_default_egress=request.is_default_egress,
+        exclude_direction_id=None,
+        session=session,
+    )
+    if request.is_default_egress and (request.geo_list_ids or request.dns_rule_ids or request.ipset_group_ids):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="catch-all direction несовместим с источниками (geo/dns/ipset_group). Очистите чекбоксы.",
+        )
 
     fwmark, table_id = await _next_fwmark_and_table(server_id=server_id, session=session)
     direction = RoutingDirection(
@@ -369,6 +435,7 @@ async def create_direction(
         scope=request.scope.value,
         scope_target=request.scope_target,
         enabled=request.enabled,
+        is_default_egress=request.is_default_egress,
     )
     session.add(direction)
     await session.flush()  # получаем direction.id для materialize'а
@@ -417,6 +484,22 @@ async def update_direction(
         )
 
     payload = request.model_dump(exclude_unset=True)
+    # До mutate'а direction'а — проверим UNIQUE на catch-all'ах. Берём
+    # NEW значение если в payload'е, иначе текущее.
+    new_scope = (
+        payload["scope"].value
+        if isinstance(payload.get("scope"), RoutingScope)
+        else payload.get("scope", direction.scope)
+    )
+    new_default_egress = payload.get("is_default_egress", direction.is_default_egress)
+    await _ensure_unique_default_egress(
+        server_id=server_id,
+        scope=new_scope,
+        is_default_egress=new_default_egress,
+        exclude_direction_id=direction_id,
+        session=session,
+    )
+
     refs_changed = any(key in payload for key in ("geo_list_ids", "dns_rule_ids", "ipset_group_ids"))
     fields_changed = False
     for field, value in payload.items():
@@ -439,6 +522,7 @@ async def update_direction(
             "scope",
             "scope_target",
             "enabled",
+            "is_default_egress",
         )
     )
     if must_rebuild_children:

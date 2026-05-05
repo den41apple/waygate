@@ -47,10 +47,10 @@ async def _download_wheel(*, url: str, target: Path) -> None:
 def _build_swap_script(*, wheel_path: Path) -> str:
     """Bash-скрипт: создать .new venv → установить wheel → swap dir'ов → restart.
 
-    Весь stdout/stderr перенаправлен в /var/log/waygate-update.log, потому что
-    основной процесс отвязан от родителя через setsid (агент в этот момент
-    рестартует, его journal'у мы не доверяем). При неудаче этот лог — единственный
-    источник диагностики; читать через `cat /var/log/waygate-update.log`.
+    Весь stdout/stderr перенаправлен в `_SWAP_LOG_PATH`, потому что основной
+    процесс отвязан от родителя через setsid (агент в этот момент рестартует,
+    его journal'у мы не доверяем). При неудаче этот лог — единственный источник
+    диагностики; читать через `cat /var/lib/waygate-agent/update.log`.
     """
     return f"""#!/bin/bash
 # Перенаправляем весь вывод в файл — иначе при упавшем шаге диагностики 0.

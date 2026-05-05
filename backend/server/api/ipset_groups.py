@@ -8,7 +8,7 @@ POST/PATCH опционально применяет на агенте чере�
 вызова apply (следующий шаг — кнопка «Применить» в UI).
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from loguru import logger
@@ -20,6 +20,8 @@ from sqlmodel import select
 from server.agent_client import AgentClient, AgentClientError, AgentUnreachable
 from server.db import get_session
 from server.models import IpsetGroup, Server
+from server.ws.events import EventType, WsEvent
+from server.ws.manager import get_manager
 from shared.schemas import IpsetApplyRequest, IpsetName
 
 router = APIRouter(prefix="/servers/{server_id}/ipset-groups", tags=["ipset-groups"])
@@ -68,6 +70,18 @@ async def _load_server(*, server_id: int, session: AsyncSession) -> Server:
     return server
 
 
+async def _broadcast(*, type: EventType, server_id: int, payload: dict[str, object]) -> None:
+    """Шлёт WS-event подписчикам — фронт инвалидирует список без F5."""
+    await get_manager().broadcast(
+        event=WsEvent(
+            type=type,
+            server_id=server_id,
+            payload=payload,
+            timestamp=datetime.now(tz=UTC),
+        ),
+    )
+
+
 async def _maybe_apply(*, server: Server, group: IpsetGroup, apply: bool) -> None:
     """Если `?apply=true` — отправляем CIDR'ы на агента в `/v1/ipset/apply`.
 
@@ -112,6 +126,11 @@ async def create_group(
     await session.commit()
     await session.refresh(group)
     await _maybe_apply(server=server, group=group, apply=apply)
+    await _broadcast(
+        type=EventType.IPSET_GROUP_CREATED,
+        server_id=server_id,
+        payload={"id": group.id, "name": group.name, "cidrs_count": len(group.cidrs)},
+    )
     return _to_response(group=group)
 
 
@@ -156,6 +175,11 @@ async def update_group(
         ) from exc
     await session.refresh(group)
     await _maybe_apply(server=server, group=group, apply=apply)
+    await _broadcast(
+        type=EventType.IPSET_GROUP_UPDATED,
+        server_id=server_id,
+        payload={"id": group.id, "name": group.name, "cidrs_count": len(group.cidrs)},
+    )
     return _to_response(group=group)
 
 
@@ -166,5 +190,12 @@ async def delete_group(
     session: AsyncSession = Depends(get_session),
 ) -> None:
     group = await _get_group(server_id=server_id, group_id=group_id, session=session)
+    deleted_id = group.id
+    deleted_name = group.name
     await session.delete(group)
     await session.commit()
+    await _broadcast(
+        type=EventType.IPSET_GROUP_DELETED,
+        server_id=server_id,
+        payload={"id": deleted_id, "name": deleted_name},
+    )

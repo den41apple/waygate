@@ -74,6 +74,15 @@ _IPTABLES_MARK_RE = re.compile(
     r"\s+--set-x?mark\s+(?P<mark>0x[0-9a-fA-F]+|\d+)(?:/\S+)?",
 )
 
+# Для catch-all (`is_default_egress=True`) MARK правило не имеет `--match-set`,
+# вместо этого `-m mark --mark 0` (помечаем только пакеты ещё без mark'а).
+# Хранится в том же mangle-state-словаре под синтетическим ключом DEFAULT_EGRESS_KEY.
+_DEFAULT_EGRESS_MARK_RE = re.compile(
+    r"-A\s+(?:PREROUTING|FORWARD|OUTPUT)\s+-m\s+mark\s+--mark\s+0(?:/\S+)?\s+-j\s+MARK"
+    r"\s+--set-x?mark\s+(?P<mark>0x[0-9a-fA-F]+|\d+)(?:/\S+)?",
+)
+_DEFAULT_EGRESS_KEY = "__waygate_default_egress__"
+
 # Цепочки, в которые добавляем `--match-set ... -j MARK`:
 # - PREROUTING — для forwarded трафика (telephone → AWG-server → VPN-client).
 #   Mark ставится ДО routing decision'а, `ip rule fwmark X table Y` корректно
@@ -256,10 +265,20 @@ async def _read_iptables_marks(
         )
         for line in output.splitlines():
             match = _IPTABLES_MARK_RE.search(line)
-            if match is None:
+            if match is not None:
+                ipset_name = match.group("ipset")
+                marks[chain][ipset_name] = _ActiveMark(
+                    ipset_name=ipset_name,
+                    fwmark=_parse_mark(match.group("mark")),
+                )
                 continue
-            ipset_name = match.group("ipset")
-            marks[chain][ipset_name] = _ActiveMark(ipset_name=ipset_name, fwmark=_parse_mark(match.group("mark")))
+            # Catch-all (`-m mark --mark 0 -j MARK`) — храним под sentinel-ключом.
+            default_match = _DEFAULT_EGRESS_MARK_RE.search(line)
+            if default_match is not None:
+                marks[chain][_DEFAULT_EGRESS_KEY] = _ActiveMark(
+                    ipset_name=_DEFAULT_EGRESS_KEY,
+                    fwmark=_parse_mark(default_match.group("mark")),
+                )
     return marks
 
 
@@ -316,7 +335,31 @@ async def _add_iptables_mark(
     к скрытому состоянию когда одна цепь имела правило, другая — нет, и
     reconciler не дополнял. Теперь функция работает на одну цепь, а reconciler
     проверяет каждую отдельно (см. _read_iptables_marks).
+
+    Sentinel `_DEFAULT_EGRESS_KEY` означает catch-all: `-m mark --mark 0`
+    вместо `-m set --match-set`. Идёт `-A` (append) — после всех match-set
+    правил, чтобы помеченные конкретными ipset'ами не перетирались.
     """
+    if ipset_name == _DEFAULT_EGRESS_KEY:
+        await run_command(
+            [
+                *ctx.command_prefix,
+                family.iptables_cmd,
+                "-t",
+                "mangle",
+                "-A",
+                chain,
+                "-m",
+                "mark",
+                "--mark",
+                "0",
+                "-j",
+                "MARK",
+                "--set-mark",
+                str(fwmark),
+            ],
+        )
+        return
     await run_command(
         [
             *ctx.command_prefix,
@@ -347,7 +390,32 @@ async def _remove_iptables_mark(
     chain: str,
 ) -> None:
     """Удаляет MARK-правило из указанной mangle-цепи. `check=False` — если
-    правила не было, не падаем (возможно только в одной цепи стояло)."""
+    правила не было, не падаем (возможно только в одной цепи стояло).
+
+    Sentinel `_DEFAULT_EGRESS_KEY` — снять unconditional MARK (`-m mark --mark 0`)
+    вместо обычного match-set'а.
+    """
+    if ipset_name == _DEFAULT_EGRESS_KEY:
+        await run_command(
+            [
+                *ctx.command_prefix,
+                family.iptables_cmd,
+                "-t",
+                "mangle",
+                "-D",
+                chain,
+                "-m",
+                "mark",
+                "--mark",
+                "0",
+                "-j",
+                "MARK",
+                "--set-mark",
+                str(fwmark),
+            ],
+            check=False,
+        )
+        return
     await run_command(
         [
             *ctx.command_prefix,
@@ -392,6 +460,26 @@ async def _remove_ip_rule(
     await run_command(
         [*ctx.command_prefix, "ip", *family.ip_args, "rule", "del", "fwmark", str(fwmark), "table", str(table_id)],
     )
+
+
+async def _iface_has_global_ipv6(*, ctx: _ScopeContext, iface: str) -> bool:
+    """True если на iface есть GUA-IPv6 (любой `inet6` кроме link-local fe80::).
+
+    AmneziaWG-туннели часто работают только в v4 (на стороне VPN-провайдера v6
+    не настроен). В этом случае добавлять v6 mark/rule/route бессмысленно:
+    `ip -6 route default dev awg-X` без link-peer уходит в чёрную дыру, и v6
+    трафик с матчем по `<name>-v6` ipset молча теряется. По этому флагу мы
+    скипаем v6-стек per-rule (см. #21a в BACKLOG).
+    """
+    output = await run_command(
+        [*ctx.command_prefix, "ip", "-6", "addr", "show", "dev", iface],
+        check=False,
+    )
+    for line in output.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("inet6 ") and not stripped.startswith("inet6 fe80"):
+            return True
+    return False
 
 
 async def _read_masquerades(
@@ -567,7 +655,14 @@ async def _delete_default_route(
 
 
 def _ipset_name_for(*, rule: RoutingRule, family: _FamilyTools) -> str:
-    """Логическое имя `dns-youtube` → физическое `dns-youtube-v4`/`dns-youtube-v6`."""
+    """Логическое имя `dns-youtube` → физическое `dns-youtube-v4`/`dns-youtube-v6`.
+
+    Для catch-all rules (`is_default_egress=True`) ipset нет — возвращаем
+    sentinel-ключ, по которому `_add_iptables_mark` решает писать unconditional
+    `-m mark --mark 0` MARK вместо `-m set --match-set`.
+    """
+    if rule.is_default_egress:
+        return _DEFAULT_EGRESS_KEY
     return f"{rule.ipset_name}{family.ipset_suffix}"
 
 
@@ -739,7 +834,34 @@ async def _sync_ipsets_to_container(*, ctx: _ScopeContext, ipset_names: set[str]
         )
 
 
-async def _apply_rules_in_scope_family(
+async def _filter_v6_skippable_rules(
+    *,
+    ctx: _ScopeContext,
+    rules: list[RoutingRule],
+) -> list[RoutingRule]:
+    """Возвращает только те rules, чей via_interface имеет GUA-IPv6.
+
+    Кэширует per-iface результат `ip -6 addr show`, чтобы не дёргать его под
+    каждое правило (один iface обычно используется несколькими). См. #21a.
+    """
+    v6_cache: dict[str, bool] = {}
+    filtered: list[RoutingRule] = []
+    for rule in rules:
+        iface = rule.via_interface
+        if iface not in v6_cache:
+            v6_cache[iface] = await _iface_has_global_ipv6(ctx=ctx, iface=iface)
+        if v6_cache[iface]:
+            filtered.append(rule)
+        else:
+            logger.info(
+                "routing: skip v6-стек для rule fwmark=0x{:x} (iface {} без GUA-IPv6)",
+                rule.fwmark,
+                iface,
+            )
+    return filtered
+
+
+async def _apply_rules_in_scope_family(  # noqa: PLR0912 — orchestrator с reconcile/diff/MSS/MASQ — дробить ущерб читаемости
     *,
     ctx: _ScopeContext,
     family: _FamilyTools,
@@ -747,6 +869,12 @@ async def _apply_rules_in_scope_family(
     errors: list[str],
 ) -> tuple[int, int]:
     """Применяет диф для одного scope+family. Возвращает (applied, skipped)."""
+    # Per-rule skip v6-стека если via_interface не имеет GUA-IPv6 — иначе пакеты
+    # с `--match-set <name>-v6` уходят в default route table → dev awg-X без v6
+    # → silent drop.
+    if family.family is _IpFamily.V6:
+        rules = await _filter_v6_skippable_rules(ctx=ctx, rules=rules)
+
     desired_physical_ipsets = {_ipset_name_for(rule=rule, family=family) for rule in rules}
     desired_fwmarks = {rule.fwmark for rule in rules}
     desired_tables = {rule.table_id for rule in rules}

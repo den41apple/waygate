@@ -44,7 +44,7 @@ strict = true
 warn_unreachable = true
 plugins = ["pydantic.mypy"]
 files = ["agent", "server", "shared"]
-exclude = "(^|/)(\\.venv|venv|alembic)/"
+exclude = "(^|/)(\\.venv|venv|alembic|build)/"
 
 [[tool.mypy.overrides]]
 module = ["agent.tests.*", "server.tests.*", "shared.tests.*"]

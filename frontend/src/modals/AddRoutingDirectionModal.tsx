@@ -62,6 +62,7 @@ export function AddRoutingDirectionModal({ serverId, editing, onClose }: Props) 
   // При редактировании — расширенные параметры сразу раскрыты (юзер мог зайти ровно ради них).
   const [showAdvanced, setShowAdvanced] = useState(isEdit);
   const [enabled, setEnabled] = useState(editing?.enabled ?? true);
+  const [isDefaultEgress, setIsDefaultEgress] = useState<boolean>(editing?.is_default_egress ?? false);
 
   // Чекбоксы — Set'ами для O(1) toggle
   const [geoIds, setGeoIds] = useState<Set<number>>(new Set(editing?.geo_list_ids ?? []));
@@ -86,20 +87,24 @@ export function AddRoutingDirectionModal({ serverId, editing, onClose }: Props) 
     if (isEdit && awgClientId === editing?.awg_client_id) return;
     const awgClient = awgClients.find((item) => item.id === awgClientId);
     if (!awgClient) return;
-    // Имя netdev'а: `awg-<name>[:11]` (см. agent/awg_clients.py::_iface_name).
-    const expectedIface = `awg-${awgClient.name.slice(0, 11)}`;
-    setViaInterface(expectedIface);
+    // Имя netdev'а считает агент (формула в shared/awg_naming.py) и отдаёт
+    // через `interface_name` в /api/v1/servers/{id}/clients. Раньше фронт сам
+    // лепил `awg-${name.slice(0, 11)}` и расходился с агентом при IFNAMSIZ-edge'ах.
+    setViaInterface(awgClient.interface_name);
     const derived = deriveGateway(awgClient.interface_address);
     if (derived) setViaGateway(derived);
   }, [awgClientId, awgClients, isEdit, editing?.awg_client_id]);
 
   const scopeTargetValid = scope === "host" || scopeTarget.trim().length > 0;
+  const totalSelected = geoIds.size + dnsIds.size + ipsetIds.size;
+  // Catch-all несовместим с источниками — бэк вернёт 400 если переданы вместе.
+  const sourcesConflict = isDefaultEgress && totalSelected > 0;
   const valid =
     name.trim().length > 0 &&
     viaInterface.trim().length > 0 &&
     viaGateway.trim().length > 0 &&
-    scopeTargetValid;
-  const totalSelected = geoIds.size + dnsIds.size + ipsetIds.size;
+    scopeTargetValid &&
+    !sourcesConflict;
 
   const submit = async () => {
     if (!valid) return;
@@ -110,12 +115,13 @@ export function AddRoutingDirectionModal({ serverId, editing, onClose }: Props) 
           awg_client_id: awgClientId,
           via_interface: viaInterface.trim(),
           via_gateway: viaGateway.trim(),
-          geo_list_ids: [...geoIds],
-          dns_rule_ids: [...dnsIds],
-          ipset_group_ids: [...ipsetIds],
+          geo_list_ids: isDefaultEgress ? [] : [...geoIds],
+          dns_rule_ids: isDefaultEgress ? [] : [...dnsIds],
+          ipset_group_ids: isDefaultEgress ? [] : [...ipsetIds],
           scope,
           scope_target: scope === "container" ? scopeTarget.trim() : null,
           enabled,
+          is_default_egress: isDefaultEgress,
         };
         await update.mutateAsync({ directionId: editing.id, patch });
       } else {
@@ -124,12 +130,13 @@ export function AddRoutingDirectionModal({ serverId, editing, onClose }: Props) 
           awg_client_id: awgClientId,
           via_interface: viaInterface.trim(),
           via_gateway: viaGateway.trim(),
-          geo_list_ids: [...geoIds],
-          dns_rule_ids: [...dnsIds],
-          ipset_group_ids: [...ipsetIds],
+          geo_list_ids: isDefaultEgress ? [] : [...geoIds],
+          dns_rule_ids: isDefaultEgress ? [] : [...dnsIds],
+          ipset_group_ids: isDefaultEgress ? [] : [...ipsetIds],
           scope,
           scope_target: scope === "container" ? scopeTarget.trim() : null,
           enabled,
+          is_default_egress: isDefaultEgress,
         };
         await create.mutateAsync(payload);
       }
@@ -187,6 +194,59 @@ export function AddRoutingDirectionModal({ serverId, editing, onClose }: Props) 
               </select>
             </div>
           </div>
+
+          <label
+            style={{
+              display: "flex",
+              alignItems: "flex-start",
+              gap: 8,
+              padding: "10px 12px",
+              border: "1px solid var(--border)",
+              borderRadius: 8,
+              marginBottom: 12,
+              background: isDefaultEgress ? "var(--amber-tint, #3a2e1a)" : "transparent",
+              cursor: "pointer",
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={isDefaultEgress}
+              onChange={(event) => setIsDefaultEgress(event.target.checked)}
+              style={{ marginTop: 2 }}
+            />
+            <div style={{ fontSize: 12, lineHeight: 1.5 }}>
+              <div style={{ fontWeight: 600 }}>
+                Catch-all (default egress) — «весь оставшийся трафик через этот VPN»
+              </div>
+              <div style={{ color: "var(--text-3)" }}>
+                Помечает любой пакет с mark=0 (не пойманный другими direction'ами) этим
+                fwmark'ом. Источники (GeoIP/DNS/IPset) для этого режима не нужны и
+                автоматически очищаются. На (server, scope) допустим максимум один
+                такой direction.
+              </div>
+              {isDefaultEgress && (
+                <div
+                  style={{
+                    color: "var(--amber, #f59e0b)",
+                    marginTop: 6,
+                    fontWeight: 500,
+                  }}
+                >
+                  ⚠️ Внимание: весь оставшийся трафик хоста (включая SSH-out, DNS,
+                  apt и docker pull) пойдёт через этот VPN-туннель. Если туннель упадёт
+                  — control-plane может стать недоступен.
+                </div>
+              )}
+              {sourcesConflict && (
+                <div
+                  style={{ color: "var(--red, #ef4444)", marginTop: 6, fontWeight: 500 }}
+                >
+                  ✗ Catch-all несовместим с источниками. Сними все чекбоксы ниже,
+                  или выключи catch-all.
+                </div>
+              )}
+            </div>
+          </label>
 
           <CheckGroup
             title="GeoIP-зоны"

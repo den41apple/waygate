@@ -21,6 +21,7 @@ from server.models import AwgClient, AwgClientStatus, Server
 from server.ws.events import EventType, WsEvent
 from server.ws.manager import get_manager
 from shared.awg_config import parse_awg_config
+from shared.awg_naming import iface_name_for
 from shared.schemas import AwgClientName, CreateAwgClientRequest
 
 router = APIRouter(prefix="/servers/{server_id}/clients", tags=["awg-clients"])
@@ -37,6 +38,7 @@ class AwgClientResponse(BaseModel):
     server_id: int
     name: str
     container_name: str
+    interface_name: str
     status: str
     country: str | None
     peer_endpoint: str | None
@@ -58,6 +60,7 @@ def _to_response(*, client: AwgClient) -> AwgClientResponse:
         server_id=client.server_id,
         name=client.name,
         container_name=client.container_name,
+        interface_name=iface_name_for(name=client.name),
         status=client.status,
         country=client.country,
         peer_endpoint=client.peer_endpoint,
