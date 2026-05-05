@@ -303,11 +303,16 @@ class AwgClientInfo(BaseModel):
 
     name: str = Field(description="Идентификатор клиента")
     container_name: str = Field(description="Полное docker-имя контейнера")
-    interface_name: str = Field(
+    # Optional для совместимости со старыми агентами (до #20). Server-side
+    # fallback в `clients.py::_to_response` через `iface_name_for(name=...)`.
+    # Новые агенты всегда возвращают это поле.
+    interface_name: str | None = Field(
+        default=None,
         description=(
             "Имя netdev'а внутри host/container netns (например `awg-myclient`). "
             "Генерируется агентом из `name` с учётом IFNAMSIZ=16 — фронт берёт "
-            "это поле вместо локальной формулы."
+            "это поле вместо локальной формулы. None — старый агент без #20, "
+            "control-plane подсунет fallback из shared/awg_naming.py."
         ),
     )
     status: AwgClientStatus = Field(description="Текущий статус")
