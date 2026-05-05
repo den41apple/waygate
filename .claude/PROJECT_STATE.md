@@ -47,11 +47,13 @@
 | — | **AddServerModal UX-фикс**: не уходим на «Готово» при ошибке, кнопки Повторить/Назад | ✅ |
 | — | **Routing-directions редизайн**: новая модель `RoutingDirection` (header) → N child-`RoutingRule`'ов с общим fwmark/table_id; UI с multi-select (geo/dns/ipset одной плашкой через одну fwmark), 4 главных таба (Routing/Tunnels/Lists/Metrics), Tunnels с под-табами Клиенты/Серверные, Lists с под-табами GeoIP/DNS/IPset, Custom IPset как третья сущность; data-migration legacy `RoutingRule` встроена в alembic-ревизию `e92c5b1f3a87` (применяется автоматически) | ✅ |
 | — | **Self-update + edit-формы + integration-тесты**: agent `0.2.0` с фикс update-paths (writable `/var/lib/waygate-agent/`); `GET /api/v1/agent-releases` GitHub-прокси + UI dropdown с list версий; PATCH-endpoints для GeoList/Server, расширение IpsetGroupUpdate; edit-режим в 4 модалках + EditServerModal; mypy `check_untyped_defs=true` для тестов; `UV_PROJECT_ENVIRONMENT=/usr/local` в Dockerfile'ах; +4 e2e (directions/dns/server-edit/update-agent); +3 integration с реальным Docker-контейнером | ✅ |
+| — | **Backlog batch 2026-05-05**: WS-events для ipset_groups (#12), agent updater paths (#13), DNS-prereq workaround drop (#14/15), reconcile AwgClient.status (#16), interface_name в /v1/clients (#20), v6-skip per-rule (#21a), catch-all direction `is_default_egress` + миграция `f3a91d4c2e8b` (#0b), edit-формы по всем сущностям (#11) | ✅ |
+| — | **Аудит-batch 2026-05-05 (A1-A5/B1-B5/C1-C6)**: SECRET_KEY fail-fast, parallel metrics-poller через asyncio.gather, Server.host index, pagination, `direction_sources` pivot table вместо string-magic в _collect_refs, WS event-types codegen (Python enum → TS literals), AgentClient ParamSpec'нутый retry-decorator, hoist queries из DirectionCard, useModalsStore. +6 новых тест-сьютов (config, metrics_poller, audit_redaction, lifespan, scheduler, ssh_integration) | ✅ |
 
 ## Тестирование
 
-- **Backend (unit/api)**: `cd backend && uv run pytest` — **137 passed**.
-- **Backend (integration)**: `cd backend && uv run pytest -m integration` — **3 passed** (~63 сек, поднимает реальный `--privileged`-контейнер с ipset/iptables/dnsmasq, гоняет HTTP к живому granian'у). По умолчанию выключены через `addopts`. Запускать локально с docker daemon (или в CI на release-tags).
+- **Backend (unit/api)**: `cd backend && uv run pytest` — **201 passed**.
+- **Backend (integration)**: `cd backend && uv run pytest -m integration` — **13 passed** (~50-60 сек, поднимает реальный `--privileged` agent-контейнер с ipset/iptables/dnsmasq + Ubuntu sshd-контейнер; гоняет HTTP к живому granian'у и SSH-flow против реального OpenSSH'а). По умолчанию выключены через `addopts`. Запускать локально с docker daemon (или в CI на release-tags).
 - **Frontend**: `cd frontend && npm run typecheck && npm run build`.
 - **e2e**: `cd frontend && npm run test:e2e` — **11 passed** (~20 сек, реальный backend на sqlite). Покрывают auth, server CRUD, AWG-client add, onboarding, **directions**, **DNS**, **server-edit**, **update-agent** (с моком GitHub-прокси).
 - **Compose smoke**: `cd deploy && docker compose up -d --build` — все 4 контейнера healthy за ~12 сек.
@@ -141,6 +143,32 @@
   в `CommandError(returncode=127)`. Без этого `systemctl reload dnsmasq` на
   системе без systemd падал в 500 мимо `except CommandError` в agent/dns.py.
 
+### Аудит-batch (Sprint 6, 2026-05-05)
+- **`SECRET_KEY` обязателен в проде** — `server/config.py::_require_secret_key()`
+  бросает RuntimeError на module-load если не задан или совпадает с известным
+  dev-default. `conftest.py` подкидывает test-value до import'ов; для alembic
+  и `dump_openapi.py` — выставлять руками.
+- **`metrics_poller` параллельный** — `_fetch_metrics` в `asyncio.gather`,
+  persist+broadcast sequentially. Один зависший агент больше не пинит весь цикл.
+- **`Server.host` индекс** + миграция `c8d2a4f1e9b3` — provision делает upsert
+  по host'у, full-scan на тысячах серверов был бы заметным.
+- **`direction_sources` pivot** + миграция `d5e9a3c4b1a8` — заменил
+  string-matching reverse-lookup в `_collect_refs` на типизированную таблицу
+  `(direction_id, source_type, source_id)`. Добавление нового source-type =
+  одно enum-значение в `DirectionSourceType` + handler в materialize. Старая
+  логика парсинга `geoip-ru-v4` → GeoList(country=ru) полностью удалена.
+- **WS event-types codegen** — `server/scripts/dump_ws_events.py` экспортит
+  `EventType` enum в `frontend/src/api/wsEventTypes.gen.ts`. Запускать после
+  правок `EventType`. CI drift-check желательно добавить (как для openapi.json).
+- **`AgentClient` ParamSpec'ный retry-decorator** — типы декорируемых методов
+  сохраняются. Helpers `_typed_get`/`_typed_post` для не-retry-методов.
+- **`useModalsStore`** — единый Zustand-store для `addServer/tls/updateAgent/
+  editServer`. Старый `showAddServer/showTls/showUpdate` в `useUiStore` удалён.
+- **`AwgClientInfo.interface_name` Optional** — back-compat со старыми
+  агентами, у которых поле ещё не сериализуется (control-plane обновляется
+  быстрее парка). Server-side fallback через `iface_name_for(name=client.name)`
+  из DB-имени (формула в `shared/awg_naming.py`).
+
 ## Известные TODO
 
 Все недоделки и follow-up'ы — в [BACKLOG.md](BACKLOG.md), там 4 раздела:
@@ -193,7 +221,10 @@ backend/
 │   └── tests/                   # ~85 тестов
 └── shared/
     ├── pyproject.toml           # waygate-shared
-    └── schemas.py               # Pydantic-контракт API агента
+    ├── schemas.py               # Pydantic-контракт API агента
+    ├── awg_config.py            # парсер AmneziaWG `.conf`
+    └── awg_naming.py            # iface_name_for / container_name_for —
+                                 # одна формула для agent/server/frontend
 
 frontend/
 ├── package.json + vite.config.ts + tsconfig.json + index.html
