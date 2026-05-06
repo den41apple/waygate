@@ -71,6 +71,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     state.scheduler = AgentScheduler(metrics_buffer=state.metrics_buffer)
     await state.scheduler.start()
     logger.info("Агент Waygate v{} запущен на порту {}", __version__, settings.port)
+    # NFT-8a: enforce MTU из .conf на existing live AWG-iface'ах. Существующие
+    # клиенты, deploy'нутые до 0.2.32, имеют iface с awg-quick default=1420;
+    # их `.conf` re-parsed → mtu=1280 (NFT-5 default), но live iface остался
+    # 1420. Без этого двойной туннель фрагментирует TCP-pkt'ы → YouTube-тормоза.
+    try:
+        await awg_clients.enforce_existing_iface_mtu()
+    except Exception as exc:
+        logger.warning("Lifespan: enforce_existing_iface_mtu failed: {}", exc)
     try:
         yield
     finally:

@@ -7,6 +7,7 @@
 
 import asyncio
 import json
+import re
 import shutil
 from pathlib import Path
 
@@ -269,6 +270,64 @@ async def redeploy_with_network_mode(*, name: str, network_mode: str) -> None:
         network_mode,
     )
     await deploy_client(name=name, config_text=config_text, network_mode=network_mode)
+
+
+async def enforce_existing_iface_mtu() -> None:
+    """Приводит MTU всех managed AWG-iface'ов к значению из `.conf` на диске
+    (default 1280 после NFT-5). Вызывается на старте agent'а — purpose: existing
+    клиенты, deploy'нутые до 0.2.32, имеют iface с awg-quick default=1420; их
+    `.conf` re-parsed → mtu=1280 (Pydantic-default), но live iface остался 1420.
+    `ip link set mtu` поправляет без перезапуска контейнера (no downtime для
+    phone-сессий).
+    """
+    try:
+        clients = await list_managed_clients()
+    except CommandError as exc:
+        logger.warning("enforce-mtu: list_managed_clients failed: {}", exc)
+        return
+    for client_info in clients:
+        iface = client_info.interface_name
+        if iface is None:
+            # Старые agent-версии могли деплоить без interface_name (back-compat
+            # для AwgClientInfo schema, см. shared/schemas.py).
+            continue
+        config_path = _config_path(name=client_info.name)
+        if not config_path.exists():
+            legacy = _client_dir(name=client_info.name) / "awg0.conf"
+            if not legacy.exists():
+                continue
+            config_path = legacy
+        try:
+            parsed = parse_awg_config(config_path.read_text())
+        except (OSError, ValueError) as exc:
+            logger.warning("enforce-mtu: parse {} failed: {}", config_path, exc)
+            continue
+        desired_mtu = parsed.interface.mtu
+        if desired_mtu is None:
+            continue
+        # Текущий MTU iface'а через `ip link show`. Если iface отсутствует
+        # (контейнер в container-mode netns или ещё не поднят) — пропускаем.
+        try:
+            link_output = await run_command(["ip", "-o", "link", "show", iface])
+        except CommandError:
+            continue
+        # Формат: `<idx>: <iface>: <flags> mtu <N> qdisc ...`
+        m = re.search(r"\bmtu\s+(\d+)", link_output)
+        if not m:
+            continue
+        current_mtu = int(m.group(1))
+        if current_mtu == desired_mtu:
+            continue
+        logger.info(
+            "enforce-mtu: устанавливаю MTU={} (было {}) для {}",
+            desired_mtu,
+            current_mtu,
+            iface,
+        )
+        try:
+            await run_command(["ip", "link", "set", iface, "mtu", str(desired_mtu)])
+        except CommandError as exc:
+            logger.warning("enforce-mtu: ip link set mtu для {} failed: {}", iface, exc)
 
 
 async def list_managed_clients() -> list[AwgClientInfo]:

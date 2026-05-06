@@ -494,31 +494,54 @@ async def test_apply_rules_skips_disabled(monkeypatch, make_rule):
 
 
 @pytest.mark.asyncio
-async def test_apply_rules_installs_ssh_bypass(monkeypatch, make_rule):
-    """SSH-bypass: PREROUTING `--dport 22 RETURN` и OUTPUT `--sport 22 RETURN`
-    должны быть вставлены ДО любых match-set правил, чтобы при self-match'е
-    серверного IP в ipset (geoip-ru на yandex VM в RU) SSH не отрубался."""
+async def test_apply_rules_installs_self_bypass_minimal(monkeypatch, make_rule):
+    """Минимальный self-bypass set (0.2.32+ после 0a-future cleanup):
+    `addrtype LOCAL` (покрывает SSH/agent/handshake'и) + `RELATED,ESTABLISHED`
+    (для forwarded reply-packets). Только в PREROUTING — OUTPUT mark был
+    убран в 0.2.28."""
     runner = _FakeRunner(responses={})
     monkeypatch.setattr(routing, "run_command", runner)
 
     await routing.apply_rules(rules=[make_rule()])
 
-    # iptables (v4) bypass — оба правила вставлены через `-I` в начало.
+    # iptables (v4) self-bypass — оба правила в PREROUTING (только!).
     v4_inserts = _calls_starting_with(runner.calls, ("iptables", "-t", "mangle", "-I"))
-    v4_chains = {call[4] for call in v4_inserts if "waygate-self-bypass" in call}
-    assert v4_chains == {"PREROUTING", "OUTPUT"}
+    bypass_inserts_v4 = [call for call in v4_inserts if "waygate-self-bypass" in call]
+    chains_v4 = {call[4] for call in bypass_inserts_v4}
+    assert chains_v4 == {"PREROUTING"}, f"OUTPUT bypass должен быть удалён, найдено: {chains_v4}"
+    # Должно быть ровно 2 inserts на каждом стеке: addrtype LOCAL + ESTABLISHED.
+    assert len(bypass_inserts_v4) == 2, f"ожидался minimal-set 2 rules, найдено {len(bypass_inserts_v4)}"
+    # `call` — tuple, проверяем substring в любом element.
+    types = [
+        "addrtype"
+        if any("addrtype" in x for x in call)
+        else "established"
+        if any("ESTABLISHED" in x for x in call)
+        else "unknown"
+        for call in bypass_inserts_v4
+    ]
+    assert set(types) == {"addrtype", "established"}
 
-    # ip6tables — то же самое для v6.
+    # ip6tables — то же.
     v6_inserts = _calls_starting_with(runner.calls, ("ip6tables", "-t", "mangle", "-I"))
-    v6_chains = {call[4] for call in v6_inserts if "waygate-self-bypass" in call}
-    assert v6_chains == {"PREROUTING", "OUTPUT"}
+    bypass_inserts_v6 = [call for call in v6_inserts if "waygate-self-bypass" in call]
+    assert {call[4] for call in bypass_inserts_v6} == {"PREROUTING"}
+    assert len(bypass_inserts_v6) == 2
 
 
 @pytest.mark.asyncio
-async def test_apply_rules_ssh_bypass_idempotent(monkeypatch, make_rule):
-    """При повторном apply (когда bypass уже стоит для всех правил) — не дублируем."""
+async def test_apply_rules_self_bypass_cleans_up_legacy_ports_and_output(monkeypatch, make_rule):
+    """0.2.13 (`waygate-ssh-bypass`) + 0.2.14-0.2.31 (port-specific и OUTPUT
+    bypass'ы) → 0.2.32 (минимум: addrtype LOCAL + ESTABLISHED в PREROUTING).
+    Reconcile должен удалить ВСЕ legacy/port/OUTPUT rules независимо от их
+    comment'а — и legacy `waygate-ssh-bypass`, и старый `waygate-self-bypass`
+    с port-specifier'ами."""
     existing = (
         "-P PREROUTING ACCEPT\n"
+        # Старые legacy:
+        "-A PREROUTING -p tcp -m tcp --dport 22 -m comment --comment waygate-ssh-bypass -j RETURN\n"
+        "-A OUTPUT -p tcp -m tcp --sport 22 -m comment --comment waygate-ssh-bypass -j RETURN\n"
+        # 0.2.14-0.2.31 set:
         "-A PREROUTING -p tcp -m tcp --dport 22 -m comment --comment waygate-self-bypass -j RETURN\n"
         "-A OUTPUT -p tcp -m tcp --sport 22 -m comment --comment waygate-self-bypass -j RETURN\n"
         "-A PREROUTING -p tcp -m tcp --dport 7743 -m comment --comment waygate-self-bypass -j RETURN\n"
@@ -537,51 +560,102 @@ async def test_apply_rules_ssh_bypass_idempotent(monkeypatch, make_rule):
 
     await routing.apply_rules(rules=[make_rule()])
 
-    bypass_inserts = [
+    # Все legacy/old rules удалены через `-D` (всем 9 listed выше).
+    deletes = [
+        call
+        for call in runner.calls
+        if call[:4] == ("iptables", "-t", "mangle", "-D")
+        and ("waygate-self-bypass" in call or "waygate-ssh-bypass" in call)
+    ]
+    assert len(deletes) == 9, f"ожидалось 9 deletes (все legacy+old), найдено {len(deletes)}: {deletes}"
+
+    # И minimal-set вставлен (2 rule в PREROUTING — addrtype + ESTABLISHED).
+    inserts = [
         call
         for call in runner.calls
         if call[:4] == ("iptables", "-t", "mangle", "-I") and "waygate-self-bypass" in call
     ]
-    assert bypass_inserts == []
-
-
-@pytest.mark.asyncio
-async def test_apply_rules_replaces_legacy_ssh_bypass(monkeypatch, make_rule):
-    """0.2.13 ставил `waygate-ssh-bypass` (только порт 22). 0.2.14 заменяет на
-    `waygate-self-bypass` с покрытием agent-port'а — старые правила должны
-    удаляться, новые — вставляться."""
-    existing = (
-        "-P PREROUTING ACCEPT\n"
-        "-A PREROUTING -p tcp -m tcp --dport 22 -m comment --comment waygate-ssh-bypass -j RETURN\n"
-        "-A OUTPUT -p tcp -m tcp --sport 22 -m comment --comment waygate-ssh-bypass -j RETURN\n"
-    )
-    runner = _FakeRunner(
-        responses={
-            ("iptables", "-t", "mangle", "-S"): existing,
-            ("ip6tables", "-t", "mangle", "-S"): existing,
-        },
-    )
-    monkeypatch.setattr(routing, "run_command", runner)
-
-    await routing.apply_rules(rules=[make_rule()])
-
-    # Legacy-правила удалены через `-D`.
-    legacy_deletes = [
-        call for call in runner.calls if call[:4] == ("iptables", "-t", "mangle", "-D") and "waygate-ssh-bypass" in call
-    ]
-    assert len(legacy_deletes) == 2  # PREROUTING + OUTPUT
-    # Новые правила вставлены.
-    new_inserts = [
-        call
-        for call in runner.calls
-        if call[:4] == ("iptables", "-t", "mangle", "-I") and "waygate-self-bypass" in call
-    ]
-    assert len(new_inserts) >= 4  # 2 порта × 2 цепи минимум
+    assert len(inserts) == 2  # addrtype LOCAL + ESTABLISHED, оба в PREROUTING
+    assert all(call[4] == "PREROUTING" for call in inserts)
 
 
 # ############################################
 # #  NFT-6: detect+recover mangle incompatibility (2026-05-06 incident)
 # ############################################
+
+
+@pytest.mark.asyncio
+async def test_apply_rules_dedupes_masquerade_duplicates(monkeypatch, make_rule):
+    """NFT-4 (2026-05-06): если в nat POSTROUTING накопилось несколько одинаковых
+    `MASQUERADE -o awg-X` rule'ов (из-за прошлых apply при iptables=legacy → nft
+    alternative switch — iptables-S падал с 'incompatible' → counts пуст → каждый
+    apply добавлял дубликат), reconcile должен оставить ровно одно правило."""
+    empty_chain = "-P CHAIN ACCEPT\n"
+    # Симулируем 3 одинаковых MASQUERADE rule в nat POSTROUTING — agent должен
+    # удалить 2 лишних и оставить одно.
+    masq_lines = "\n".join(
+        [
+            "-P POSTROUTING ACCEPT",
+            "-A POSTROUTING -o awg0 -j MASQUERADE",
+            "-A POSTROUTING -o awg0 -j MASQUERADE",
+            "-A POSTROUTING -o awg0 -j MASQUERADE",
+        ],
+    )
+    runner = _FakeRunner(
+        responses={
+            ("iptables", "-t", "mangle", "-S", "PREROUTING"): empty_chain,
+            ("iptables", "-t", "mangle", "-S", "FORWARD"): empty_chain,
+            ("iptables", "-t", "mangle", "-S", "OUTPUT"): empty_chain,
+            ("iptables", "-t", "nat", "-S", "POSTROUTING"): masq_lines,
+            ("ip6tables", "-t", "mangle", "-S", "PREROUTING"): empty_chain,
+            ("ip6tables", "-t", "mangle", "-S", "FORWARD"): empty_chain,
+            ("ip6tables", "-t", "mangle", "-S", "OUTPUT"): empty_chain,
+            ("ip6tables", "-t", "nat", "-S", "POSTROUTING"): empty_chain,
+            ("ip", "rule", "show"): "0:\tfrom all lookup local\n",
+            ("ip", "-6", "rule", "show"): "0:\tfrom all lookup local\n",
+            ("ip", "route", "show", "table", "100"): "",
+            ("ip", "-6", "route", "show", "table", "100"): "",
+        },
+    )
+    monkeypatch.setattr(routing, "run_command", runner)
+
+    response = await routing.apply_rules(rules=[make_rule()])
+
+    assert response.errors == []
+    # Должно быть 2 dedupe-remove'а для awg0 (3 → 1).
+    delete_masq_calls = _calls_starting_with(runner.calls, ("iptables", "-t", "nat", "-D", "POSTROUTING"))
+    awg0_deletes = [call for call in delete_masq_calls if "awg0" in call]
+    assert len(awg0_deletes) == 2, f"ожидалось 2 dedupe-delete для awg0, найдено {len(awg0_deletes)}: {awg0_deletes}"
+
+
+@pytest.mark.asyncio
+async def test_count_masquerades_falls_back_to_nft_when_iptables_empty(monkeypatch):
+    """NFT-4: на Ubuntu 24.04+Docker28 iptables -S может вернуть пустой вывод
+    (или incompatible-warning без rules), но реально в kernel nat-table есть
+    rules через native nft. _count_masquerades_per_iface должен fallback на
+    `nft list chain` чтобы corretly увидеть существующие rules."""
+    nft_listing = (
+        "table ip nat {\n"
+        "    chain POSTROUTING {\n"
+        "        type nat hook postrouting priority srcnat; policy accept;\n"
+        '        oifname "awg-eurohoster" counter packets 10 bytes 100 masquerade\n'
+        '        oifname "awg-eurohoster" counter packets 5 bytes 50 masquerade\n'
+        "    }\n"
+        "}\n"
+    )
+    runner = _FakeRunner(
+        responses={
+            ("iptables", "-t", "nat", "-S", "POSTROUTING"): "",  # пустой вывод
+            ("nft", "list", "chain", "ip", "nat", "POSTROUTING"): nft_listing,
+        },
+    )
+    monkeypatch.setattr(routing, "run_command", runner)
+
+    ctx = routing._ScopeContext(name="host", command_prefix=[], container_pid=None)
+    counts = await routing._count_masquerades_per_iface(ctx=ctx, family=routing._FAMILY_V4)
+
+    # Fallback на nft увидел 2 rule для awg-eurohoster.
+    assert counts == {"awg-eurohoster": 2}
 
 
 @pytest.mark.asyncio

@@ -267,11 +267,17 @@ async def test_apply_rules_inserts_self_bypass(
     integration_agent_token: str,
     routing_dummy_iface: str,
 ) -> None:
-    """`apply_rules` всегда вешает self-bypass на agent-port + SSH в PREROUTING.
+    """`apply_rules` всегда вешает minimum self-bypass set в PREROUTING (mangle).
+
+    Минимум (с 0.2.32, после 0a-future cleanup):
+    - `addrtype --dst-type LOCAL → RETURN` (в nft: `fib daddr type local return`):
+      покрывает все incoming на local-IP (SSH:22, agent:7743, AWG-handshake'и).
+    - `ct state RELATED,ESTABLISHED → RETURN`: для forwarded reply packets
+      чтобы mac_IP в RU-set не попадал на возвратном пути.
 
     Регрессия: до 0.2.x в OUTPUT уходили SSH-ответы агента → match-set RU →
-    оператор терял SSH. Эти RETURN-правила должны существовать ВСЕГДА после
-    любого apply (даже с пустым desired, даже с одним правилом).
+    оператор терял SSH. С 0.2.28 mark ставится только в PREROUTING; OUTPUT
+    bypass в 0.2.32 убран как избыточный.
     """
     _flush_routing_state(agent_container)
     await _create_rule_ipset(
@@ -288,16 +294,13 @@ async def test_apply_rules_inserts_self_bypass(
     assert response.status_code == 200, response.text
 
     text = _nft_dump(agent_container, table="mangle", chain="PREROUTING")
-    # nft показывает self-bypass'ы как чистые правила (порты + ct state) без
-    # opaque xt extension'ов — комментарий "waygate-self-bypass" может или
-    # переноситься через iptables-nft compat, или нет, поэтому опираемся на
-    # семантику правил.
-    assert "tcp dport 22" in text, text
-    # Agent-port (env PORT в conftest = 7743) тоже защищён.
-    assert "tcp dport 7743" in text, text
-    # ESTABLISHED/RELATED bypass в начале цепи — для возвратных пакетов.
-    # nft пишет ct state набором: `ct state established,related` или со связкой.
+    # `addrtype --dst-type LOCAL` в nft рендерится как `fib daddr type local return`.
+    assert "fib daddr type local" in text, text
+    # ESTABLISHED/RELATED bypass: nft пишет `ct state established,related ... return`.
     assert "ct state" in text and "established" in text, text
+    # Регрессия: port-specific bypass'ы (`tcp dport 22`, `tcp dport <agent>`)
+    # больше НЕ должны быть — addrtype LOCAL их покрывает (NFT-21).
+    assert "tcp dport 22" not in text, f"port-specific bypass должен быть removed: {text}"
 
 
 async def test_apply_rules_idempotent(

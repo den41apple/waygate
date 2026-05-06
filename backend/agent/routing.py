@@ -28,7 +28,6 @@ from pathlib import Path
 from loguru import logger
 
 from agent import awg_clients
-from agent.config import settings
 from agent.subprocess_runner import CommandError, run_command
 from shared.schemas import ApplyRulesResponse, RoutingRule, RoutingScope
 
@@ -547,24 +546,63 @@ async def _iface_has_global_ipv6(*, ctx: _ScopeContext, iface: str) -> bool:
     return False
 
 
+async def _count_masquerades_per_iface(
+    *,
+    ctx: _ScopeContext,
+    family: _FamilyTools,
+) -> dict[str, int]:
+    """Возвращает dict[iface, count] — сколько MASQUERADE rules в POSTROUTING на каждый oifname.
+
+    Сначала пробует `iptables -S` (через iptables-nft compat). На Ubuntu 24.04+Docker28
+    эта команда может падать с `chain POSTROUTING in table nat is incompatible,
+    use 'nft' tool` — тогда fallback на native `nft list chain ip nat POSTROUTING`.
+
+    Возвращает count'ы (а не set) — caller может определить дубликаты (NFT-4:
+    при mixed legacy/nft state накапливаются 2-3-N одинаковых правил).
+    """
+    counts: dict[str, int] = {}
+
+    output = await run_command(
+        [*ctx.command_prefix, family.iptables_cmd, "-t", "nat", "-S", "POSTROUTING"],
+        check=False,
+    )
+    iptables_pattern = re.compile(r"-A\s+POSTROUTING\s+-o\s+(?P<iface>\S+)\s+-j\s+MASQUERADE\b")
+    for line in output.splitlines():
+        if m := iptables_pattern.search(line):
+            counts[m.group("iface")] = counts.get(m.group("iface"), 0) + 1
+
+    # Если iptables-S не вернул rules (incompatible/empty) — пробуем nft напрямую.
+    # Это критично на Ubuntu 24.04+Docker28: docker управляет nat-таблицей через
+    # nft, iptables-nft compat показывает "incompatible" → counts пуст → reconcile
+    # думает что MASQ нет и каждый apply добавляет ещё одно правило.
+    if not counts:
+        nft_table = "ip" if family.family is _IpFamily.V4 else "ip6"
+        nft_output = await run_command(
+            [*ctx.command_prefix, "nft", "list", "chain", nft_table, "nat", "POSTROUTING"],
+            check=False,
+        )
+        # Формат native nft: `oifname "awg-eurohoster" counter ... masquerade`
+        nft_pattern = re.compile(r'oifname\s+"(?P<iface>[^"]+)".*?\bmasquerade\b')
+        for line in nft_output.splitlines():
+            if m := nft_pattern.search(line):
+                counts[m.group("iface")] = counts.get(m.group("iface"), 0) + 1
+
+    return counts
+
+
 async def _read_masquerades(
     *,
     ctx: _ScopeContext,
     family: _FamilyTools,
 ) -> set[str]:
-    """Возвращает множество интерфейсов, для которых уже есть MASQUERADE в POSTROUTING.
+    """Backward-compat wrapper над `_count_masquerades_per_iface`.
 
     Без MASQUERADE на awg-iface исходящие пакеты уходят с public src eth0
     (потому что src выбирается ДО ip rule lookup). AWG-сервер дропает такие
     пакеты как spoofed.
     """
-    output = await run_command(
-        [*ctx.command_prefix, family.iptables_cmd, "-t", "nat", "-S", "POSTROUTING"],
-        check=False,
-    )
-    # Формат `-A POSTROUTING -o <iface> -j MASQUERADE`.
-    pattern = re.compile(r"-A\s+POSTROUTING\s+-o\s+(?P<iface>\S+)\s+-j\s+MASQUERADE\b")
-    return {m.group("iface") for line in output.splitlines() if (m := pattern.search(line))}
+    counts = await _count_masquerades_per_iface(ctx=ctx, family=family)
+    return set(counts.keys())
 
 
 async def _add_masquerade(
@@ -926,7 +964,7 @@ async def _filter_v6_skippable_rules(
     return filtered
 
 
-async def _apply_rules_in_scope_family(  # noqa: PLR0912 — orchestrator с reconcile/diff/MSS/MASQ — дробить ущерб читаемости
+async def _apply_rules_in_scope_family(  # noqa: PLR0912, PLR0915 — orchestrator с reconcile/diff/MSS/MASQ — дробить ущерб читаемости
     *,
     ctx: _ScopeContext,
     family: _FamilyTools,
@@ -956,10 +994,11 @@ async def _apply_rules_in_scope_family(  # noqa: PLR0912 — orchestrator с rec
 
     current_marks, current_ip_rules = await _read_state(ctx=ctx, family=family, errors=errors)
     try:
-        current_masqs = await _read_masquerades(ctx=ctx, family=family)
+        masq_counts = await _count_masquerades_per_iface(ctx=ctx, family=family)
     except CommandError as exc:
         errors.append(f"[{ctx.name}/{family.family}] read masquerades: {exc}")
-        current_masqs = set()
+        masq_counts = {}
+    current_masqs = set(masq_counts.keys())
     await _remove_orphans(
         ctx=ctx,
         family=family,
@@ -972,10 +1011,39 @@ async def _apply_rules_in_scope_family(  # noqa: PLR0912 — orchestrator с rec
     )
     # Orphan-MASQUERADE: интерфейс больше не используется ни одним rule.
     for orphan_iface in current_masqs - desired_interfaces:
-        try:
-            await _remove_masquerade(ctx=ctx, family=family, interface=orphan_iface)
-        except CommandError as exc:
-            errors.append(f"[{ctx.name}/{family.family}] remove orphan masquerade {orphan_iface}: {exc}")
+        # Удаляем все instances (count) — на случай если их накопилось несколько
+        # из-за NFT-4 bug'а в прошлых apply'ях.
+        for _ in range(masq_counts.get(orphan_iface, 1)):
+            try:
+                await _remove_masquerade(ctx=ctx, family=family, interface=orphan_iface)
+            except CommandError as exc:
+                errors.append(
+                    f"[{ctx.name}/{family.family}] remove orphan masquerade {orphan_iface}: {exc}",
+                )
+                break
+    # NFT-4: dedupe — на каждый desired iface должен быть РОВНО один MASQ rule.
+    # Если их 2+ (накопилось из-за iptables=legacy → nft alternative switch +
+    # iptables-S не видел существующих rules → каждый apply добавлял ещё одно),
+    # удаляем лишние.
+    for iface in desired_interfaces:
+        extra = masq_counts.get(iface, 0) - 1
+        if extra > 0:
+            logger.warning(
+                "apply_rules: {} имеет {} дубликатов MASQUERADE для {} — удаляю лишние",
+                ctx.name,
+                extra,
+                iface,
+            )
+            for _ in range(extra):
+                try:
+                    await _remove_masquerade(ctx=ctx, family=family, interface=iface)
+                except CommandError as exc:
+                    errors.append(
+                        f"[{ctx.name}/{family.family}] dedupe masquerade {iface}: {exc}",
+                    )
+                    break
+            # После dedupe должно остаться ровно одно правило → обновляем counter.
+            masq_counts[iface] = 1
 
     # MSS-clamp на awg-интерфейсах. Без него большие пакеты теряются на сетях
     # которые блокируют ICMP "fragmentation needed" — TCP retransmits, TLS
@@ -1028,138 +1096,84 @@ async def _apply_rules_in_scope_family(  # noqa: PLR0912 — orchestrator с rec
 
 
 async def _ensure_self_bypass(*, ctx: _ScopeContext, family: _FamilyTools) -> None:
-    """Гарантирует что control-trafic'а агента НЕ маркируется match-set'ами.
+    """Гарантирует что control-trafic агента НЕ маркируется match-set'ами.
 
-    Self-lockout-guard: если ipset попадает свой собственный IP сервера (yandex VM
-    в RU + GeoIP-RU direction), match-set --dst в OUTPUT помечает И SSH-ответы,
-    И ответы агента control-plane'у → всё уходит в туннель → control теряется.
-    Восстанавливать приходится через provider serial console.
+    Self-lockout-guard: если match-set попадает свой IP (yandex VM в RU +
+    GeoIP-RU direction), incoming SSH/agent/handshake-pakety пометятся → ответ
+    улетит в туннель → control теряется (восстанавливать через serial console).
 
-    Защищаем два порта:
-    1. SSH (`22`) — чтобы оператор всегда мог зайти руками.
-    2. Agent-port (`settings.port`, обычно 7743) — чтобы control-plane мог дёргать
-       агент даже при кривой direction. Без этого Apply через UI ронял агента,
-       и второй UI-Apply ловил Server disconnected.
+    **Минимальный set (0.2.32+, после 0a-future cleanup):**
+    1. `addrtype --dst-type LOCAL` (PREROUTING, FIRST) — RETURN для всех incoming
+       на local-IP. Покрывает SSH:22, agent:7743, AWG-handshake:any-port — БЕЗ
+       перечисления портов (single rule вместо 4-х port-specific).
+    2. `conntrack --ctstate RELATED,ESTABLISHED` (PREROUTING) — для forwarded
+       reply-packets чтобы mac_IP в RU-set не попадал на возвратном пути.
 
-    В начале PREROUTING и OUTPUT mangle-цепей вешаем `RETURN` для каждого порта
-    в обоих направлениях (sport/dport). RETURN прерывает обработку цепи раньше
-    любого match-set, так что эти пакеты никогда не маркируются.
+    **Удалено** в 0.2.32 (избыточно):
+    - port-specific bypass `tcp dport 22 / dport <agent>` в PREROUTING — покрыто
+      `addrtype LOCAL`.
+    - всё bypass в OUTPUT chain — с 0.2.28 mark ставится только в PREROUTING
+      (`_MARK_CHAINS = ("PREROUTING",)`), bypass'у в OUTPUT нечего предотвращать.
 
-    Идемпотентно — проверяем по `-m comment --comment waygate-self-bypass`.
-    Старые `waygate-ssh-bypass`-правила (от 0.2.13 hotfix'а) удаляем и заменяем
-    на новые с покрытием agent-port.
+    Идемпотентно через `-m comment --comment waygate-self-bypass`. Старые правила
+    (legacy `waygate-ssh-bypass` от 0.2.13 + port-specific/OUTPUT от 0.2.14-0.2.31)
+    автоматически удаляются reconcile'ом — они помечены тем же comment'ом и не
+    matched в desired set.
     """
     iptables = [*ctx.command_prefix, family.iptables_cmd, "-t", "mangle"]
     listing = await run_command([*iptables, "-S"])
 
-    # Удаляем legacy-правила (`waygate-ssh-bypass`) если они есть — заменяем
-    # их на новый формат с покрытием agent-port. Без удаления старые остаются
-    # в цепи но не мешают (сами пропускают tcp/22), просто захламляют.
+    # Удаляем ВСЕ existing self-bypass rules (legacy + новые сверх минимального
+    # set'а). Минимальный set добавим заново ниже. Brief flicker (микросекунды)
+    # между delete и re-add — не критичен.
     for line in listing.splitlines():
-        if _LEGACY_SSH_BYPASS_COMMENT not in line:
+        if _SELF_BYPASS_COMMENT not in line and _LEGACY_SSH_BYPASS_COMMENT not in line:
             continue
         if not line.startswith("-A "):
             continue
-        # `-A CHAIN <args>` → `-D CHAIN <args>` для удаления.
         delete_args = line.replace("-A ", "-D ", 1).split()
         await run_command([*iptables, *delete_args], check=False)
 
-    # Свежий список после возможной чистки.
-    listing = await run_command([*iptables, "-S"])
-    have = {line for line in listing.splitlines() if _SELF_BYPASS_COMMENT in line}
-
-    # Порт агента (обычно 7743). Защищаем дополнительно к SSH (22).
-    agent_port = str(settings.port)
-    # Port-specific bypass для INCOMING connections (NEW state на этих портах).
-    desired_port_specs = [
-        ("PREROUTING", "--dport", "22"),
-        ("OUTPUT", "--sport", "22"),
-        ("PREROUTING", "--dport", agent_port),
-        ("OUTPUT", "--sport", agent_port),
-    ]
-    for chain, port_flag, port in desired_port_specs:
-        marker = f"-A {chain}"
-        # Проверяем что bypass-правило с этим port_flag/port уже стоит.
-        if any(marker in line and f"{port_flag} {port}" in line for line in have):
-            continue
-        await run_command(
-            [
-                *iptables,
-                "-I",
-                chain,
-                "1",
-                "-p",
-                "tcp",
-                port_flag,
-                port,
-                "-m",
-                "comment",
-                "--comment",
-                _SELF_BYPASS_COMMENT,
-                "-j",
-                "RETURN",
-            ],
-        )
-
-    # ESTABLISHED/RELATED bypass — для возвратных пакетов любых уже-установленных
-    # соединений. Без этого: mac коннектится к yandex VM по AWG-туннелю
-    # (UDP/51820), conntrack treking входящего connection как NEW. Когда yandex
-    # шлёт ответ obratно, dst=mac_IP попадает в RU-set (mac в РФ) → mark=1 →
-    # ответ улетает в awg-firstbyte вместо eth0 → клиент теряет связь.
-    # С ESTABLISHED-bypass'ом возвратные пакеты по существующим сессиям не
-    # маркируются. NEW-исходящие (curl с yandex'а к RU-сайтам) — маркируются
-    # как и положено, эффект direction'а сохраняется.
-    for chain in ("PREROUTING", "OUTPUT"):
-        marker = f"-A {chain}"
-        if any(marker in line and "ESTABLISHED" in line and _SELF_BYPASS_COMMENT in line for line in have):
-            continue
-        await run_command(
-            [
-                *iptables,
-                "-I",
-                chain,
-                "1",
-                "-m",
-                "conntrack",
-                "--ctstate",
-                "RELATED,ESTABLISHED",
-                "-m",
-                "comment",
-                "--comment",
-                _SELF_BYPASS_COMMENT,
-                "-j",
-                "RETURN",
-            ],
-        )
-
-    # Local-destined bypass: incoming на собственный IP сервера (eth0/lo/docker
-    # bridges) — никогда не маркируем. Без этого широкие direction'ы (например
-    # catch-all `0.0.0.0/1 + 128.0.0.0/1` через NL) ломают сами себя:
-    # incoming WG handshake на yandex_VM:42014/UDP имеет dst=local-IP, который
-    # включён в `all-internet-v4` set → mark → table → awg-eurohoster →
-    # handshake-reply улетает в NL вместо local-delivery в docker NAT →
-    # клиент не подключается к AWG-server-контейнеру.
-    # `addrtype --dst-type LOCAL` автоматически покрывает все local-адреса
-    # (eth0, lo, docker0, любые bridges) без явного списка IP'шек.
-    if not any("addrtype" in line and _SELF_BYPASS_COMMENT in line for line in have):
-        await run_command(
-            [
-                *iptables,
-                "-I",
-                "PREROUTING",
-                "1",
-                "-m",
-                "addrtype",
-                "--dst-type",
-                "LOCAL",
-                "-m",
-                "comment",
-                "--comment",
-                _SELF_BYPASS_COMMENT,
-                "-j",
-                "RETURN",
-            ],
-        )
+    # Минимальный set добавляется в обратном порядке (`-I 1` каждый раз),
+    # чтобы финальный chain-order был: addrtype LOCAL → ESTABLISHED → ... rest.
+    # ESTABLISHED идёт ВТОРЫМ — добавляем первым.
+    await run_command(
+        [
+            *iptables,
+            "-I",
+            "PREROUTING",
+            "1",
+            "-m",
+            "conntrack",
+            "--ctstate",
+            "RELATED,ESTABLISHED",
+            "-m",
+            "comment",
+            "--comment",
+            _SELF_BYPASS_COMMENT,
+            "-j",
+            "RETURN",
+        ],
+    )
+    # addrtype LOCAL — FIRST в PREROUTING (executes first, RETURN cuts chain).
+    await run_command(
+        [
+            *iptables,
+            "-I",
+            "PREROUTING",
+            "1",
+            "-m",
+            "addrtype",
+            "--dst-type",
+            "LOCAL",
+            "-m",
+            "comment",
+            "--comment",
+            _SELF_BYPASS_COMMENT,
+            "-j",
+            "RETURN",
+        ],
+    )
 
 
 async def _apply_rules_in_scope(

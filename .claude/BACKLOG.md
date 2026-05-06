@@ -103,6 +103,47 @@ update-alternatives --set ip6tables /usr/sbin/ip6tables-nft
 Идемпотентно, проверять текущее значение через `update-alternatives
 --query`.
 
+### NFT-4 (closed by 2026-05-06 fix). Дублирование MASQUERADE rules
+
+**Резолюция:** `agent/routing.py::_count_masquerades_per_iface` возвращает
+`dict[iface, count]` вместо set — теперь reconcile видит дубликаты.
+Логика fallback на `nft list chain ip nat POSTROUTING` когда `iptables -S`
+падает с "incompatible" (закрывает root-cause: на VM с iptables=legacy
+alternative каждый apply создавал новый MASQ, потому что iptables-S не
+видел existing). В `_apply_rules_in_scope_family` после `_remove_orphans`
+добавлен dedup-loop: если для desired iface count > 1, удалить лишние
+до 1. 2 unit-теста.
+
+### NFT-8a (closed by 2026-05-06 fix). Enforce default MTU на existing iface'ах
+
+**Резолюция:** `agent/awg_clients.enforce_existing_iface_mtu` startup-action
+в `lifespan` — для существующих контейнеров (deploy'нутых до 0.2.32 с
+awg-quick MTU=1420) проверяет current MTU и приводит к desired (1280) через
+`ip link set` без перезапуска контейнера. Закрыто 2 unit-теста.
+
+### NFT-8b (LOW, future). Configurable MTU per AWG-client из UI
+
+**Состояние:** NFT-5 поставил MTU=1280 как default. NFT-8a runtime-enforce'ит
+existing iface'ы. **Configurable** override per-AWG-client из UI — отложено
+как low-priority feature: добавить `mtu` колонку в `AwgClient` SQLModel +
+alembic migration + PATCH endpoint + UI input в edit-modal. Trigger: если
+кому-то понадобится non-1280 MTU (например 1500 для прямого VPN без двойного
+туннеля).
+
+### 0a-future (closed by 2026-05-06 fix). Self-bypass cleanup
+
+**Резолюция:** `_ensure_self_bypass` теперь ставит **2 правила** вместо 9:
+- `addrtype --dst-type LOCAL → RETURN` (PREROUTING) — покрывает все
+  incoming на local-IP (SSH:22, agent:7743, AWG-handshake'и) одной rule.
+- `ct state RELATED,ESTABLISHED → RETURN` (PREROUTING) — для forwarded
+  reply packets.
+
+Удалены: port-specific bypass'ы (`tcp dport 22`, `tcp dport <agent>`) и
+все OUTPUT-rules (с 0.2.28 mark ставится только в PREROUTING).
+Reconcile-логика **удаляет ВСЕ existing self-bypass rules** (legacy +
+старые) каждый apply и пересоздаёт минимальный set — гарантирует
+canonical state. 2 unit-теста.
+
 ### NFT-7 (closed by 2026-05-06 fix). PostUp/PostDown скрипта на nft
 
 **Резолюция:** `scripts/setup-test-awg-server.sh` PostUp/PostDown

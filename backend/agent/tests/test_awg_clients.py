@@ -10,6 +10,7 @@ from agent.awg_clients import (
     AwgClientError,
     delete_client,
     deploy_client,
+    enforce_existing_iface_mtu,
     list_managed_clients,
     start_client,
     stop_client,
@@ -164,6 +165,49 @@ async def test_list_managed_clients_filters_by_label(fake_clients_dir, fake_run)
     # Фильтр по label: команда должна была пройти `--filter label=io.waygate.role=client`
     list_calls = [c for c in fake_run["calls"] if c[:2] == ["docker", "ps"]]
     assert any("--filter" in c and "label=io.waygate.role=client" in c for c in list_calls)
+
+
+async def test_enforce_existing_iface_mtu_sets_mtu_when_differs(fake_clients_dir, fake_run):
+    """NFT-8a (2026-05-06): existing AWG-iface c MTU=1420 (awg-quick default)
+    должен быть приведён к MTU=1280 (NFT-5 Pydantic-default) через
+    `ip link set` без перезапуска контейнера."""
+    (fake_clients_dir / "us-fast").mkdir()
+    (fake_clients_dir / "us-fast" / "awg-us-fast.conf").write_text(_VALID_CONFIG)
+
+    fake_run["responses"]["docker ps"] = (
+        json.dumps({"Names": "waygate-amnezia-client-us-fast", "State": "running"}) + "\n"
+    )
+    # ip -o link show вернёт current MTU=1420 (старый default awg-quick).
+    fake_run["responses"]["ip -o link show awg-us-fast"] = (
+        "1: awg-us-fast: <POINTOPOINT,NOARP,UP,LOWER_UP>"
+        " mtu 1420 qdisc noqueue state UNKNOWN mode DEFAULT group default qlen 1000\n"
+    )
+
+    await enforce_existing_iface_mtu()
+
+    # `ip link set awg-us-fast mtu 1280` должен был быть вызван.
+    set_mtu_calls = [c for c in fake_run["calls"] if c[:3] == ["ip", "link", "set"] and "mtu" in c]
+    assert len(set_mtu_calls) == 1, f"ожидался 1 ip link set mtu, найдено {len(set_mtu_calls)}: {set_mtu_calls}"
+    assert "1280" in set_mtu_calls[0]
+
+
+async def test_enforce_existing_iface_mtu_skips_when_already_correct(fake_clients_dir, fake_run):
+    """Idempotency: если MTU уже 1280 — никакой `ip link set` не вызывается."""
+    (fake_clients_dir / "us-fast").mkdir()
+    (fake_clients_dir / "us-fast" / "awg-us-fast.conf").write_text(_VALID_CONFIG)
+
+    fake_run["responses"]["docker ps"] = (
+        json.dumps({"Names": "waygate-amnezia-client-us-fast", "State": "running"}) + "\n"
+    )
+    fake_run["responses"]["ip -o link show awg-us-fast"] = (
+        "1: awg-us-fast: <POINTOPOINT,NOARP,UP,LOWER_UP>"
+        " mtu 1280 qdisc noqueue state UNKNOWN mode DEFAULT group default qlen 1000\n"
+    )
+
+    await enforce_existing_iface_mtu()
+
+    set_mtu_calls = [c for c in fake_run["calls"] if c[:3] == ["ip", "link", "set"] and "mtu" in c]
+    assert set_mtu_calls == []
 
 
 async def test_start_stop_client(fake_clients_dir, fake_run):

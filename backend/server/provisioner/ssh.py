@@ -65,7 +65,13 @@ class SshSession:
         escaped_path = path.replace("'", "'\\''")
         marker = "WAYGATE_EOF"
         await self.run(command=f"mkdir -p $(dirname '{escaped_path}')")
-        full = f"cat > '{escaped_path}' <<'{marker}'\n{content}\n{marker}"
+        # Heredoc требует marker в начале строки. Нормализуем content до ending '\n'
+        # (если уже есть — keep as-is, не добавляем extra newline). Раньше шёл
+        # `f"...\n{content}\n{marker}"` — если content ended with '\n', получался
+        # двойной newline → файл имел trailing blank line, что ломало heredoc-quotes
+        # тест.
+        normalized = content if content.endswith("\n") else content + "\n"
+        full = f"cat > '{escaped_path}' <<'{marker}'\n{normalized}{marker}"
         await self.run(command=full)
         await self.run(command=f"chmod {mode} '{escaped_path}'")
 
