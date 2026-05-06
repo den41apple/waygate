@@ -73,6 +73,8 @@ cat > "$CONFIG_DIR/$IFACE.conf" <<EOF
 PrivateKey = $SERVER_PRIV
 Address = $SERVER_IP/24
 ListenPort = $PORT
+# MTU=1280 — двойной AWG-туннель не фрагментируется. См. NFT-5.
+MTU = 1280
 Jc = $AWG_JC
 Jmin = $AWG_JMIN
 Jmax = $AWG_JMAX
@@ -120,6 +122,8 @@ cat <<EOF
 PrivateKey = $CLIENT_PRIV
 Address = $CLIENT_IP/32
 DNS = 1.1.1.1, 1.0.0.1
+# MTU=1280 — двойной AWG-туннель не фрагментируется. См. NFT-5.
+MTU = 1280
 Jc = $AWG_JC
 Jmin = $AWG_JMIN
 Jmax = $AWG_JMAX
