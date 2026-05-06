@@ -82,6 +82,30 @@ async def install_deps(*, ssh: SshSession, emit: ProgressEmitter) -> None:
             "ipset iptables iproute2 dnsmasq curl openssl python3-venv wireguard-tools conntrack"
         ),
     )
+    # На Ubuntu 24.04 system iptables symlink по умолчанию указывает на
+    # iptables-legacy — agent waygate'а вызывает `iptables -A` напрямую → пишет
+    # в legacy ip_tables kernel module, который под Docker 28+ effectively
+    # отключён → правила не действуют. Принудительно ставим nft-вариант.
+    # См. NFT-3 в `.claude/INCIDENT_2026_05_06_apply_flow.md`.
+    # check=False: на дистрибутивах без `update-alternatives` (Alpine etc.)
+    # команда non-zero — это не fatal для онбординга.
+    await emit("Переключаю iptables-alternative на nft-вариант…")
+    await ssh.run(
+        command=(
+            'test "$(readlink /etc/alternatives/iptables 2>/dev/null)" '
+            "= /usr/sbin/iptables-nft "
+            "|| update-alternatives --set iptables /usr/sbin/iptables-nft"
+        ),
+        check=False,
+    )
+    await ssh.run(
+        command=(
+            'test "$(readlink /etc/alternatives/ip6tables 2>/dev/null)" '
+            "= /usr/sbin/ip6tables-nft "
+            "|| update-alternatives --set ip6tables /usr/sbin/ip6tables-nft"
+        ),
+        check=False,
+    )
     # AmneziaWG kernel-модуль — без него awg-quick откатывается на userspace
     # `amneziawg-go`, который НЕ поддерживает obfuscation-параметры I1-I5
     # (`Line unrecognized: I2=`). Ставим из официального PPA. На некоторых cloud-VM

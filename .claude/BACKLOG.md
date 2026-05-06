@@ -12,7 +12,18 @@
 
 ## Что осталось делать
 
-### NFT-5 (HIGH, 2026-05-06). Default MTU=1280 для AWG-iface
+### NFT-5 (closed by 2026-05-06 fix). Default MTU=1280 для AWG-iface
+
+**Резолюция:** `backend/shared/awg_config.py::AwgInterfaceConfig.mtu`
+default изменён с `None` на `1280`. `serialize_awg_config` уже эмитит
+MTU при non-None — изменения в serializer не потребовались. Old configs
+без MTU при parse получают default=1280 → при перезаписи сохраняются с
+явным MTU=1280. Тесты в `test_awg_config.py`. После деплоя agent 0.2.31
+phone YouTube не тормозит на двойном туннеле.
+
+(Ниже исходная задача для истории.)
+
+### NFT-5-orig (HIGH, 2026-05-06). Default MTU=1280 для AWG-iface
 
 **Состояние:** на yandex VM phone'у требовался MTU=1280 на `awg-test-srv` +
 `awg-eurohoster` чтобы YouTube не тормозил. Стандартный awg-quick MTU=1420
@@ -37,7 +48,18 @@ default=1420. Наш ручной `ip link set mtu 1280` стирается. П�
 **Trigger:** пользователь жалуется на тормозящий YouTube/большие сайты
 через двойной AWG-tunnel.
 
-### NFT-6 (HIGH, 2026-05-06). Detect mangle table incompatibility и recover
+### NFT-6 (closed by 2026-05-06 fix). Detect mangle table incompatibility и recover
+
+**Резолюция:** `backend/agent/routing.py::_recover_mangle_if_incompatible`
+helper + вызов в начале `apply_rules`. Probe-call `iptables -t mangle -S
+PREROUTING` — если падает с "incompatible" → `nft flush table ip mangle`
+один раз, дальше apply пересоздаёт self-bypass'ы и MARK rules через
+iptables-nft compat. Тесты в `test_routing.py` (4 шт: recovers,
+noop_when_works, noop_for_unrelated, records_failure).
+
+(Ниже исходная задача для истории.)
+
+### NFT-6-orig (HIGH, 2026-05-06). Detect mangle table incompatibility и recover
 
 **Состояние:** на yandex VM `mangle` table стала incompatible для
 iptables-nft compat (после моего `nft add rule` шаг 42c, но это может
@@ -54,7 +76,18 @@ Workaround: `nft flush table ip mangle` + restart agent + apply.
   mangle` и retry apply.
 - Логировать как WARNING с инструкцией для оператора.
 
-### NFT-3 (HIGH, 2026-05-06). Provisioner ставит iptables-nft alternative
+### NFT-3 (closed by 2026-05-06 fix). Provisioner ставит iptables-nft alternative
+
+**Резолюция:** `backend/server/provisioner/steps.py::install_deps` после
+apt-install iptables делает `update-alternatives --set iptables
+/usr/sbin/iptables-nft` + ip6tables. Idempotent через
+`test "$(readlink ...)" = ... || update-alternatives ...`. `check=False`
+чтобы non-Debian дистрибутивы не падали. Тест в `test_provisioner.py`
+проверяет capture обоих вызовов в ssh.calls.
+
+(Ниже исходная задача для истории.)
+
+### NFT-3-orig (HIGH, 2026-05-06). Provisioner ставит iptables-nft alternative
 
 **Состояние:** на свежей yandex VM `update-alternatives --query iptables`
 указывал на `iptables-legacy`. Agent вызывал `iptables -A` → правила
@@ -70,7 +103,21 @@ update-alternatives --set ip6tables /usr/sbin/ip6tables-nft
 Идемпотентно, проверять текущее значение через `update-alternatives
 --query`.
 
-### NFT-7 (MEDIUM, 2026-05-06). MASQ rule для test-srv subnet
+### NFT-7 (closed by 2026-05-06 fix). PostUp/PostDown скрипта на nft
+
+**Резолюция:** `scripts/setup-test-awg-server.sh` PostUp/PostDown
+переписаны через `nft` напрямую в отдельную таблицу `ip waygate-test`
+(не конфликтует с docker и waygate-agent). PostDown — один command
+`nft delete table ip waygate-test` сносит chain'ы и rules atomically.
+Закрывает 3 проблемы оригинальной формулировки: (1) iptables-legacy
+alternative не нужно — nft работает напрямую; (2) MASQ для test-srv
+subnet теперь в PostUp скрипта, восстанавливается при каждом
+`awg-quick up` без зависимости от reconcile агента; (3) самоконтейнерный
+скрипт работает на любой VM без переключения alternative.
+
+(Ниже исходная задача для истории.)
+
+### NFT-7-orig (MEDIUM, 2026-05-06). MASQ rule для test-srv subnet
 не должен теряться при agent reconcile
 
 **Состояние:** наш ручной `ip saddr 10.99.0.0/24 oifname eth0 masquerade`
@@ -103,7 +150,7 @@ agent его не трогает (good), но при `nft flush table ip nat` (�
 агента — apply должен пройти без `Cannot find device`, MASQUERADE для
 `awg-eurohoster` появится в реальной chain.
 
-### NFT-2. Переписать `scripts/setup-test-awg-server.sh` на `nft`
+### NFT-2 (closed by 2026-05-06 — same as NFT-7). Переписать `scripts/setup-test-awg-server.sh` на `nft`
 
 **Состояние:** PostUp/PostDown пишут через `iptables`. На Ubuntu 24.04+Docker28
 скрипт создаёт **broken state** (handshake есть, трафик не идёт). Воспроизводимо

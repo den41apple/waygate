@@ -295,6 +295,33 @@ def test_serialize_excludes_none_fields() -> None:
     )
     text = serialize_awg_config(config)
     assert "DNS" not in text  # был None
-    assert "MTU" not in text
+    # MTU теперь имеет default=1280 (безопасный для двойной AWG-обёртки),
+    # поэтому в сериализованном выводе он есть. См. NFT-5.
+    assert "MTU = 1280" in text
     assert "Jc" not in text
     assert "PersistentKeepalive" not in text
+
+
+def test_default_mtu_is_1280() -> None:
+    """NFT-5 (2026-05-06): MTU=1280 default чтобы двойной AWG-туннель не
+    фрагментировался (eth0=1500 − 2×80 outer header = 1340 effective)."""
+    interface = AwgInterfaceConfig(address="10.66.66.2/24", private_key=_VALID_PRIV)
+    assert interface.mtu == 1280
+
+
+def test_parse_legacy_config_without_mtu_uses_default() -> None:
+    """Старые .conf без MTU при parse применяют Pydantic-default=1280.
+    Backward-compat: stored configs без MTU при перезаписи получат явный MTU=1280."""
+    text = f"""[Interface]
+Address = 10.66.66.2/24
+PrivateKey = {_VALID_PRIV}
+
+[Peer]
+PublicKey = {_VALID_PUB}
+AllowedIPs = 0.0.0.0/0
+Endpoint = vpn.example.com:51820
+"""
+    parsed = parse_awg_config(text)
+    assert parsed.interface.mtu == 1280
+    # При re-serialize MTU попадает в конфиг.
+    assert "MTU = 1280" in serialize_awg_config(parsed)

@@ -136,6 +136,15 @@ async def test_install_deps_runs_apt():
     await steps.install_deps(ssh=ssh, emit=_no_emit)
     assert any("apt-get update" in call for call in ssh.calls)
     assert any("apt-get install" in call and "ipset" in call for call in ssh.calls)
+    # NFT-3: install_deps должен переключить iptables alternative на nft-вариант.
+    # Без этого agent пишет в legacy ip_tables module → правила не действуют под
+    # Docker 28+. Команда idempotent через test+||.
+    assert any("update-alternatives --set iptables /usr/sbin/iptables-nft" in call for call in ssh.calls), (
+        f"iptables-nft alternative не переключается. ssh.calls = {ssh.calls}"
+    )
+    assert any("update-alternatives --set ip6tables /usr/sbin/ip6tables-nft" in call for call in ssh.calls), (
+        f"ip6tables-nft alternative не переключается. ssh.calls = {ssh.calls}"
+    )
 
 
 async def test_detect_awg_containers_parses_lines():

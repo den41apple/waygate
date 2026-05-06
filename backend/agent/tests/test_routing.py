@@ -3,6 +3,7 @@ from collections.abc import Iterable
 import pytest
 
 from agent import routing
+from agent.subprocess_runner import CommandError
 from shared.schemas import RoutingRule, RoutingScope
 
 
@@ -576,3 +577,107 @@ async def test_apply_rules_replaces_legacy_ssh_bypass(monkeypatch, make_rule):
         if call[:4] == ("iptables", "-t", "mangle", "-I") and "waygate-self-bypass" in call
     ]
     assert len(new_inserts) >= 4  # 2 порта × 2 цепи минимум
+
+
+# ############################################
+# #  NFT-6: detect+recover mangle incompatibility (2026-05-06 incident)
+# ############################################
+
+
+@pytest.mark.asyncio
+async def test_recover_mangle_flushes_when_incompatible(monkeypatch):
+    """Если первый probe iptables -t mangle падает с 'incompatible' — agent
+    должен сделать nft flush table ip mangle и не записать в errors."""
+    calls: list[tuple[str, ...]] = []
+
+    async def fake_run(command, *, stdin=None, check=True):
+        calls.append(tuple(command))
+        if tuple(command) == ("iptables", "-t", "mangle", "-S", "PREROUTING"):
+            raise CommandError(
+                command=command,
+                returncode=1,
+                stderr="iptables v1.8.10 (nf_tables): table 'mangle' is incompatible, use 'nft' tool.",
+            )
+        return ""
+
+    monkeypatch.setattr(routing, "run_command", fake_run)
+
+    errors: list[str] = []
+    await routing._recover_mangle_if_incompatible(errors=errors)
+
+    assert errors == []
+    assert ("nft", "flush", "table", "ip", "mangle") in calls
+
+
+@pytest.mark.asyncio
+async def test_recover_mangle_noop_when_iptables_works(monkeypatch):
+    """Если iptables -t mangle отработал OK (mangle не incompatible) — никакого
+    nft flush делать не должно, errors пустой."""
+    calls: list[tuple[str, ...]] = []
+
+    async def fake_run(command, *, stdin=None, check=True):
+        calls.append(tuple(command))
+        return ""
+
+    monkeypatch.setattr(routing, "run_command", fake_run)
+
+    errors: list[str] = []
+    await routing._recover_mangle_if_incompatible(errors=errors)
+
+    assert errors == []
+    # Только probe-call, без nft flush.
+    assert calls == [("iptables", "-t", "mangle", "-S", "PREROUTING")]
+
+
+@pytest.mark.asyncio
+async def test_recover_mangle_noop_for_unrelated_iptables_failure(monkeypatch):
+    """Если iptables упал с другой ошибкой (не incompatible) — recovery не
+    срабатывает, ошибка propagate'ится через downstream-код apply_rules."""
+    calls: list[tuple[str, ...]] = []
+
+    async def fake_run(command, *, stdin=None, check=True):
+        calls.append(tuple(command))
+        if tuple(command) == ("iptables", "-t", "mangle", "-S", "PREROUTING"):
+            raise CommandError(
+                command=command,
+                returncode=127,
+                stderr="iptables: command not found",
+            )
+        return ""
+
+    monkeypatch.setattr(routing, "run_command", fake_run)
+
+    errors: list[str] = []
+    await routing._recover_mangle_if_incompatible(errors=errors)
+
+    # nft flush не вызывался — ошибка не та, что лечится recovery.
+    assert all(call[0] != "nft" for call in calls)
+    assert errors == []
+
+
+@pytest.mark.asyncio
+async def test_recover_mangle_records_nft_flush_failure(monkeypatch):
+    """Если nft flush упал (например, нет nft бинаря) — ошибка попадает в
+    response.errors, чтобы оператор/server мог увидеть проблему."""
+
+    async def fake_run(command, *, stdin=None, check=True):
+        if tuple(command) == ("iptables", "-t", "mangle", "-S", "PREROUTING"):
+            raise CommandError(
+                command=command,
+                returncode=1,
+                stderr="table 'mangle' is incompatible, use 'nft' tool",
+            )
+        if command[0] == "nft":
+            raise CommandError(
+                command=command,
+                returncode=127,
+                stderr="nft: command not found",
+            )
+        return ""
+
+    monkeypatch.setattr(routing, "run_command", fake_run)
+
+    errors: list[str] = []
+    await routing._recover_mangle_if_incompatible(errors=errors)
+
+    assert any("mangle recovery via nft flush" in e for e in errors)

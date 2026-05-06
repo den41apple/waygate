@@ -1585,7 +1585,7 @@ wheels = [
 
 [[package]]
 name = "waygate-agent"
-version = "0.2.30"
+version = "0.2.31"
 source = { editable = "agent" }
 dependencies = [
     { name = "acme" },
@@ -1616,7 +1616,7 @@ requires-dist = [
 
 [[package]]
 name = "waygate-server"
-version = "0.1.0"
+version = "0.1.1"
 source = { editable = "server" }
 dependencies = [
     { name = "aiohttp" },

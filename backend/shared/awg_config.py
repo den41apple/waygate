@@ -43,7 +43,13 @@ class AwgInterfaceConfig(BaseModel):
     private_key: str = Field(description="Base64 32-байтный приватный ключ клиента")
     dns: str | None = Field(default=None, description="DNS-сервера через запятую")
     listen_port: int | None = Field(default=None, description="UDP-порт (опционально)")
-    mtu: int | None = Field(default=None, description="MTU интерфейса")
+    # MTU=1280 — безопасный default для двойной AWG-обёртки
+    # (phone → AWG-server → AWG-client → upstream-VPN). При дефолтном awg-quick
+    # MTU=1420 для двойного туннеля eth0(1500) − 80 (outer AWG) − 80 (inner AWG)
+    # = 1340 effective; MSS-clamp на 1380 фрагментирует TCP. На 1280 запас
+    # хватает на любые конфигурации до 4-х слойных туннелей. Закрывает NFT-5
+    # из 2026-05-06 (см. INCIDENT_2026_05_06_apply_flow.md).
+    mtu: int | None = Field(default=1280, description="MTU интерфейса")
 
     # AmneziaWG-specific (2.0+).
     # Jc/Jmin/Jmax/S1-S4 — числа (junk packet count и размеры).

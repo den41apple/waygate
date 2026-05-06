@@ -189,6 +189,35 @@ async def _build_scope_context(*, scope: RoutingScope, scope_target: str | None)
     )
 
 
+async def _recover_mangle_if_incompatible(*, errors: list[str]) -> None:
+    """Detect-and-recover: если mangle table стала "incompatible" для
+    iptables-nft compat (например после native `nft add rule` в managed
+    chain), сбрасываем её через `nft flush table ip mangle`.
+
+    Без этого agent при reconcile падает на `iptables -t mangle ...` с
+    `table 'mangle' is incompatible, use 'nft' tool`. Apply считается
+    успешным с partial state — self-bypass'ы и mark не пересоздаются.
+
+    Безопасно: mangle-table используется только waygate-агентом, его
+    self-bypass'ы и mark-rules пересоздаются reconcile'ом сразу после
+    flush. См. NFT-6 в `.claude/INCIDENT_2026_05_06_apply_flow.md`.
+    """
+    try:
+        await run_command(["iptables", "-t", "mangle", "-S", "PREROUTING"])
+    except CommandError as exc:
+        if "incompatible" not in exc.stderr.lower():
+            return
+        logger.warning(
+            "apply_rules: mangle table incompatible (likely native nft "
+            "rules), сбрасываем через `nft flush table ip mangle` — "
+            "apply пересоздаст self-bypass'ы и MARK-правила",
+        )
+        try:
+            await run_command(["nft", "flush", "table", "ip", "mangle"])
+        except CommandError as flush_exc:
+            errors.append(f"[host] mangle recovery via nft flush: {flush_exc}")
+
+
 async def _retry_netns_switch(
     op: Callable[[], Awaitable[None]],
     *,
@@ -1260,6 +1289,11 @@ async def apply_rules(*, rules: list[RoutingRule]) -> ApplyRulesResponse:
     """
     desired = [rule for rule in rules if rule.enabled]
     errors: list[str] = []
+
+    # NFT-6: если mangle-table стала incompatible для iptables-nft compat
+    # (native nft rule в managed chain), сбрасываем перед reconcile —
+    # иначе iptables -t mangle падает и apply записывает partial state.
+    await _recover_mangle_if_incompatible(errors=errors)
 
     # Гарантируем что host-scope reconcile запускается даже при пустом desired.
     groups = _group_by_scope(desired)

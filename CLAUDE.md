@@ -14,14 +14,14 @@ SPEC закрыты + CI/CD + большой кусок техдолга и prod
 Защита: username/password → bcrypt + session-JWT. Первый админ создаётся при
 старте из ENV `WAYGATE_ADMIN_USER`/`WAYGATE_ADMIN_PASSWORD`.
 
-**209 backend-тестов + 11+ e2e-тестов проходят** (+16 integration с реальным
+**215 backend-тестов + 11+ e2e-тестов проходят** (+16 integration с реальным
 Docker-контейнером — отключены в `addopts`, гоняются явно через
 `uv run pytest -m integration` ~60-90 сек, покрывают ipset/dns/routing.apply +
-recovery race + ssh-провижионер end-to-end). Integration-тесты используют
-`nft list chain ip <table> <chain>` для проверки реального netfilter state
-(а не `iptables -L` который показывает shadow-chain через iptables-nft compat
-на Ubuntu 24.04 + Docker 28+). ruff/format/mypy чисто, frontend typecheck/build
-зелёные, docker compose поднимается за ~12 сек.
+recovery race + mangle-recovery + ssh-провижионер end-to-end). Integration-тесты
+используют `nft list chain ip <table> <chain>` для проверки реального netfilter
+state (а не `iptables -L` который показывает shadow-chain через iptables-nft
+compat на Ubuntu 24.04 + Docker 28+). ruff/format/mypy чисто, frontend
+typecheck/build зелёные, docker compose поднимается за ~12 сек.
 
 **SECRET_KEY обязателен в проде** (нет fallback'а на dev-default — fail-fast
 на старте). В тестах подкидывается через `conftest.py`. Для запуска

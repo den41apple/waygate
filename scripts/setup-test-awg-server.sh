@@ -9,10 +9,17 @@
 #
 # Идемпотентно: повторный запуск сгенерит новый keypair и пересоздаст iface.
 #
-# Требования: amneziawg-tools >= 1.0.20240130 (поддержка S3/S4, I2-I5,
-# H1-H4 как range'ов). Проверить: `awg --version`. Если старая —
-# `apt-get update && apt-get install -y amneziawg amneziawg-tools` из
-# `ppa:amnezia/ppa`.
+# Требования:
+# - amneziawg-tools >= 1.0.20240130 (поддержка S3/S4, I2-I5, H1-H4 как
+#   range'ов). Проверить: `awg --version`. Если старая —
+#   `apt-get update && apt-get install -y amneziawg amneziawg-tools` из
+#   `ppa:amnezia/ppa`.
+# - nftables (apt install nftables) — PostUp/PostDown пишут через `nft`
+#   напрямую в отдельную таблицу `ip waygate-test`, чтобы работать
+#   независимо от того, на что указывает iptables-alternative (legacy/nft).
+#   `iptables` версия скрипта (до NFT-7 2026-05-06) не работала на Ubuntu
+#   24.04+Docker28 без переключения alternative. См.
+#   `.claude/INCIDENT_2026_05_06_apply_flow.md`.
 
 set -euo pipefail
 
@@ -82,8 +89,8 @@ I2 = $AWG_I2
 I3 = $AWG_I3
 I4 = $AWG_I4
 I5 = $AWG_I5
-PostUp = iptables -t nat -A POSTROUTING -s $SERVER_IP/24 ! -d $SERVER_IP/24 -j MASQUERADE; iptables -I FORWARD 1 -i %i -j ACCEPT; iptables -I FORWARD 1 -o %i -j ACCEPT; sysctl -w net.ipv4.ip_forward=1
-PostDown = iptables -t nat -D POSTROUTING -s $SERVER_IP/24 ! -d $SERVER_IP/24 -j MASQUERADE; iptables -D FORWARD -i %i -j ACCEPT; iptables -D FORWARD -o %i -j ACCEPT
+PostUp = sysctl -w net.ipv4.ip_forward=1; nft add table ip waygate-test 2>/dev/null || true; nft 'add chain ip waygate-test postrouting { type nat hook postrouting priority srcnat; policy accept; }' 2>/dev/null || true; nft 'add chain ip waygate-test forward { type filter hook forward priority filter; policy accept; }' 2>/dev/null || true; nft add rule ip waygate-test postrouting ip saddr $SERVER_IP/24 oifname != "%i" counter masquerade; nft add rule ip waygate-test forward iifname "%i" counter accept; nft add rule ip waygate-test forward oifname "%i" counter accept
+PostDown = nft delete table ip waygate-test 2>/dev/null || true
 
 [Peer]
 PublicKey = $CLIENT_PUB
