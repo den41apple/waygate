@@ -261,3 +261,52 @@ sudo iptables -t nat -L POSTROUTING -v -n | grep awg-
   в set, incoming handshake'и теряются.
 - **Не запускать AWG-server в `--network bridge`** для scope=host — двойной
   NAT через docker. Либо `--network host`, либо scope=container.
+
+---
+
+## Ubuntu 24.04 + Docker 28+ — `iptables` правила НЕ работают (2026-05-06)
+
+**Симптом:** `iptables -I FORWARD ... ACCEPT` — counter растёт (видим в `iptables -L`),
+но пакеты всё равно дропаются. `iptables -t nat -A POSTROUTING ... MASQUERADE` —
+counter 0 packets, NAT не срабатывает.
+
+**Корень:** в Ubuntu 24.04 Docker 28+ управляет nft-таблицами **напрямую через
+`nft`**, и `chain ip filter FORWARD` имеет `policy drop`. Команды `iptables`
+работают через `iptables-nft compat`, который создаёт **shadow-chain** в
+hook=forward с другим priority — пакеты в неё попадают, counter растёт, ACCEPT
+матчится — НО реальная Docker-managed chain (priority 0) дропает их по policy.
+
+Аналогично для `iptables -t nat`: shadow-chain не интегрирована с реальным
+hook=postrouting, MASQUERADE не вызывается.
+
+**Как обнаружить:**
+```bash
+sudo nft list chain ip filter FORWARD
+# Если видишь "policy drop" и нет твоих accept-rules — попал в эту проблему.
+```
+
+**Решение:** писать через `nft` напрямую, в **ту же chain** что Docker:
+```bash
+# FORWARD ACCEPT для своего iface
+sudo nft insert rule ip filter FORWARD iifname "<iface>" counter accept
+sudo nft insert rule ip filter FORWARD oifname "<iface>" counter accept
+# MASQUERADE
+sudo nft add rule ip nat POSTROUTING ip saddr <subnet> ip daddr != <subnet> counter masquerade
+```
+
+**Подтверждение работы:** counter на nft-rule растёт + `awg show` peer transfer
+становится симметричным (rx ≈ tx).
+
+**Где критично:**
+- `scripts/setup-test-awg-server.sh` — PostUp/PostDown через `iptables`
+  (BACKLOG: переписать на `nft`).
+- `backend/agent/routing.py` — **проверить!** Если waygate-агент тоже пишет
+  через `iptables-nft compat`, на Ubuntu 24.04 + Docker 28+ scope=host
+  правила могут не работать. У нас есть свидетельство что `awg-firstbyte`
+  MASQUERADE счётчик растёт в реальной chain — значит работает. Но для
+  forwarded ACCEPT не уверены, требуется проверить отдельно (BACKLOG).
+
+**История:** SESSION_2026_05_04 завис на этом — потратили день на гипотезы
+(Docker FORWARD drops, Yandex SG, rp_filter, conntrack zones), правильный
+диагноз пришёл через LOG-target в filter.FORWARD и nat.POSTROUTING:
+filter.FORWARD shadow accept'ит, но mangle/nat POSTROUTING счётчики 0.

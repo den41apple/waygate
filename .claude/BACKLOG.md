@@ -12,6 +12,56 @@
 
 ## Что осталось делать
 
+### NFT-1. Проверить waygate-agent на Ubuntu 24.04 + Docker 28+ (HOT, 2026-05-06)
+
+**Состояние:** в SESSION_2026_05_06 нашли что `iptables` команды на Ubuntu 24.04
+с Docker 28+ попадают в shadow-chain от iptables-nft-compat и **НЕ работают** —
+реальный `chain ip filter FORWARD` имеет policy=drop и Docker управляет им
+напрямую через `nft`. Симптом: handshake есть, transfer асимметричный, MASQ
+counter 0. Полное описание — в `.claude/ROUTING_ARCHITECTURE.md` секция "Ubuntu
+24.04 + Docker 28+".
+
+**Что проверить у агента:**
+- `backend/agent/routing.py` ставит `iptables -t mangle -A PREROUTING ... MARK`
+  и `iptables -t nat -A POSTROUTING ... MASQUERADE`. На Ubuntu 24.04+Docker28
+  они могут попадать в shadow-chain.
+- Свидетельство ОЧЕНЬ слабое: в `nft list chain ip nat POSTROUTING` мы видели
+  `oifname "awg-firstbyte" counter packets 56 bytes 11837 masquerade` — это
+  **выглядит** как waygate-агент попал в реальную chain. Но 56 packets — мизер.
+- Тест: применить direction со scope=host через UI на нашей VM, попробовать
+  с phone подключиться через AWG-server-контейнер и трафик через eurohoster.
+  Если не работает — мигрировать `agent/routing.py` на прямые `nft` команды.
+
+**Решение если воспроизведётся:** заменить `subprocess_runner.run_command(["iptables", ...])`
+на `subprocess_runner.run_command(["nft", "add rule ...", ...])`. Это инвазивно
+(routing.py — 1267 строк, всё про iptables), но альтернатив нет — `iptables`
+на Ubuntu 24.04+Docker28 структурно сломан.
+
+**Trigger:** пользователь жалуется что direction со scope=host не работает на
+fresh Ubuntu 24.04. Или мы сами сейчас тестируем waygate-direction после
+ремонта test-AWG-server'а.
+
+### NFT-2. Переписать `scripts/setup-test-awg-server.sh` на `nft`
+
+**Состояние:** PostUp/PostDown пишут через `iptables`. На Ubuntu 24.04+Docker28
+скрипт создаёт **broken state** (handshake есть, трафик не идёт). Воспроизводимо
+на любой свежей VM. Workaround сейчас — после `awg-quick up` руками выполнить
+`nft insert rule ip filter FORWARD iifname/oifname "awg-test-srv" counter accept`.
+
+**Что сделать:**
+- Заменить PostUp на:
+  ```
+  PostUp = sysctl -w net.ipv4.ip_forward=1; nft insert rule ip filter FORWARD iifname "%i" counter accept; nft insert rule ip filter FORWARD oifname "%i" counter accept; nft add rule ip nat POSTROUTING ip saddr $SERVER_IP/24 ip daddr != $SERVER_IP/24 counter masquerade
+  ```
+- PostDown — соответственно `nft delete rule ...` (потребует фиксации handle'ов
+  в session var, либо `nft -a` lookup по match'у).
+- Альтернатива: создать **отдельную** ip nat и ip filter таблицу с уникальным
+  именем (`waygate-test`), там свои rules — при PostDown `nft delete table` сносит
+  всё разом без handle'ов.
+
+**Trigger:** когда зайдёт следующий пользователь и захочет поднять test-сервер
+на fresh Ubuntu 24.04 без ручного workaround'а.
+
 ### B6 (отложено). Распил `agent/routing.py` на под-модули
 
 **Состояние:** 1267 строк, ruff жалуется на PLR0912 в
