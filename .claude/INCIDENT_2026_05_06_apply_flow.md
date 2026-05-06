@@ -185,6 +185,28 @@ apply — нужно force re-apply через UI чтобы оно переех
 руками `nft add rule ip mangle FORWARD oifname "awg-eurohoster" tcp
 flags syn / syn,rst tcp option maxseg size set rt mtu`.
 
+### MASQ-1 (closed). Конфликтующее MASQ rule из шага 11
+Наше ручное `ip saddr 10.99.0.0/24 masquerade` (handle 30) перехватывало
+трафик ДО того как packet уходил на awg-eurohoster через mark-routing →
+src перезаписывался в eth0 IP, eurohoster дропал packets с unknown src.
+Удаление rule + conntrack flush → packet flow восстановился. Также
+найдены **3 одинаковых** `oifname "awg-eurohoster" masquerade` rules
+(дубликаты от idempotent-сбоя в `_read_state`) — оставлен один.
+
+### Slow-page-loads (closed, не bug). Архитектурный overhead двойного AWG
+Через `phone → awg-test-srv → awg-eurohoster → eurohoster server` RTT
+до 1.1.1.1 = ~50ms (vs прямой eth0 = 14ms). Curl-timing для https://yandex.ru:
+- dns=5ms tcp_connect=98ms tls=200ms ttfb=306ms total=306ms (через VPN)
+- dns=1ms tcp_connect=7ms tls=44ms ttfb=84ms total=84ms (eth0 direct)
+
+Overhead +220ms на каждый request. YouTube не страдает (один долгий
+TCP-stream). Сайт с 30+ sub-resources страдает (накопительно +10-15 сек
+HTTP/1.1 или +2-3 сек HTTP/2). **Не bug** — норма для двойного VPN.
+
+Решение для prod: phone должен подключаться **напрямую к waygate-managed
+AWG-server** (без посреднического test-srv), это даст +50ms overhead
+вместо +220ms. Test-srv был только для нашей отладки.
+
 ### NFT-2 (LOW). `scripts/setup-test-awg-server.sh` на nft
 Скрипт пишет PostUp/PostDown через `iptables` — на VM с iptables=legacy
 не работало изначально. Сейчас после переключения alternative — работает,
