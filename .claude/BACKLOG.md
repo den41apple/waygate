@@ -12,6 +12,83 @@
 
 ## Что осталось делать
 
+### NFT-5 (HIGH, 2026-05-06). Default MTU=1280 для AWG-iface
+
+**Состояние:** на yandex VM phone'у требовался MTU=1280 на `awg-test-srv` +
+`awg-eurohoster` чтобы YouTube не тормозил. Стандартный awg-quick MTU=1420
+не хватает для двойной AWG-обёртки (phone→test-srv→eurohoster) — effective
+MTU ~1340, MSS-clamp на 1380 = большие TCP packets фрагментируются.
+
+**Проблема:** при каждом `awg_clients.deploy_client` (т.е. при apply через
+UI или redeploy_with_network_mode) iface создаётся awg-quick'ом с
+default=1420. Наш ручной `ip link set mtu 1280` стирается. Поэтому
+"YouTube fast" → apply → опять "YouTube slow".
+
+**Что сделать:**
+- Добавить `mtu: int | None = None` в `AwgClient` server-model и UI-edit
+- Прокидывать в agent через `ApplyAwgClientConfig` schema
+- В `awg_clients.deploy_client` после `awg-quick up` делать `ip link set
+  mtu <X>` если задан custom
+- Default 1280 (configurable через UI)
+- Альтернатива проще: hard-code `MTU = 1280` в `serialize_awg_config`
+  (`shared/awg_config.py`) — awg-quick прочитает его из `[Interface]`
+  секции
+
+**Trigger:** пользователь жалуется на тормозящий YouTube/большие сайты
+через двойной AWG-tunnel.
+
+### NFT-6 (HIGH, 2026-05-06). Detect mangle table incompatibility и recover
+
+**Состояние:** на yandex VM `mangle` table стала incompatible для
+iptables-nft compat (после моего `nft add rule` шаг 42c, но это может
+случиться и через legacy iptables leftover на свежей VM). Agent при
+apply падает с warning `iptables ... table 'mangle' is incompatible,
+use 'nft' tool` — apply считается успешным (`applied=N, errors=[]`),
+но reconcile **неполный**: self-bypass'ы и read-marks не работают.
+Workaround: `nft flush table ip mangle` + restart agent + apply.
+
+**Что сделать:**
+- В `agent/routing.py` детектить mangle incompatibility:
+  `iptables -t mangle -S PREROUTING` → если returncode=1 и stderr
+  содержит "incompatible" → flush table через `nft flush table ip
+  mangle` и retry apply.
+- Логировать как WARNING с инструкцией для оператора.
+
+### NFT-3 (HIGH, 2026-05-06). Provisioner ставит iptables-nft alternative
+
+**Состояние:** на свежей yandex VM `update-alternatives --query iptables`
+указывал на `iptables-legacy`. Agent вызывал `iptables -A` → правила
+писались в legacy `ip_tables` kernel module, который под Docker 28+
+отключён → правила невидимы для kernel.
+
+**Что сделать:** в SSH-провижионере (`backend/server/provisioner/`)
+перед установкой агента:
+```
+update-alternatives --set iptables /usr/sbin/iptables-nft
+update-alternatives --set ip6tables /usr/sbin/ip6tables-nft
+```
+Идемпотентно, проверять текущее значение через `update-alternatives
+--query`.
+
+### NFT-7 (MEDIUM, 2026-05-06). MASQ rule для test-srv subnet
+не должен теряться при agent reconcile
+
+**Состояние:** наш ручной `ip saddr 10.99.0.0/24 oifname eth0 masquerade`
+(для `awg-test-srv`) **не управляется агентом**. При apply через UI
+agent его не трогает (good), но при `nft flush table ip nat` (например
+после нашего шага 52) он смывается, и phone теряет интернет в base-case
+(без direction).
+
+**Что сделать:** перенести этот MASQ из ручной команды на VM в **PostUp**
+скрипта `setup-test-awg-server.sh`. PostUp запускается каждый раз при
+`awg-quick up` — гарантия что MASQ восстановится после любого reset'а.
+Также при PostDown — снести.
+
+Сейчас в скрипте в PostUp написано через `iptables -t nat -A POSTROUTING
+-s 10.99.0.0/24 ! -d 10.99.0.0/24 -j MASQUERADE` — на Ubuntu 24.04 без
+переключения alternative оно идёт в legacy table → не работает. NFT-2
+уже частично это покрывает (переписать на nft), теперь критичность HIGH.
+
 ### NFT-1 (closed by 2026-05-06 fix). Apply-flow на Ubuntu 24.04 + Docker 28+
 
 **Резолюция:** integration-тесты переписаны на `nft list chain` вместо
