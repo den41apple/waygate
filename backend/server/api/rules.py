@@ -1,5 +1,3 @@
-from datetime import UTC, datetime
-
 from fastapi import APIRouter, Depends, HTTPException, status
 from loguru import logger
 from pydantic import BaseModel, Field
@@ -7,19 +5,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from server.agent_client import AgentClient, AgentClientError, AgentUnreachable
+from server.api._apply_helper import run_full_apply
 from server.db import get_session
-from server.models import DnsRule, IpsetGroup, RoutingRule, Server
-from server.ws.events import EventType, WsEvent
-from server.ws.manager import get_manager
+from server.models import RoutingRule, Server
 from shared.schemas import (
-    ApplyDnsRequest,
-    ApplyRulesRequest,
     ApplyRulesResponse,
-    IpsetApplyRequest,
     RoutingScope,
 )
-from shared.schemas import DnsRule as AgentDnsRule
-from shared.schemas import RoutingRule as AgentRoutingRule
 
 router = APIRouter(prefix="/servers/{server_id}/rules", tags=["rules"])
 
@@ -169,104 +161,17 @@ async def apply_rules(
 ) -> ApplyRulesResponse:
     """Берёт всё содержимое таблицы routing_rule для server_id и шлёт на агент.
 
-    Перед применением routing-правил автоматически вызывается `/v1/dns/apply` —
-    это создаёт ipset'ы под dnsmasq, на которые потом ссылаются routing-правила
-    DNS-направлений. Без этого `iptables -m set --match-set <name>` падает с
-    `Set <name> doesn't exist`. GeoIP-ipset'ы создаются вручную через `/geoip/lists/{id}/sync`
-    — здесь не дёргаем (миллионы IPv4, тяжёлая операция).
+    Перед применением routing-правил автоматически вызывается `/v1/dns/apply` и
+    `/v1/ipset/apply` для каждой IpsetGroup'ы — это prerequisite для match-set'ов
+    в самих routing-правилах. Сама логика — в `_apply_helper.run_full_apply`,
+    переиспользуется из `tasks/healthcheck.py` для auto-reapply.
     """
     server = await _get_server(server_id=server_id, session=session)
-
-    # 1. DNS-prereq: пушим dnsmasq-config. Сами ipset'ы создаёт agent внутри
-    # `apply_dns` (см. agent/dns.py::_ensure_dual_family_ipsets) — раньше тут
-    # был лишний round-trip с пустым `/v1/ipset/apply` для каждого DNS-rule
-    # ради `ipset create -exist`. Это убрано после фикса агента (BACKLOG #14).
-    dns_result = await session.execute(
-        select(DnsRule).where(DnsRule.server_id == server_id, DnsRule.enabled == True),  # noqa: E712
-    )
-    dns_rules = dns_result.scalars().all()
     client = AgentClient(host=server.host, port=server.port, token=server.token)
-    if dns_rules:
-        try:
-            await client.apply_dns(
-                request=ApplyDnsRequest(
-                    rules=[
-                        AgentDnsRule(name=rule.name, domains=list(rule.domains), ipset_name=rule.ipset_name)
-                        for rule in dns_rules
-                    ],
-                ),
-            )
-        except AgentUnreachable as exc:
-            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"агент недоступен: {exc}") from exc
-        except AgentClientError as exc:
-            logger.error("apply_rules: pre-apply dns упал: {}", exc)
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=f"pre-apply dns упал: {exc}",
-            ) from exc
-
-    # 1b. Custom IPset prereq: пушим CIDR'ы каждой IpsetGroup'ы которая
-    # ссылается из direction'а (ipset_group_ids → RoutingRule.ipset_name).
-    # Без этого `iptables --match-set <name>` падает с `Set <name> doesn't exist`,
-    # и user должен был отдельно жать Apply на ipset-карточке. Делаем за него.
-    # Workaround на «already exists» удалён после фикса агентского
-    # `apply_custom_ipset` (одинаковые параметры у tmp/целевого set'а — BACKLOG #15).
-    ipset_groups_result = await session.execute(
-        select(IpsetGroup).where(IpsetGroup.server_id == server_id),
-    )
-    ipset_groups = ipset_groups_result.scalars().all()
-    for group in ipset_groups:
-        try:
-            await client.apply_custom_ipset(
-                request=IpsetApplyRequest(name=group.name, cidrs=list(group.cidrs)),
-            )
-        except AgentClientError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=f"pre-apply custom ipset {group.name} упал: {exc}",
-            ) from exc
-        except AgentUnreachable as exc:
-            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"агент недоступен: {exc}") from exc
-
-    # 2. Routing-правила.
-    result = await session.execute(select(RoutingRule).where(RoutingRule.server_id == server_id))
-    rules = result.scalars().all()
-    request = ApplyRulesRequest(
-        rules=[
-            AgentRoutingRule(
-                # `--` — плейсхолдер для DNS/IPset правил (см. directions.py::_materialize_rules).
-                # Старые версии агента ждут CountryCode по `^[A-Za-z]{2}$` — отправляем
-                # `ZZ` (ISO 3166-1 reserved code для unknown country); агент `country` вообще
-                # не использует, это метаданные. Новые версии агента примут и None.
-                country=rule.country if rule.country and rule.country != "--" else "ZZ",
-                # Catch-all rule имеет пустой ipset_name'а в БД → шлём None,
-                # чтобы агент включил unconditional MARK для пакетов с mark=0.
-                ipset_name=rule.ipset_name if rule.ipset_name else None,
-                fwmark=rule.fwmark,
-                table_id=rule.table_id,
-                via_interface=rule.via_interface,
-                via_gateway=rule.via_gateway,
-                enabled=rule.enabled,
-                scope=RoutingScope(rule.scope),
-                scope_target=rule.scope_target,
-                is_default_egress=rule.is_default_egress,
-            )
-            for rule in rules
-        ],
-    )
     try:
-        response = await client.apply_rules(request=request)
+        return await run_full_apply(server=server, session=session, client=client)
     except AgentUnreachable as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"агент недоступен: {exc}") from exc
     except AgentClientError as exc:
         logger.error("apply_rules: агент вернул ошибку: {}", exc)
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
-    await get_manager().broadcast(
-        event=WsEvent(
-            type=EventType.RULE_APPLIED,
-            server_id=server_id,
-            payload={"applied": response.applied, "skipped": response.skipped, "errors": response.errors},
-            timestamp=datetime.now(tz=UTC),
-        ),
-    )
-    return response

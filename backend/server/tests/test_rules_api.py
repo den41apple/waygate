@@ -1,5 +1,6 @@
 import pytest
 
+from server.api import _apply_helper as apply_helper
 from server.api import rules as rules_api
 from server.ws.events import EventType, WsEvent
 from shared.schemas import ApplyRulesResponse
@@ -110,8 +111,10 @@ async def test_apply_rules_calls_agent(client, server_id, monkeypatch):
     def fake_get_manager():
         return fake_manager
 
+    # AgentClient — в `rules.py` (создаётся endpoint'ом перед вызовом helper'а).
+    # `get_manager` — в `_apply_helper.py` (broadcast делается там).
     monkeypatch.setattr(rules_api, "AgentClient", FakeClient)
-    monkeypatch.setattr(rules_api, "get_manager", fake_get_manager)
+    monkeypatch.setattr(apply_helper, "get_manager", fake_get_manager)
 
     await client.post(
         f"/api/v1/servers/{server_id}/rules",

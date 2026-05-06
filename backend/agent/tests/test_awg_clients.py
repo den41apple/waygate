@@ -176,6 +176,50 @@ async def test_start_stop_client(fake_clients_dir, fake_run):
     assert ["docker", "stop", "waygate-amnezia-client-us-fast"] in fake_run["calls"]
 
 
+async def test_deploy_client_waits_for_iface_polls_until_visible(fake_clients_dir, monkeypatch):
+    """Закрывает race из SESSION_2026_05_06: `docker run -d` возвращается мгновенно,
+    awg-quick внутри инициализирует iface ещё ~0.5-2 сек. `_wait_for_iface`
+    поллит пока не увидит iface, затем deploy_client возвращает control."""
+    state: dict[str, Any] = {"calls": [], "ip_link_show_attempts": 0}
+
+    async def _runner(command, *, stdin=None, check=True):
+        cmd = list(command)
+        state["calls"].append(cmd)
+        # `ip -o link show <iface>` — _wait_for_iface'овский poll. Первые 2 раза
+        # пусть упадёт (iface ещё не появился), на 3-й успех.
+        if cmd[:3] == ["ip", "-o", "link"]:
+            state["ip_link_show_attempts"] += 1
+            if state["ip_link_show_attempts"] < 3:
+                raise CommandError(command=cmd, returncode=1, stderr="device not found")
+        return ""
+
+    monkeypatch.setattr(module, "run_command", _runner)
+    # Уменьшим interval'ы чтобы тест быстро завершался — реальный poll в проде 200ms,
+    # тут хватит 5ms.
+    monkeypatch.setattr(agent_settings, "awg_iface_wait_seconds", 5.0)
+
+    info = await deploy_client(name="us-fast", config_text=_VALID_CONFIG)
+    assert info.status is AwgClientStatus.RUNNING
+    assert state["ip_link_show_attempts"] == 3, "expected ровно 3 polling-попытки"
+
+
+async def test_deploy_client_wait_for_iface_timeout_raises(fake_clients_dir, monkeypatch):
+    """Если awg-quick никогда не поднимет iface — deploy_client кидает AwgClientError
+    через настраиваемый timeout, не вешая агент бесконечно."""
+
+    async def _runner(command, *, stdin=None, check=True):
+        cmd = list(command)
+        if cmd[:3] == ["ip", "-o", "link"]:
+            raise CommandError(command=cmd, returncode=1, stderr="device not found")
+        return ""
+
+    monkeypatch.setattr(module, "run_command", _runner)
+    monkeypatch.setattr(agent_settings, "awg_iface_wait_seconds", 0.3)
+
+    with pytest.raises(AwgClientError, match="не появился в host netns"):
+        await deploy_client(name="us-fast", config_text=_VALID_CONFIG)
+
+
 async def test_delete_client_removes_container_netdev_and_config(fake_clients_dir, fake_run):
     """С --network host netdev переживает `docker rm -f` — чистим явно `ip link delete`."""
     (fake_clients_dir / "us-fast").mkdir()

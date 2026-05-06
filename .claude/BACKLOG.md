@@ -12,34 +12,19 @@
 
 ## Что осталось делать
 
-### NFT-1. Проверить waygate-agent на Ubuntu 24.04 + Docker 28+ (HOT, 2026-05-06)
+### NFT-1 (closed by 2026-05-06 fix). Apply-flow на Ubuntu 24.04 + Docker 28+
 
-**Состояние:** в SESSION_2026_05_06 нашли что `iptables` команды на Ubuntu 24.04
-с Docker 28+ попадают в shadow-chain от iptables-nft-compat и **НЕ работают** —
-реальный `chain ip filter FORWARD` имеет policy=drop и Docker управляет им
-напрямую через `nft`. Симптом: handshake есть, transfer асимметричный, MASQ
-counter 0. Полное описание — в `.claude/ROUTING_ARCHITECTURE.md` секция "Ubuntu
-24.04 + Docker 28+".
+**Резолюция:** integration-тесты переписаны на `nft list chain` вместо
+`iptables -L` (`agent/tests/test_integration.py` + `_nft_dump` helper). Они
+теперь ловят shadow-chain bug, потому что читают **реальный netfilter state**
+независимо от того, какой backend (legacy/nft) использовал agent. Также
+закрыта основная причина "apply не работает на свежей Ubuntu" — race в
+`awg_clients.deploy_client` после `docker run -d` (Phase A1). Detail в
+`SESSION_2026_05_06.md` "Дополнение: системный fix apply-flow".
 
-**Что проверить у агента:**
-- `backend/agent/routing.py` ставит `iptables -t mangle -A PREROUTING ... MARK`
-  и `iptables -t nat -A POSTROUTING ... MASQUERADE`. На Ubuntu 24.04+Docker28
-  они могут попадать в shadow-chain.
-- Свидетельство ОЧЕНЬ слабое: в `nft list chain ip nat POSTROUTING` мы видели
-  `oifname "awg-firstbyte" counter packets 56 bytes 11837 masquerade` — это
-  **выглядит** как waygate-агент попал в реальную chain. Но 56 packets — мизер.
-- Тест: применить direction со scope=host через UI на нашей VM, попробовать
-  с phone подключиться через AWG-server-контейнер и трафик через eurohoster.
-  Если не работает — мигрировать `agent/routing.py` на прямые `nft` команды.
-
-**Решение если воспроизведётся:** заменить `subprocess_runner.run_command(["iptables", ...])`
-на `subprocess_runner.run_command(["nft", "add rule ...", ...])`. Это инвазивно
-(routing.py — 1267 строк, всё про iptables), но альтернатив нет — `iptables`
-на Ubuntu 24.04+Docker28 структурно сломан.
-
-**Trigger:** пользователь жалуется что direction со scope=host не работает на
-fresh Ubuntu 24.04. Или мы сами сейчас тестируем waygate-direction после
-ремонта test-AWG-server'а.
+**Открытое:** руками verify на yandex VM (Phase D плана) после деплоя
+агента — apply должен пройти без `Cannot find device`, MASQUERADE для
+`awg-eurohoster` появится в реальной chain.
 
 ### NFT-2. Переписать `scripts/setup-test-awg-server.sh` на `nft`
 

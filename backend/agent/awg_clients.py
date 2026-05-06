@@ -86,6 +86,28 @@ def _info_from_config(*, name: str, config: AwgFullConfig, status: AwgClientStat
     )
 
 
+async def _wait_for_iface(*, iface: str, timeout_s: float, interval_s: float = 0.2) -> None:
+    """Поллит `ip link show <iface>` пока iface не появится в host netns или не истечёт timeout.
+
+    Закрывает race с `docker run -d`: команда возвращается мгновенно, но awg-quick
+    внутри контейнера ещё инициализирует туннель ~0.5-2 сек. Без ожидания
+    последующий `ip rule add ... iif awg-X` падает с "Cannot find device".
+    """
+    deadline = asyncio.get_event_loop().time() + timeout_s
+    while True:
+        try:
+            await run_command(["ip", "-o", "link", "show", iface])
+        except CommandError:
+            pass
+        else:
+            return
+        if asyncio.get_event_loop().time() >= deadline:
+            raise AwgClientError(
+                f"iface {iface} не появился в host netns за {timeout_s}s после `docker run`",
+            )
+        await asyncio.sleep(interval_s)
+
+
 async def deploy_client(*, name: str, config_text: str, network_mode: str = "host") -> AwgClientInfo:
     """Парсит .conf, сохраняет на диск, разворачивает docker-контейнер.
 
@@ -169,6 +191,12 @@ async def deploy_client(*, name: str, config_text: str, network_mode: str = "hos
         )
     except CommandError as exc:
         raise AwgClientError(f"docker run упал: {exc.stderr.strip()}") from exc
+
+    # Дожидаемся пока awg-quick внутри контейнера успеет создать iface. Только для
+    # `network_mode=host` — в container-mode iface уезжает в чужую netns и из
+    # host'а не виден, проверять надо в той netns (за это отвечает caller).
+    if network_mode == "host":
+        await _wait_for_iface(iface=iface, timeout_s=settings.awg_iface_wait_seconds)
 
     return _info_from_config(name=name, config=config, status=AwgClientStatus.RUNNING)
 

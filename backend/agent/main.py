@@ -58,6 +58,8 @@ class AgentState:
         self.started_at = time.monotonic()
         self.metrics_buffer = MetricsBuffer(max_size=settings.metrics_buffer_size)
         self.last_applied_rules_count: int = 0
+        self.last_apply_errors: list[str] = []
+        self.last_apply_succeeded: bool = True
         self.tls_mode: str | None = None
         self.scheduler: AgentScheduler | None = None
 
@@ -107,6 +109,8 @@ async def get_status() -> AgentStatus:
         awg_containers=awg_containers,
         rules_applied=state.last_applied_rules_count,
         tls_mode=state.tls_mode,
+        last_apply_errors=list(state.last_apply_errors),
+        last_apply_succeeded=state.last_apply_succeeded,
     )
 
 
@@ -159,7 +163,14 @@ async def get_containers() -> ContainerListResponse:
 )
 async def post_rules_apply(request: ApplyRulesRequest) -> ApplyRulesResponse:
     response = await routing_apply_rules(rules=request.rules)
-    _state(app).last_applied_rules_count = sum(1 for rule in request.rules if rule.enabled)
+    state = _state(app)
+    # Честный счётчик: то, что реально докатилось через reconcile (applied), а не
+    # количество enabled-правил в payload. Если apply упал — applied < requested
+    # и last_apply_errors непусто; server при healthcheck это увидит и автоматически
+    # повторит apply (см. backend/server/tasks/healthcheck.py).
+    state.last_applied_rules_count = response.applied
+    state.last_apply_errors = list(response.errors)
+    state.last_apply_succeeded = not response.errors
     return response
 
 

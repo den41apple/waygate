@@ -15,9 +15,12 @@ A-записи в `<ipset>-v4`, AAAA — в `<ipset>-v6`; iptables/ip6tables mat
 мимо VPN.
 """
 
+import asyncio
+import functools
 import json
 import re
-from collections.abc import Iterable
+import time
+from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
@@ -184,6 +187,39 @@ async def _build_scope_context(*, scope: RoutingScope, scope_target: str | None)
         command_prefix=["nsenter", "-t", str(pid), "-n"],
         container_pid=pid,
     )
+
+
+async def _retry_netns_switch(
+    op: Callable[[], Awaitable[None]],
+    *,
+    attempts: int = 2,
+    backoff_s: float = 0.5,
+) -> CommandError | None:
+    """Повторяет netns-switch до `attempts` попыток с фиксированным backoff.
+
+    Резерв поверх `awg_clients._wait_for_iface`: тот гарантирует появление iface
+    после `docker run`, но если awg-quick не успел подняться к моменту первого
+    `ip rule add ... iif awg-X`, повторим с задержкой. Возвращает последнюю
+    ошибку или None при успехе.
+    """
+    last: CommandError | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            await op()
+        except CommandError as exc:
+            last = exc
+            if attempt < attempts:
+                logger.warning(
+                    "routing: netns-switch attempt {}/{} failed ({}), retry через {}s",
+                    attempt,
+                    attempts,
+                    exc,
+                    backoff_s,
+                )
+                await asyncio.sleep(backoff_s)
+        else:
+            return None
+    return last
 
 
 async def _ensure_awg_clients_in_netns_host(*, via_interfaces: set[str]) -> None:
@@ -1168,6 +1204,42 @@ def _write_touched_netns(targets: set[str]) -> None:
         logger.warning("touched-netns: не смог записать {}: {}", path, exc)
 
 
+_LAST_APPLY_FILE = "/var/lib/waygate-agent/last-apply.json"
+
+
+def _persist_apply_attempt(*, rule_count: int, applied: int, errors: list[str]) -> None:
+    """Сохраняет результат последнего apply на диск: для self-recovery (server
+    при OFFLINE→ONLINE может прочесть errors и решить retry'ить) и honest-status
+    (`/v1/status` возвращает last_apply_errors)."""
+    path = Path(_LAST_APPLY_FILE)
+    payload = {
+        "ts": time.time(),
+        "rule_count": rule_count,
+        "applied": applied,
+        "errors": list(errors),
+        "succeeded": not errors,
+    }
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(payload))
+    except OSError as exc:
+        logger.warning("last-apply: не смог записать {}: {}", path, exc)
+
+
+def _load_last_apply() -> dict[str, object] | None:
+    """Читает последний результат apply с диска или None если нет."""
+    path = Path(_LAST_APPLY_FILE)
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text())
+        if isinstance(data, dict):
+            return data
+    except (OSError, ValueError) as exc:
+        logger.warning("last-apply: не смог прочитать {}: {}", path, exc)
+    return None
+
+
 async def apply_rules(*, rules: list[RoutingRule]) -> ApplyRulesResponse:
     """Применяет правила маршрутизации идемпотентно.
 
@@ -1216,20 +1288,22 @@ async def apply_rules(*, rules: list[RoutingRule]) -> ApplyRulesResponse:
         # и nsenter в чужой netns его не находит.
         if scope is RoutingScope.CONTAINER and target is not None:
             via_ifaces = {rule.via_interface for rule in group_rules}
-            try:
-                await _ensure_awg_clients_in_netns(via_interfaces=via_ifaces, scope_target=target)
-            except CommandError as exc:
-                errors.append(f"[container:{target}] netns-switch: {exc}")
+            netns_err = await _retry_netns_switch(
+                functools.partial(_ensure_awg_clients_in_netns, via_interfaces=via_ifaces, scope_target=target),
+            )
+            if netns_err is not None:
+                errors.append(f"[container:{target}] netns-switch: {netns_err}")
                 continue
         # Симметрично: для scope=host AWG-client должен быть в host netns. Если
         # пользователь раньше применял scope=container (iface уехал в чужой netns),
         # вернём awg-client с `--network host`.
         if scope is RoutingScope.HOST and group_rules:
             via_ifaces = {rule.via_interface for rule in group_rules}
-            try:
-                await _ensure_awg_clients_in_netns_host(via_interfaces=via_ifaces)
-            except CommandError as exc:
-                errors.append(f"[host] netns-switch back to host: {exc}")
+            netns_err = await _retry_netns_switch(
+                functools.partial(_ensure_awg_clients_in_netns_host, via_interfaces=via_ifaces),
+            )
+            if netns_err is not None:
+                errors.append(f"[host] netns-switch back to host: {netns_err}")
                 continue
         try:
             ctx = await _build_scope_context(scope=scope, scope_target=target)
@@ -1247,5 +1321,7 @@ async def apply_rules(*, rules: list[RoutingRule]) -> ApplyRulesResponse:
 
     for err in errors:
         logger.warning("apply_rules: {}", err)
+
+    _persist_apply_attempt(rule_count=len(desired), applied=total_applied, errors=errors)
 
     return ApplyRulesResponse(applied=total_applied, skipped=total_skipped, errors=errors)

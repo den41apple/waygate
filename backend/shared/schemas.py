@@ -75,6 +75,16 @@ class AgentStatus(BaseModel):
     awg_containers: list[AwgContainerInfo] = Field(description="Обнаруженные AWG-контейнеры")
     rules_applied: int = Field(description="Количество активных правил маршрутизации")
     tls_mode: TlsMode | None = Field(default=None, description="Текущий режим TLS")
+    # Back-compat: новый сервер может прочитать честный счётчик applied vs requested,
+    # старый агент не отдаёт эти поля (default'ы) — server'у безопасно их getattr'ить.
+    last_apply_errors: list[str] = Field(
+        default_factory=list,
+        description="Ошибки последнего apply (пусто → success)",
+    )
+    last_apply_succeeded: bool = Field(
+        default=True,
+        description="True если последний apply прошёл без errors[]",
+    )
 
 
 # ############################################

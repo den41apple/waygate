@@ -30,6 +30,14 @@ RUN install -m 0755 -d /etc/apt/keyrings && \
     apt-get install -y --no-install-recommends docker-ce-cli && \
     rm -rf /var/lib/apt/lists/*
 
+# nftables — для тестов (`nft list chain ip mangle PREROUTING`) и future-proof
+# для прод-агента на Ubuntu 24.04+Docker28 (см. SESSION_2026_05_06).
+# Отдельным RUN после docker-ce-cli, чтобы при добавлении сюда cache первой
+# apt-команды не invalidate'ился — пересобираться будет только этот слой.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends nftables && \
+    rm -rf /var/lib/apt/lists/*
+
 RUN pip install --no-cache-dir uv
 
 WORKDIR /app

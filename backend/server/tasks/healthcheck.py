@@ -1,4 +1,5 @@
 import asyncio
+import time
 from datetime import UTC, datetime
 
 from loguru import logger
@@ -6,10 +7,17 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlmodel import select
 
 from server.agent_client import AgentClient, AgentClientError, AgentUnreachable
+from server.api._apply_helper import run_full_apply
 from server.config import settings
 from server.models import AwgClient, Server, ServerStatus
 from server.ws.events import EventType, WsEvent
 from server.ws.manager import get_manager
+from shared.schemas import AgentStatus
+
+# Дедуп auto-reapply чтобы не дрожать при flapping ONLINE↔OFFLINE.
+# Per-server timestamp последней auto-reapply попытки.
+_AUTO_REAPPLY_THROTTLE_SECONDS = 60.0
+_last_auto_reapply_at: dict[int, float] = {}
 
 
 async def _broadcast_status_change(
@@ -44,6 +52,71 @@ async def _broadcast_agent_updated(
             timestamp=datetime.now(tz=UTC),
         ),
     )
+
+
+async def _auto_reapply_if_needed(
+    *,
+    server: Server,
+    session: AsyncSession,
+    client: AgentClient,
+    agent_status: AgentStatus,
+    previous_status: str,
+) -> None:
+    """Авто-повтор apply при OFFLINE→ONLINE если у агента есть незакрытые ошибки.
+
+    Закрывает кейс из SESSION_2026_05_06: agent упал на race "Cannot find device
+    awg-X" в середине apply, ipset'ы созданы но MASQ не применилось. Любые
+    последующие явные apply из UI идемпотентны и не докатывают остаток. Server
+    при следующем healthcheck с last_apply_succeeded=False и переходе ONLINE
+    — сам триггерит full apply.
+
+    Throttle 60s per-server чтобы не дрожать при flapping. last_apply_errors
+    защищён getattr'ом — старые агенты до версии с этими полями отдают default
+    `succeeded=True` через `AgentStatus` model_validate.
+    """
+    if server.id is None:
+        return
+    succeeded = getattr(agent_status, "last_apply_succeeded", True)
+    errors = getattr(agent_status, "last_apply_errors", [])
+    needs_reapply = (previous_status == ServerStatus.OFFLINE.value) and (not succeeded or bool(errors))
+    if not needs_reapply:
+        return
+
+    now = time.monotonic()
+    last_at = _last_auto_reapply_at.get(server.id, 0.0)
+    if now - last_at < _AUTO_REAPPLY_THROTTLE_SECONDS:
+        logger.debug(
+            "healthcheck: auto-reapply server={} пропущен (throttle: {:.0f}s назад)",
+            server.host,
+            now - last_at,
+        )
+        return
+    _last_auto_reapply_at[server.id] = now
+
+    logger.info(
+        "healthcheck: auto-reapply server={} (previous={} errors={})",
+        server.host,
+        previous_status,
+        errors,
+    )
+    try:
+        response = await run_full_apply(server=server, session=session, client=client)
+    except (AgentUnreachable, AgentClientError) as exc:
+        logger.warning("healthcheck: auto-reapply server={} упал: {}", server.host, exc)
+        return
+    if response.errors:
+        logger.warning(
+            "healthcheck: auto-reapply server={} вернул {} ошибок: {}",
+            server.host,
+            len(response.errors),
+            response.errors,
+        )
+    else:
+        logger.info(
+            "healthcheck: auto-reapply server={} успешен, applied={}",
+            server.host,
+            response.applied,
+        )
 
 
 async def _reconcile_awg_clients(
@@ -136,6 +209,16 @@ async def _check_server(*, server: Server, session: AsyncSession) -> None:
             version=server.version,
             awg_containers=list(server.awg_containers),
         )
+    # OFFLINE→ONLINE с незакрытыми ошибками apply на агенте → авто-повтор.
+    # Делаем ДО reconcile_awg_clients: успешный apply сам перезапустит контейнеры
+    # в нужный network_mode и перезапись AwgClient.status пройдёт чище.
+    await _auto_reapply_if_needed(
+        server=server,
+        session=session,
+        client=client,
+        agent_status=agent_status,
+        previous_status=previous_status,
+    )
     # Сервер онлайн → reconcile AwgClient.status с реальным состоянием docker'а.
     # Делаем после status-broadcast'а: даже если list_clients упадёт, online уже
     # отправлено наверх.

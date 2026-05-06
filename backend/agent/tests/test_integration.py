@@ -141,14 +141,35 @@ def _flush_routing_state(agent_container: AgentContainer) -> None:
     for cmd in (
         "iptables -t mangle -F PREROUTING",
         "iptables -t mangle -F OUTPUT",
+        "iptables -t nat -F POSTROUTING",
         "ip6tables -t mangle -F PREROUTING",
         "ip6tables -t mangle -F OUTPUT",
+        "ip6tables -t nat -F POSTROUTING",
         # Снести fwmark'ные ip rule'и (любых приоритетов).
         "ip rule show | awk '/fwmark/{print $1}' | sed 's/://' | while read p; do ip rule del prio $p; done",
         f"ip route flush table {_RULE_TABLE}",
         f"ip -6 route flush table {_RULE_TABLE}",
     ):
         agent_container.exec(f"sh -c '{cmd} 2>/dev/null || true'")
+
+
+def _nft_dump(agent_container: AgentContainer, *, table: str, chain: str) -> str:
+    """Дамп конкретной nft-chain в текстовом виде.
+
+    На Ubuntu 24.04 + Docker 28+ агент пишет правила через iptables-nft compat,
+    а реальный netfilter обрабатывает их через nft hook'и. `iptables -L` может
+    показывать shadow-chain (отдельную таблицу от iptables-nft) которая визуально
+    содержит правила, но реально пакеты идут через chain в той же priority,
+    которую держит другая компонента (Docker). `nft list` показывает **реальное
+    netfilter state** независимо от того, кто его создал.
+
+    Заметка по семантике: `iptables -m set` рендерится в nft как opaque
+    `xt match "set"` (без имени set'а в дампе) — для match-set'ов тесты
+    ассертят `xt match "set"` + сопутствующий `meta mark set 0x...`.
+    """
+    exit_code, output = agent_container.exec(f"nft list chain ip {table} {chain}")
+    assert exit_code == 0, f"nft list ip {table} {chain}: {output.decode(errors='replace')}"
+    return output.decode()
 
 
 def _apply_rule_payload(*, enabled: bool) -> dict[str, object]:
@@ -213,11 +234,19 @@ async def test_apply_rules_writes_real_state(
     assert body["errors"] == [], body
     assert body["applied"] >= 1
 
-    exit_code, mangle_output = agent_container.exec("iptables -t mangle -S PREROUTING")
-    assert exit_code == 0, mangle_output
-    mangle_text = mangle_output.decode()
-    assert f"--match-set {_RULE_IPSET}-v4 dst" in mangle_text, mangle_text
-    assert f"--set-xmark 0x{_RULE_FWMARK:x}" in mangle_text or f"0x{_RULE_FWMARK:X}" in mangle_text, mangle_text
+    # Реальное netfilter state через nft (а не shadow-chain через iptables -L).
+    mangle_text = _nft_dump(agent_container, table="mangle", chain="PREROUTING")
+    # `iptables -m set` рендерится как opaque `xt match "set"` — имени ipset'а в
+    # дампе нет, но соседний `meta mark set` отдельно подтверждает нашу метку.
+    assert 'xt match "set"' in mangle_text, mangle_text
+    assert f"meta mark set 0x{_RULE_FWMARK:x}" in mangle_text, mangle_text
+
+    # NAT POSTROUTING: MASQUERADE на наш iface — отдельно проверяем что писалось
+    # в реальную nat hook'у (closing NFT-1 — на Ubuntu 24.04+Docker28 эта проверка
+    # ловит shadow-chain bug когда rule visible в iptables -L но не в реальной chain).
+    nat_text = _nft_dump(agent_container, table="nat", chain="POSTROUTING")
+    assert f'oifname "{_RULE_IFACE}"' in nat_text, nat_text
+    assert "masquerade" in nat_text, nat_text
 
     exit_code, rule_output = agent_container.exec("ip rule show")
     assert exit_code == 0, rule_output
@@ -258,14 +287,17 @@ async def test_apply_rules_inserts_self_bypass(
         )
     assert response.status_code == 200, response.text
 
-    _, output = agent_container.exec("iptables -t mangle -S PREROUTING")
-    text = output.decode()
-    assert "waygate-self-bypass" in text, text
-    assert "--dport 22" in text, text
+    text = _nft_dump(agent_container, table="mangle", chain="PREROUTING")
+    # nft показывает self-bypass'ы как чистые правила (порты + ct state) без
+    # opaque xt extension'ов — комментарий "waygate-self-bypass" может или
+    # переноситься через iptables-nft compat, или нет, поэтому опираемся на
+    # семантику правил.
+    assert "tcp dport 22" in text, text
     # Agent-port (env PORT в conftest = 7743) тоже защищён.
-    assert "--dport 7743" in text, text
+    assert "tcp dport 7743" in text, text
     # ESTABLISHED/RELATED bypass в начале цепи — для возвратных пакетов.
-    assert "ESTABLISHED" in text, text
+    # nft пишет ct state набором: `ct state established,related` или со связкой.
+    assert "ct state" in text and "established" in text, text
 
 
 async def test_apply_rules_idempotent(
@@ -301,12 +333,10 @@ async def test_apply_rules_idempotent(
     # Второй apply не должен ничего добавлять.
     assert second.json()["applied"] == 0, second.json()
 
-    _, output = agent_container.exec("iptables -t mangle -S PREROUTING")
-    text = output.decode()
-    # Ровно один MARK для нашего ipset'а.
-    mark_lines = [
-        line for line in text.splitlines() if f"--match-set {_RULE_IPSET}-v4 dst" in line and "-j MARK" in line
-    ]
+    text = _nft_dump(agent_container, table="mangle", chain="PREROUTING")
+    # Ровно одна match-set + MARK rule для нашего fwmark — иначе reconcile сломан
+    # и каждый apply плодит дубликат.
+    mark_lines = [line for line in text.splitlines() if f"meta mark set 0x{_RULE_FWMARK:x}" in line]
     assert len(mark_lines) == 1, f"ожидался 1 MARK, найдено {len(mark_lines)}: {mark_lines}"
 
 
@@ -340,9 +370,13 @@ async def test_apply_rules_disabled_cleans_up(
         )
         assert off.status_code == 200, off.text
 
-    _, mangle_output = agent_container.exec("iptables -t mangle -S PREROUTING")
-    mangle_text = mangle_output.decode()
-    assert f"--match-set {_RULE_IPSET}-v4 dst" not in mangle_text, mangle_text
+    mangle_text = _nft_dump(agent_container, table="mangle", chain="PREROUTING")
+    # После disable/empty apply наш MARK должен быть удалён из реальной chain.
+    assert f"meta mark set 0x{_RULE_FWMARK:x}" not in mangle_text, mangle_text
+
+    nat_text = _nft_dump(agent_container, table="nat", chain="POSTROUTING")
+    # Симметрично — MASQUERADE на наш iface удаляется реконсилером.
+    assert f'oifname "{_RULE_IFACE}"' not in nat_text, nat_text
 
     _, rule_output = agent_container.exec("ip rule show")
     rule_text = rule_output.decode()
@@ -350,3 +384,135 @@ async def test_apply_rules_disabled_cleans_up(
 
     _, route_output = agent_container.exec(f"ip route show table {_RULE_TABLE}")
     assert route_output.decode().strip() == "", route_output
+
+
+# ############################################
+# #  Recovery / partial-failure (SESSION_2026_05_06)
+# ############################################
+
+
+async def test_apply_recovers_after_iface_appears_late(
+    agent_container: AgentContainer,
+    integration_agent_token: str,
+) -> None:
+    """Закрывает SESSION_2026_05_06: первый apply падает с "Cannot find device"
+    (iface ещё не поднят), iface появляется позже, повторный apply докатывает
+    остаток state'а до консистентного.
+
+    Не использует `routing_dummy_iface` фикстуру — iface создаётся вручную
+    после первого apply'я (иначе race не воспроизвести).
+    """
+    _flush_routing_state(agent_container)
+    # На всякий случай — iface'а быть не должно даже от предыдущих тестов.
+    agent_container.exec(f"ip link delete {_RULE_IFACE} 2>/dev/null || true")
+    await _create_rule_ipset(
+        agent_container=agent_container,
+        integration_agent_token=integration_agent_token,
+    )
+
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        # 1. Первый apply: iface отсутствует → reconcile падает на ip-rule/route.
+        first = await client.post(
+            f"{agent_container.base_url}/v1/rules/apply",
+            headers=_auth(integration_agent_token),
+            json=_apply_rule_payload(enabled=True),
+        )
+        assert first.status_code == 200, first.text
+        body = first.json()
+        assert body["errors"], "ожидали что первый apply упадёт без iface"
+
+        # 2. Создаём iface руками (имитируем awg-quick поднявший туннель спустя
+        #    некоторое время — например после redeploy_with_network_mode).
+        exit_code, output = agent_container.exec(f"ip link add {_RULE_IFACE} type dummy")
+        assert exit_code == 0, output.decode(errors="replace")
+        agent_container.exec(f"ip link set {_RULE_IFACE} up")
+
+        try:
+            # 3. Повторный apply: должен догнать state до конца.
+            second = await client.post(
+                f"{agent_container.base_url}/v1/rules/apply",
+                headers=_auth(integration_agent_token),
+                json=_apply_rule_payload(enabled=True),
+            )
+            assert second.status_code == 200, second.text
+            body = second.json()
+            assert body["errors"] == [], body
+            assert body["applied"] >= 1
+
+            # 4. Реальное netfilter state — всё на месте.
+            mangle_text = _nft_dump(agent_container, table="mangle", chain="PREROUTING")
+            assert f"meta mark set 0x{_RULE_FWMARK:x}" in mangle_text, mangle_text
+            nat_text = _nft_dump(agent_container, table="nat", chain="POSTROUTING")
+            assert f'oifname "{_RULE_IFACE}"' in nat_text, nat_text
+            _, rule_output = agent_container.exec("ip rule show")
+            assert f"fwmark 0x{_RULE_FWMARK:x}" in rule_output.decode()
+        finally:
+            agent_container.exec(f"ip link delete {_RULE_IFACE}")
+
+
+async def test_status_reports_apply_errors(
+    agent_container: AgentContainer,
+    integration_agent_token: str,
+) -> None:
+    """После failed apply `/v1/status` показывает `last_apply_succeeded=False`
+    и `last_apply_errors!=[]` — server использует это для auto-reapply при
+    OFFLINE→ONLINE (см. backend/server/tasks/healthcheck.py)."""
+    _flush_routing_state(agent_container)
+    agent_container.exec(f"ip link delete {_RULE_IFACE} 2>/dev/null || true")
+    await _create_rule_ipset(
+        agent_container=agent_container,
+        integration_agent_token=integration_agent_token,
+    )
+
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        await client.post(
+            f"{agent_container.base_url}/v1/rules/apply",
+            headers=_auth(integration_agent_token),
+            json=_apply_rule_payload(enabled=True),
+        )
+        status_resp = await client.get(
+            f"{agent_container.base_url}/v1/status",
+            headers=_auth(integration_agent_token),
+        )
+
+    assert status_resp.status_code == 200
+    body = status_resp.json()
+    assert body["last_apply_succeeded"] is False, body
+    assert body["last_apply_errors"], body
+
+
+async def test_no_orphan_ip_rule_after_failed_apply_then_empty(
+    agent_container: AgentContainer,
+    integration_agent_token: str,
+) -> None:
+    """После failed apply (iface отсутствует) → empty apply должен очистить ip rule.
+
+    Регрессия из сегодняшнего state'а на yandex VM — там после неудачного apply
+    остался `from all fwmark 0x3 lookup 102` без соответствующего match-set
+    rule'а (orphan). Reconcile должен убирать это даже когда apply падал
+    в середине.
+    """
+    _flush_routing_state(agent_container)
+    agent_container.exec(f"ip link delete {_RULE_IFACE} 2>/dev/null || true")
+    await _create_rule_ipset(
+        agent_container=agent_container,
+        integration_agent_token=integration_agent_token,
+    )
+
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        # Failed apply.
+        await client.post(
+            f"{agent_container.base_url}/v1/rules/apply",
+            headers=_auth(integration_agent_token),
+            json=_apply_rule_payload(enabled=True),
+        )
+        # Empty apply — должен убрать всё что относилось к нашему правилу,
+        # независимо от того что предыдущий apply фейлился.
+        await client.post(
+            f"{agent_container.base_url}/v1/rules/apply",
+            headers=_auth(integration_agent_token),
+            json={"rules": []},
+        )
+
+    _, rule_output = agent_container.exec("ip rule show")
+    assert f"fwmark 0x{_RULE_FWMARK:x}" not in rule_output.decode(), rule_output

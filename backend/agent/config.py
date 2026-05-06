@@ -16,6 +16,10 @@ class Settings:
     )
     metrics_interval_seconds: int = env.int("METRICS_INTERVAL_SECONDS", default=30)
     metrics_buffer_size: int = env.int("METRICS_BUFFER_SIZE", default=60)
+    # Сколько секунд ждать появления awg-iface в host netns после `docker run -d`.
+    # awg-quick внутри контейнера инициализирует туннель не мгновенно — без ожидания
+    # последующий `ip rule add ... iif awg-X` падает с "Cannot find device".
+    awg_iface_wait_seconds: float = env.float("AWG_IFACE_WAIT_SECONDS", default=10.0)
 
 
 settings = Settings()
