@@ -224,6 +224,66 @@ backlog.
 
 ---
 
+## Performance / медленная загрузка после успешного routing'а — лог попыток
+
+После того как direction "ВСЁ" routing-rules встали (mark, ip rule, MASQ),
+phone выходит через eurohoster IP, но скорости плохие. Что пробовали:
+
+| Шаг | Действие | Результат |
+|---|---|---|
+| 42c | `nft add rule ip mangle FORWARD ... maxseg set rt mtu` (МОЯ НАТИВКА) | ❌ Не помогло. Дополнительно **сломало** mangle table — стала incompatible для iptables-nft compat → agent при apply падал на self-bypass и read-marks |
+| 42e | `ip link set awg-* mtu 1280` (вручную) | ❌ Не помогло сразу (но потом сработало в 45 + conntrack flush) |
+| 43 | Вернул MTU 1420, **удалил handle 30** (`ip saddr 10.99.0.0/24 MASQ` перехватчик) + 2 дубликата `awg-eurohoster masquerade` | ✅ Сайт открылся за 5 минут с eurohoster IP. Routing подтверждён. Скорость плохая |
+| 45d | **MTU=1380** на awg-test-srv + awg-eurohoster + conntrack flush | ✅ **YouTube начал летать!** Сайты ещё медленно (см. 46) |
+| 46 | Curl-timing diagnostics через awg-eurohoster vs eth0 | Overhead +220ms — объяснили как architectural VPN cost. Пользователь принял для сайтов, не для YouTube |
+| 47 | `nft delete chain ip mangle FORWARD` (моё native правило 42c) + apply через UI | ✅ Agent снова reconcile прошёл. **БУТ** apply пересоздал iface (default MTU 1420) — снёс наш ручной MTU=1380 → YouTube опять плохо |
+| 48 | `iptables -I FORWARD -i awg-test-srv -j ACCEPT` | ❌ Проблема не там, accept'ы и так были |
+| 49 | tcpdump на awg-eurohoster | Видны только return packets от Google для наших curl-тестов с host'а — нет phone-traffic уходящего |
+| 50 | `ip route get` simulation | До apply показал `dev eth0` mark 3 (broken), после apply — `dev awg-eurohoster` ✓ |
+| 51 | Manual `ip rule add fwmark 0x3 lookup 102` | "File exists" — rule был, добавил дубликат 32764 |
+| 52 | **`nft flush table ip mangle`** + restart agent + apply через UI | ✅ Mangle table восстановилась через iptables-nft compat, agent перестал сыпать "incompatible" warnings. Phone заработал |
+| 53 | MTU=1380 ручным `ip link set` после 52 | ❌ Недостаточно для двойной AWG-обёртки |
+| 54 | MTU=**1280** ручным + conntrack flush + close phone apps (force) | ⏳ В процессе |
+
+### Что точно работает (для следующих сессий):
+
+- **MTU=1280** на ОБА iface (awg-test-srv + awg-eurohoster) — единственное
+  что давало YouTube приличную скорость на этой VM. 1380 не хватает —
+  двойная AWG-обёртка съедает >120 байт на encrypted UDP.
+- **conntrack flush** обязательно после изменений MTU — иначе старые TCP-сессии
+  держат старый MSS.
+- **Phone должен закрыть приложения полностью** (force-close из recent apps),
+  чтобы новые TCP-сессии получили свежий MSS-clamp.
+
+### Что точно НЕ работает / ломает state:
+
+- ❌ `nft add rule ip mangle FORWARD ...` (native nft) — ломает iptables-nft
+  compat. Agent при reconcile падает с "table mangle is incompatible".
+- ❌ Ручное `ip rule add` без проверки существующего → дубликаты ip rule.
+- ❌ MTU 1380 для двойного туннеля — мало.
+- ❌ Отключать `ip saddr 10.99.0.0/24 ... masquerade` (наш test-srv MASQ)
+  без остатка — packets через eth0 без mark теряют NAT. Лучше **ограничить
+  oifname=eth0** или вообще удалить (если direction catch-all и mark
+  всегда ставится — packets не идут на eth0).
+
+### Что нужно зафиксировать в коде агента (ВАЖНО)
+
+Эти проблемы повторятся на любом новом server'е если не фиксить агент:
+
+1. **MTU 1280 для AWG-iface должно быть default** или **configurable per
+   AWG-client** в waygate UI. Сейчас agent оставляет default (awg-quick
+   ставит 1420). Добавить `awg_client_mtu: int` в `AwgFullConfig` или
+   `Server` model и применять при `awg-quick up`.
+
+2. **Detect mangle table incompatibility** при apply. Если
+   `iptables -t mangle -F PREROUTING` падает с "table incompatible" —
+   агент должен **fallback на nft**: `nft flush table ip mangle` и
+   повторить apply через iptables-nft compat. Сейчас он падает с
+   warning и оставляет partial state.
+
+3. **`update-alternatives --set iptables iptables-nft`** при онбординге
+   (NFT-3 в backlog) — без этого агент пишет в legacy table без эффекта.
+
 ## Контекст состояния VM на момент написания (2026-05-06)
 
 - **agent версия**: 0.2.30 (с _wait_for_iface + честный counter +
