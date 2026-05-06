@@ -124,6 +124,15 @@ counter растёт (140+ packets), в `nat POSTROUTING` — `oifname
    shadow-chain.** Если на свежей VM iptables=legacy, fix race не
    поможет — нужно ещё `update-alternatives --set iptables nft`.
 
+5. **НЕ добавлять `nft add rule` в chain managed by iptables-nft compat.**
+   Это ломает compat-flag для всей table — следующий вызов `iptables -F`
+   / `iptables -S` от агента упадёт с `table 'mangle' is incompatible,
+   use 'nft' tool`. Если нужен ad-hoc rule на VM, ставь его через
+   **тот же `iptables` который использует agent**, либо в **отдельную
+   nft-table** (например `ip waygate-test`). Шаг 42c в command.txt
+   2026-05-06 это сделал — пришлось удалять `nft delete chain ip mangle
+   FORWARD` чтобы agent reconcile снова заработал.
+
 ---
 
 ## Команды-якори для быстрой диагностики
